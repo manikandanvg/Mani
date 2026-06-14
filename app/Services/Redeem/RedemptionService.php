@@ -1,0 +1,448 @@
+<?php
+
+namespace App\Services\Redeem;
+
+use App\Models\Branch;
+use App\Models\CatalogProduct;
+use App\Models\LiveRate;
+use App\Models\Member;
+use App\Models\RedeemableQr;
+use App\Models\RedemptionInvoice;
+use App\Models\RedemptionLine;
+use App\Models\ResellerCommission;
+use App\Models\SaleLine;
+use App\Models\Stock;
+use App\Models\StockMovement;
+use App\Models\User;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
+
+/**
+ * Stock-QR redemption — the ACTUAL sale (legacy admin/trade/redeeminvqr). Two modes:
+ *
+ *  A) Metal-purchase plans (P206 G10-Gold, P212 G10-Silver): the metal was billed on the
+ *     original sale, so the cart is rebuilt from that sale's lines, it can be redeemed ONLY
+ *     at the billing branch, no stock is moved, and NO margin is paid (already earned at billing).
+ *
+ *  B) Every other redeemable bond: the operator picks stock to the QR's worth, redeemable at
+ *     ANY branch; the carted items are deducted from the redeeming branch's stock and the branch
+ *     earns the gold/silver GM margin (no bill margin). Optionally a "digital"-contract customer
+ *     is turned into a dealer (branch + distributor) seeded with the redeemed stock.
+ *
+ * Pricing is a normal sale (live rate + catalog making/wastage/hallmark/GST) — no cash→gold reversal.
+ */
+class RedemptionService
+{
+    /** Plans whose metal is billed up front (Mode A). Codes are stored P-prefixed (P206/P212). */
+    public const METAL_PURCHASE_PLAN_CODES = ['P206', 'P212'];
+
+    /** Digital-contract plans NOT eligible to open a dealer account. */
+    public const DEALER_INELIGIBLE_PLAN_CODES = ['P202'];
+
+    public const DEALER_DEFAULT_PASSWORD = '123456';
+
+    /** GST halves (CGST + SGST). */
+    public const GST_SPLIT = 2;
+
+    public function isMetalPurchasePlan($plan): bool
+    {
+        return $plan && $this->codeMatches($plan->code, self::METAL_PURCHASE_PLAN_CODES);
+    }
+
+    public function dealerEligible($plan): bool
+    {
+        return $plan
+            && $plan->type === 'digital'
+            && ! $this->codeMatches($plan->code, self::DEALER_INELIGIBLE_PLAN_CODES);
+    }
+
+    /**
+     * Match a plan code against a list, tolerant of an optional leading "P" prefix
+     * (real data stores P206/P212/P202; some fixtures use bare 206/212/202).
+     */
+    protected function codeMatches(?string $code, array $list): bool
+    {
+        $norm = fn ($c) => ltrim(strtoupper(trim((string) $c)), 'P');
+
+        return in_array($norm($code), array_map($norm, $list), true);
+    }
+
+    /**
+     * Fetch a pending QR and everything the redeem screen needs. $currentBranchId enforces
+     * the Mode-A "billing branch only" rule when provided.
+     *
+     * @return array{qr:RedeemableQr,bond:?\App\Models\Bond,plan:mixed,member:?Member,mode:string,branch_locked:bool,worth:float,cart:array}
+     */
+    public function lookup(string $qrCode, ?int $currentBranchId = null): array
+    {
+        $qr = RedeemableQr::where('qr_code', $qrCode)->where('status', 'pending')->first();
+        abort_unless($qr, 422, 'Invalid QR code or already redeemed.');
+
+        $bond = $qr->bond()->with('plan')->first();
+        $plan = $bond?->plan;
+        $member = $qr->member;
+        $modeA = $this->isMetalPurchasePlan($plan);
+
+        if ($modeA && $currentBranchId !== null) {
+            abort_unless((int) $currentBranchId === (int) $bond->branch_id, 422,
+                'This plan can be redeemed only at the billing branch.');
+        }
+
+        return [
+            'qr' => $qr,
+            'bond' => $bond,
+            'plan' => $plan,
+            'member' => $member,
+            'mode' => $modeA ? 'A' : 'B',
+            'branch_locked' => $modeA,
+            'dealer_eligible' => $this->dealerEligible($plan),
+            'worth' => (float) $qr->cash_worth,
+            'cart' => $modeA ? $this->cartFromSale($bond) : [],
+        ];
+    }
+
+    /** Mode A cart = the metal lines from the original sale (by invoice_no). */
+    protected function cartFromSale($bond): array
+    {
+        if (! $bond) {
+            return [];
+        }
+
+        return SaleLine::with('catalogProduct')
+            ->whereHas('invoice', fn ($q) => $q->where('invoice_no', $bond->invoice_no))
+            ->get()
+            ->map(fn (SaleLine $l) => $this->normaliseLine(
+                $l->catalogProduct,
+                description: (string) ($l->description ?: ($l->catalogProduct ? strtoupper((string) $l->catalogProduct->material) : 'ITEM')),
+                quantity: (float) $l->qty,
+                rate: (float) $l->rate,
+                making: (float) $l->making,
+                wastage: (float) $l->wastage,
+            ))
+            ->all();
+    }
+
+    /** Price one Mode-B line from a catalog product at the live rate (a normal sale). */
+    public function priceLine(CatalogProduct $cp, float $unitWeight, float $quantity, ?LiveRate $rate = null): array
+    {
+        $rate ??= $this->liveRate();
+        $perGram = $cp->material === 'silver' ? (float) ($rate->silver ?? 0) : (float) ($rate->gold ?? 0);
+        $ratePerPiece = $cp->material === 'vessel' ? $unitWeight : round($unitWeight * $perGram, 2);
+        $amount = round($quantity * $ratePerPiece, 2);
+        $making = round($amount * (float) $cp->making_charge_pct / 100, 2);
+        $wastage = round($amount * (float) $cp->wastage_charge_pct / 100, 2);
+
+        return $this->normaliseLine($cp,
+            description: $this->lineLabel($cp, $unitWeight),
+            quantity: $quantity, rate: $ratePerPiece, making: $making, wastage: $wastage,
+            unitWeight: $unitWeight, amount: $amount,
+        );
+    }
+
+    /** A uniform internal line shape used by both modes. */
+    protected function normaliseLine(?CatalogProduct $cp, string $description, float $quantity, float $rate, float $making = 0, float $wastage = 0, float $unitWeight = 0, ?float $amount = null): array
+    {
+        $amount ??= round($quantity * $rate, 2);
+        $hallmark = round((float) ($cp->hallmark_charge ?? 0) * $quantity, 2);
+        $gstPct = (float) ($cp->gst_pct ?? 3);
+        $taxable = round($amount + $making + $wastage + $hallmark, 2);
+        $gst = round($taxable * $gstPct / 100, 2);
+
+        return [
+            'catalog_product_id' => $cp?->id,
+            'description' => $description,
+            'hsn_code' => $cp?->hsn_code,
+            'material' => $cp?->material,
+            'unit_weight' => $unitWeight,
+            'quantity' => $quantity,
+            'rate' => $rate,
+            'making' => round($making + $hallmark, 2),
+            'wastage' => $wastage,
+            'gst_pct' => $gstPct,
+            'amount' => $amount,
+            'taxable' => $taxable,
+            'gst' => $gst,
+            'line_total' => round($taxable + $gst, 2),
+        ];
+    }
+
+    protected function lineLabel(CatalogProduct $cp, float $unitWeight): string
+    {
+        $w = $unitWeight >= 1 ? rtrim(rtrim(number_format($unitWeight, 2), '0'), '.') . ' G'
+            : rtrim(rtrim(number_format($unitWeight * 1000, 0), '0'), '.') . ' MG';
+
+        return trim($w . ' ' . strtoupper((string) $cp->material));
+    }
+
+    /** Store + return a fresh OTP for the QR (the caller sends it over WhatsApp). */
+    public function generateOtp(RedeemableQr $qr): string
+    {
+        $otp = (string) random_int(10000, 99999);
+        $qr->update(['otp' => $otp, 'otp_sent_at' => Carbon::now()]);
+
+        return $otp;
+    }
+
+    public function verifyOtp(RedeemableQr $qr, ?string $otp): bool
+    {
+        return filled($otp) && hash_equals((string) $qr->otp, (string) $otp);
+    }
+
+    /**
+     * Finalise a redemption.
+     *
+     * @param  array  $data  keys: qr_code, branch_id (redeeming), otp,
+     *   lines[] (Mode B: [{catalog_product_id, unit_weight, quantity}]),
+     *   create_dealer?, dealer{branch_name, gst_no}?, created_by?
+     */
+    public function redeem(array $data): RedemptionInvoice
+    {
+        return DB::transaction(function () use ($data) {
+            $branchId = (int) $data['branch_id'];
+            $ctx = $this->lookup($data['qr_code'], $branchId);
+            /** @var RedeemableQr $qr */
+            $qr = $ctx['qr'];
+            $plan = $ctx['plan'];
+            $member = $ctx['member'];
+            $modeA = $ctx['mode'] === 'A';
+
+            abort_unless($this->verifyOtp($qr, $data['otp'] ?? null), 422, 'Invalid or missing OTP.');
+
+            // Build the priced lines.
+            $rate = $this->liveRate();
+            $lines = $modeA
+                ? $ctx['cart']
+                : collect($data['lines'] ?? [])
+                    ->filter(fn ($l) => ! empty($l['catalog_product_id']) && (float) ($l['quantity'] ?? 0) > 0)
+                    ->map(fn ($l) => $this->priceLine(
+                        CatalogProduct::findOrFail($l['catalog_product_id']),
+                        (float) ($l['unit_weight'] ?? 0), (float) $l['quantity'], $rate))
+                    ->all();
+            abort_if(empty($lines), 422, 'Add at least one item to redeem.');
+
+            $taxable = round(array_sum(array_column($lines, 'taxable')), 2);
+            $gst = round(array_sum(array_column($lines, 'gst')), 2);
+            $grand = round($taxable + $gst, 2);
+
+            // Worth gate (Mode B): the invoice must cover at least the QR's worth.
+            if (! $modeA) {
+                abort_if($grand + 0.01 < (float) $qr->cash_worth, 422,
+                    'Redeemed value (₹' . number_format($grand, 2) . ') is below the QR worth (₹' . number_format((float) $qr->cash_worth, 2) . ').');
+            }
+
+            $invoice = RedemptionInvoice::create([
+                'invoice_no' => $this->nextInvoiceNo(),
+                'invoice_date' => Carbon::now()->toDateString(),
+                'redeemable_qr_id' => $qr->id,
+                'bond_id' => $qr->bond_id,
+                'member_id' => $qr->member_id,
+                'branch_id' => $branchId,
+                'reference_no' => $member?->member_code ?? $qr->invoice_no,
+                'referrer_name' => $member?->upline?->name,
+                'buyer_gst' => $buyerGst = $this->resolveBuyerGst($member, $data['buyer_gst'] ?? null),
+                'payment_mode' => 'pending',
+                'payment_reference' => $qr->qr_code,
+                'gold_rate' => (float) ($rate->gold ?? 0),
+                'silver_rate' => (float) ($rate->silver ?? 0),
+                'taxable_total' => $taxable,
+                'cgst' => round($gst / self::GST_SPLIT, 2),
+                'sgst' => round($gst / self::GST_SPLIT, 2),
+                'grand_total' => $grand,
+                'created_by' => $data['created_by'] ?? auth()->id(),
+            ]);
+
+            foreach ($lines as $l) {
+                RedemptionLine::create([
+                    'redemption_invoice_id' => $invoice->id,
+                    'catalog_product_id' => $l['catalog_product_id'],
+                    'description' => $l['description'],
+                    'hsn_code' => $l['hsn_code'],
+                    'material' => $l['material'],
+                    'unit_weight' => $l['unit_weight'],
+                    'quantity' => $l['quantity'],
+                    'rate' => $l['rate'],
+                    'making' => $l['making'],
+                    'wastage' => $l['wastage'],
+                    'gst_pct' => $l['gst_pct'],
+                    'amount' => $l['amount'],
+                    'line_total' => $l['line_total'],
+                ]);
+            }
+
+            // Mode B only: move stock out of the redeeming branch + pay the GM margin.
+            if (! $modeA) {
+                $this->deductStock($lines, $branchId, $invoice);
+                $this->payGmMargin($lines, $branchId, $invoice, $member);
+            }
+
+            // Optional: turn the customer into a dealer seeded with the redeemed stock.
+            // The dealer branch inherits the same GSTIN resolved for the buyer.
+            if (! empty($data['create_dealer']) && $ctx['dealer_eligible'] && $member) {
+                $dealer = $data['dealer'] ?? [];
+                $dealer['gst_no'] = $buyerGst;
+                $this->openDealerAccount($member, $lines, $dealer, $invoice);
+            }
+
+            $qr->update([
+                'status' => 'redeemed',
+                'redeem_branch_id' => $branchId,
+                'redeemed_at' => Carbon::now(),
+            ]);
+
+            return $invoice->fresh('lines');
+        });
+    }
+
+    /** Deduct each line's total weight/qty from the redeeming branch's stock. */
+    protected function deductStock(array $lines, int $branchId, RedemptionInvoice $invoice): void
+    {
+        foreach ($lines as $l) {
+            if (! $l['catalog_product_id']) {
+                continue;
+            }
+            $qty = $l['material'] === 'vessel' ? (float) $l['quantity'] : (float) $l['quantity'] * (float) $l['unit_weight'];
+            if ($qty <= 0) {
+                continue;
+            }
+            $stock = Stock::firstOrCreate(
+                ['branch_id' => $branchId, 'catalog_product_id' => $l['catalog_product_id']],
+                ['quantity' => 0],
+            );
+            $stock->decrement('quantity', $qty);
+            StockMovement::create([
+                'branch_id' => $branchId,
+                'catalog_product_id' => $l['catalog_product_id'],
+                'type' => 'sale',
+                'qty_change' => -$qty,
+                'balance_after' => $stock->fresh()->quantity,
+                'ref_type' => 'redemption',
+                'ref_id' => $invoice->id,
+                'moved_on' => $invoice->invoice_date,
+                'created_by' => $invoice->created_by,
+            ]);
+        }
+    }
+
+    /** Gold/silver GM margin to the redeeming branch (no bill margin), per metal weight. */
+    protected function payGmMargin(array $lines, int $branchId, RedemptionInvoice $invoice, ?Member $member): void
+    {
+        $totals = ['gold' => 0.0, 'silver' => 0.0];
+        foreach ($lines as $l) {
+            if (! isset($totals[$l['material']]) || ! $l['catalog_product_id']) {
+                continue;
+            }
+            $cp = CatalogProduct::find($l['catalog_product_id']);
+            $weight = (float) $l['quantity'] * (float) $l['unit_weight'];
+            $totals[$l['material']] += $weight * (float) ($cp->gm_margin ?? 0);
+        }
+
+        foreach (['gold' => 2, 'silver' => 3] as $material => $comType) {
+            $margin = round($totals[$material], 2);
+            if ($margin <= 0) {
+                continue;
+            }
+            ResellerCommission::create([
+                'bill_date' => $invoice->invoice_date,
+                'invoice_no' => $invoice->invoice_no,
+                'com_type_id' => $comType,
+                'user_id' => $invoice->created_by,
+                'branch_id' => $branchId,
+                'com_value' => $margin,
+                'reference_member_id' => $member?->id,
+                'status' => 'passed',
+            ]);
+            Branch::where('id', $branchId)->increment($material . '_gm_margin', $margin);
+        }
+    }
+
+    /**
+     * Turn the member into a dealer: create a branch + distributor login (default password)
+     * and seed it with the redeemed stock. Idempotent — if the member already has a
+     * distributor login/branch, reuse it and just add the stock.
+     */
+    protected function openDealerAccount(Member $member, array $lines, array $dealer, RedemptionInvoice $invoice): void
+    {
+        $existing = User::where('member_code', $member->member_code)
+            ->whereNotNull('branch_id')->first();
+
+        if ($existing) {
+            $branchId = $existing->branch_id;
+        } else {
+            $branch = Branch::create([
+                'name' => $dealer['branch_name'] ?? ($member->name . ' — Dealer'),
+                'city' => $member->city,
+                'address' => $member->address,
+                'phone' => $member->phone,
+                'gst_no' => $dealer['gst_no'] ?? null,
+                'level' => 'reseller',
+                'is_active' => true,
+            ]);
+            $branchId = $branch->id;
+
+            $user = User::create([
+                'name' => $member->name,
+                'email' => strtolower($member->member_code) . '@lordicl',
+                'password' => Hash::make(self::DEALER_DEFAULT_PASSWORD),
+                'status' => 'active',
+                'branch_id' => $branchId,
+                'member_code' => $member->member_code,
+            ]);
+            $user->assignRole('distributor');
+            $member->update(['branch_id' => $branchId]);
+            $invoice->update(['dealer_created' => true]);
+        }
+
+        // Seed the redeemed items as the dealer branch's stock (catalog items already exist).
+        foreach ($lines as $l) {
+            if (! $l['catalog_product_id']) {
+                continue;
+            }
+            $qty = $l['material'] === 'vessel' ? (float) $l['quantity'] : (float) $l['quantity'] * (float) $l['unit_weight'];
+            $stock = Stock::firstOrCreate(
+                ['branch_id' => $branchId, 'catalog_product_id' => $l['catalog_product_id']],
+                ['quantity' => 0],
+            );
+            $stock->increment('quantity', $qty);
+        }
+    }
+
+    /** Normalise a GSTIN input: trim/upper, and treat blanks or "NA"/"N/A" as null. */
+    protected function cleanGst($gst): ?string
+    {
+        $g = strtoupper(trim((string) $gst));
+
+        return ($g === '' || in_array($g, ['NA', 'N/A', '-NA-', '-'], true)) ? null : $g;
+    }
+
+    /**
+     * The buyer's GSTIN for the invoice: prefer one already on record (this member's
+     * existing dealer branch), otherwise use whatever the operator typed at redeem.
+     */
+    protected function resolveBuyerGst(?Member $member, $typed): ?string
+    {
+        if ($member) {
+            $onRecord = User::where('member_code', $member->member_code)
+                ->whereNotNull('branch_id')->with('branch')->first()?->branch?->gst_no;
+            if ($g = $this->cleanGst($onRecord)) {
+                return $g;
+            }
+        }
+
+        return $this->cleanGst($typed);
+    }
+
+    protected function liveRate(string $country = 'IN'): LiveRate
+    {
+        return LiveRate::where('country', $country)->latest('effective_at')->first()
+            ?? new LiveRate(['gold' => 0, 'silver' => 0]);
+    }
+
+    protected function nextInvoiceNo(): string
+    {
+        $n = (int) RedemptionInvoice::max('id') + 1;
+
+        return 'RDM-' . str_pad((string) $n, 6, '0', STR_PAD_LEFT);
+    }
+}

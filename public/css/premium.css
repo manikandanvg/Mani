@@ -1,0 +1,118 @@
+/*
+ * Lord ICL — premium admin polish. Additive only: shadows, depth, smooth transitions and
+ * subtle motion on top of Filament's layout (no positioning changes). Brand: #ab222f / #e6ad46.
+ */
+
+:root {
+    --lord-crimson: #ab222f;
+    --lord-gold: #e6ad46;
+    --lord-shadow: 0 1px 2px rgba(43, 26, 26, .06), 0 8px 24px -12px rgba(171, 34, 47, .18);
+    --lord-shadow-lg: 0 12px 32px -10px rgba(171, 34, 47, .28);
+    --lord-ease: cubic-bezier(.4, 0, .2, 1);
+}
+
+/* Global smooth transitions on interactive surfaces */
+.fi-btn,
+.fi-section,
+.fi-wi > *,
+.fi-ta-row,
+.fi-dropdown-list-item,
+.fi-sidebar-item-button,
+.fi-input,
+.fi-ta-ctn {
+    transition: box-shadow .2s var(--lord-ease), transform .2s var(--lord-ease),
+        background-color .2s var(--lord-ease), border-color .2s var(--lord-ease);
+}
+
+/* Cards / sections / widgets: soft depth + lift on hover */
+.fi-section,
+.fi-wi-stats-overview-stat,
+.fi-ta-ctn,
+.fi-fo-component-ctn .fi-section {
+    border-radius: 14px !important;
+    box-shadow: var(--lord-shadow);
+}
+.fi-section:hover,
+.fi-wi-stats-overview-stat:hover {
+    box-shadow: var(--lord-shadow-lg);
+    transform: translateY(-2px);
+}
+
+/* Stat widgets: a thin brand accent bar on top */
+.fi-wi-stats-overview-stat {
+    position: relative;
+    overflow: hidden;
+}
+.fi-wi-stats-overview-stat::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 3px;
+    background: linear-gradient(90deg, var(--lord-crimson), var(--lord-gold));
+}
+
+/* Buttons: gentle lift + shadow; primary gets a brand gradient sheen */
+.fi-btn { border-radius: 10px !important; }
+.fi-btn:hover { transform: translateY(-1px); box-shadow: var(--lord-shadow); }
+.fi-btn:active { transform: translateY(0); }
+.fi-btn.fi-color-primary {
+    background-image: linear-gradient(135deg, var(--lord-crimson), #c33342);
+}
+
+/* Tables: rounded container, crisp header, row hover highlight */
+.fi-ta-ctn { overflow: hidden; }
+.fi-ta-header-cell { letter-spacing: .02em; }
+.fi-ta-row:hover {
+    background-color: rgba(230, 173, 70, .10) !important;
+    box-shadow: inset 3px 0 0 0 var(--lord-gold);
+}
+
+/* Sidebar: active item gets a brand gradient + the gold accent rail */
+.fi-sidebar-item-button { border-radius: 10px !important; }
+.fi-sidebar-item.fi-active .fi-sidebar-item-button,
+.fi-sidebar-item-button[aria-current="page"] {
+    background-image: linear-gradient(135deg, rgba(171, 34, 47, .12), rgba(230, 173, 70, .12));
+    box-shadow: inset 3px 0 0 0 var(--lord-crimson);
+}
+.fi-sidebar-item-button:hover { transform: translateX(2px); }
+
+/* Topbar + section headers: a touch of elevation */
+.fi-topbar > * { box-shadow: 0 4px 20px -16px rgba(43, 26, 26, .5); }
+
+/* Badges: pill + faint shadow for the premium feel */
+.fi-badge { box-shadow: 0 1px 2px rgba(43, 26, 26, .08); }
+
+/* Page content fades/eases in on load */
+@keyframes lord-fade-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+.fi-main > * { animation: lord-fade-in .35s var(--lord-ease) both; }
+
+/* Inputs: subtle focus glow in brand crimson */
+.fi-input:focus-within { box-shadow: 0 0 0 3px rgba(171, 34, 47, .12); }
+
+/* Respect reduced-motion preferences */
+@media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+    .fi-section:hover, .fi-btn:hover, .fi-sidebar-item-button:hover,
+    .fi-wi-stats-overview-stat:hover { transform: none !important; }
+}
+
+/* ── Redeem QR: prominent opt-in "Open Distributor A/C" box ── */
+.redeem-dealer-box {
+    border: 2px dashed var(--lord-gold);
+    border-radius: 12px;
+    background: linear-gradient(180deg, rgba(230,173,70,.06), rgba(230,173,70,.02));
+}
+/* Enlarge the dealer opt-in checkbox so it reads as a deliberate, prominent toggle. */
+.redeem-dealer-toggle input[type="checkbox"] {
+    width: 1.4rem;
+    height: 1.4rem;
+    border-width: 2px;
+    cursor: pointer;
+}
+.redeem-dealer-toggle label {
+    font-weight: 600;
+    font-size: .95rem;
+}
