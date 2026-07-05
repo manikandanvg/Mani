@@ -26,7 +26,7 @@ class SupportThreadResource extends BaseResource
 
     protected static ?string $model = SupportThread::class;
 
-    protected static ?string $navigationGroup = 'Members';
+    protected static ?string $navigationGroup = 'Distributors';
 
     protected static ?string $navigationLabel = 'Support Chat';
 

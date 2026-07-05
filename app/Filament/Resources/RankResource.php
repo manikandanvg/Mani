@@ -26,6 +26,14 @@ class RankResource extends BaseResource
 
     protected static ?string $navigationIcon = 'heroicon-o-trophy';
 
+    // Auditor terminology (2026-07): Reward & Award ranks are "Turnover-based
+    // Promotion (TBP) Stages".
+    protected static ?string $modelLabel = 'TBP Stage';
+
+    protected static ?string $pluralModelLabel = 'TBP Stages';
+
+    protected static ?string $navigationLabel = 'TBP Stages';
+
     public static function form(Form $form): Form
     {
         return $form
@@ -39,15 +47,17 @@ class RankResource extends BaseResource
                     ->numeric()
                     ->default(0),
                 Forms\Components\TextInput::make('target_bv')
+                    ->label('Target Business Volume')
                     ->required()
                     ->numeric()
                     ->default(0.00),
                 Forms\Components\TextInput::make('reward_amount')
+                    ->label('TBP Reward Amount')
                     ->required()
                     ->numeric()
                     ->default(0.00),
                 Forms\Components\TagsInput::make('tier_template')
-                    ->helperText('Top-N downline GBV thresholds for GAP qualification'),
+                    ->helperText('Top-N downline Gross Business Volume thresholds for Turnover-based Salary qualification'),
                 Forms\Components\Toggle::make('is_active')
                     ->required(),
                 Forms\Components\TextInput::make('sort')
@@ -68,9 +78,11 @@ class RankResource extends BaseResource
                     ->numeric()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('target_bv')
+                    ->label('Target Business Volume')
                     ->numeric()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('reward_amount')
+                    ->label('TBP Reward Amount')
                     ->numeric()
                     ->sortable(),
                 Tables\Columns\IconColumn::make('is_active')

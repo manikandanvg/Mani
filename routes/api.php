@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\V1\AccountController;
+use App\Http\Controllers\Api\V1\AttendanceController;
 use App\Http\Controllers\Api\V1\Auth\OtpController;
 use App\Http\Controllers\Api\V1\CommunityController;
 use App\Http\Controllers\Api\V1\DeviceTokenController;
@@ -59,6 +60,10 @@ Route::prefix('v1')->group(function () {
     Route::get('library/files/{id}', [LibraryController::class, 'download'])
         ->middleware('signed')->name('api.library.file');
 
+    // Payslip PDF — URL-signature authed (employee id baked into the signature).
+    Route::get('member/payslips/{id}/pdf', [AttendanceController::class, 'payslipPdf'])
+        ->middleware('signed')->name('api.member.payslip');
+
     // --- Authenticated (member token) ---
     Route::middleware('auth:sanctum')->group(function () {
         Route::get('me', [AccountController::class, 'me']);
@@ -107,6 +112,12 @@ Route::prefix('v1')->group(function () {
         Route::post('community/posts/{post}/like', [CommunityController::class, 'toggleLike']);
         Route::get('community/posts/{post}/comments', [CommunityController::class, 'comments']);
         Route::post('community/posts/{post}/comments', [CommunityController::class, 'addComment']);
+
+        // Payroll attendance (2026-07 board mandate) — employee-enrolled distributors only.
+        Route::get('member/attendance', [AttendanceController::class, 'index']);
+        Route::post('member/attendance/check-in', [AttendanceController::class, 'checkIn']);
+        Route::post('member/attendance/check-out', [AttendanceController::class, 'checkOut']);
+        Route::get('member/payslips', [AttendanceController::class, 'payslips']);
 
         // Live & Learn (Phase 6a) — scheduled meetings (Zoom deep-link).
         Route::get('meetings', [MeetingController::class, 'index']);

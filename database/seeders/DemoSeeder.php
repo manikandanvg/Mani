@@ -39,7 +39,7 @@ class DemoSeeder extends Seeder
         ]);
 
         // 7-member upline chain/tree
-        $root = $this->member('LJW0001', 'Root Director', null, $member->id);
+        $root = $this->member('LJW0001', 'Root Admin', null, $member->id);
         $a = $this->member('LJW0002', 'Member A', $root->id, $member->id);
         $b = $this->member('LJW0003', 'Member B', $a->id, $member->id);
         $c = $this->member('LJW0004', 'Member C', $b->id, $member->id);

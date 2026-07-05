@@ -113,7 +113,7 @@
         <div class="icl-searchwrap">
             <input type="text" class="icl-search" placeholder="Search name or code…"
                    x-model="q" @input.debounce.200ms="$dispatch('icl-expand'); filter()">
-            <span class="icl-notfound" x-show="notFound" x-cloak x-text="`No member matches “${q}”`"></span>
+            <span class="icl-notfound" x-show="notFound" x-cloak x-text="`No distributor matches “${q}”`"></span>
 
             {{-- results list when searching --}}
             <div class="icl-results" x-show="q && matches.length" x-cloak x-transition.opacity>
@@ -180,7 +180,7 @@
                     </div>
                     <div><span>Team size</span><b x-text="selected.count"></b></div>
                 </div>
-                <a class="icl-modal-open" :href="selected.url" x-show="selected.url" target="_blank">Open member record →</a>
+                <a class="icl-modal-open" :href="selected.url" x-show="selected.url" target="_blank">Open distributor record →</a>
             </div>
         </div>
     </div>

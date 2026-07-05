@@ -23,7 +23,7 @@ class BusinessOverview extends BaseWidget
         $payoutPending = (float) PayoutStatement::where('status', 'pending')->sum('grand_total');
 
         return [
-            Stat::make('Members', Number::format($members))
+            Stat::make('Distributors', Number::format($members))
                 ->description("{$activeMembers} active")
                 ->descriptionIcon('heroicon-m-users')
                 ->color('primary'),

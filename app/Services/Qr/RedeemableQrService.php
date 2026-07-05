@@ -67,7 +67,7 @@ class RedeemableQrService
             $qr->loadMissing('member', 'bond');
             $phone = (string) ($qr->member?->phone ?? '');
             if ($phone === '') {
-                return ['ok' => false, 'message' => 'Member has no phone number.'];
+                return ['ok' => false, 'message' => 'Distributor has no phone number.'];
             }
 
             $results = [];
@@ -77,7 +77,7 @@ class RedeemableQrService
                 $results['contract'] = $this->whatsapp->sendMedia(
                     $phone,
                     $this->contracts->store($qr->bond),
-                    'Dear ' . ($qr->member?->name ?? 'Customer') . ', your Lord Jeweller contract '
+                    'Dear ' . ($qr->member?->name ?? 'Distributor') . ', your Lord Jeweller contract '
                         . $qr->invoice_no . ' is attached.'
                 );
             }
@@ -104,7 +104,7 @@ class RedeemableQrService
     /** The WhatsApp caption — mirrors the legacy QR message. */
     public function caption(RedeemableQr $qr): string
     {
-        $name = $qr->member?->name ?? 'Customer';
+        $name = $qr->member?->name ?? 'Distributor';
         $code = $qr->member?->member_code ?? '';
         $gram = $qr->gram_worth !== null ? number_format((float) $qr->gram_worth, 3) . 'gm' : '—';
 

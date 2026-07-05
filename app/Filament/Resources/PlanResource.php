@@ -24,7 +24,12 @@ class PlanResource extends BaseResource
 
     protected static ?string $navigationGroup = 'Master';
 
-    protected static ?string $navigationLabel = 'Plans';
+    // Auditor terminology (2026-07): "Plan" is displayed as "Scheme" everywhere.
+    protected static ?string $navigationLabel = 'Schemes';
+
+    protected static ?string $modelLabel = 'Scheme';
+
+    protected static ?string $pluralModelLabel = 'Schemes';
 
     protected static ?string $navigationIcon = 'heroicon-o-gift';
 
@@ -33,10 +38,10 @@ class PlanResource extends BaseResource
         return $form
             ->schema([
                 Translatable::fieldset('name', 'Name'),
-                Forms\Components\Section::make('Plan')->columns(3)->schema([
+                Forms\Components\Section::make('Scheme')->columns(3)->schema([
                     Forms\Components\TextInput::make('code')->required()->maxLength(20)->unique(ignoreRecord: true),
                     Forms\Components\Select::make('plan_type')
-                        ->label('Plan type')
+                        ->label('Scheme type')
                         ->options([1 => 'RD', 2 => 'Digital (Cash/Gold/Silver)', 3 => 'Gold', 4 => 'Silver'])
                         ->default(1)->required(),
                     Forms\Components\Select::make('type')
@@ -53,13 +58,13 @@ class PlanResource extends BaseResource
                 ]),
                 Forms\Components\Section::make('Commissions')->columns(2)->schema([
                     Forms\Components\TagsInput::make('ic_schedule')
-                        ->label('IC schedule (10 levels)')
-                        ->helperText('Instant-commission % per level, e.g. 10, 3, 2, 1.5, 0.75, ...'),
+                        ->label('Promotional Incentive (IC) schedule (10 placement layers)')
+                        ->helperText('Promotional Incentive % per placement layer, e.g. 10, 3, 2, 1.5, 0.75, ...'),
                     Forms\Components\TagsInput::make('level_schedule')
-                        ->label('Level/GAP schedule')
-                        ->helperText('Level commission % per depth, e.g. 1.25, 0.5, 0.25, ...'),
-                    Forms\Components\TextInput::make('level_depth')->label('Level depth')->numeric()->default(0),
-                    Forms\Components\TextInput::make('level_com_duration')->label('Level com duration (months)')->numeric()->default(0),
+                        ->label('Turnover-based Salary (GAP) schedule')
+                        ->helperText('Turnover-based Salary % per placement layer depth, e.g. 1.25, 0.5, 0.25, ...'),
+                    Forms\Components\TextInput::make('level_depth')->label('Placement layer depth')->numeric()->default(0),
+                    Forms\Components\TextInput::make('level_com_duration')->label('Turnover-based Salary duration (months)')->numeric()->default(0),
                 ]),
                 Forms\Components\Section::make('Branch margins (%)')->columns(3)->schema([
                     Forms\Components\TextInput::make('billing_margin')->label('Billing margin')->numeric()->default(0),

@@ -30,10 +30,15 @@ class CommissionApprovalService
 
     public const SERVICE_PCT = 5.0;
 
-    /** UI dropdown — the 7 commission types in display order. */
+    /**
+     * UI dropdown — the 7 commission types in display order.
+     * Display names follow the 2026-07 board/auditor terminology: IC is shown as
+     * "Promotional Incentive" (legacy Sales Profit) and GAP as "Turnover-based
+     * Salary" (legacy Level Income). Internal keys are unchanged.
+     */
     public const TYPES = [
-        'IC' => 'Instant Commission (IC)',
-        'GAP' => 'Level Commission (GAP)',
+        'IC' => 'Promotional Incentive (IC)',
+        'GAP' => 'Turnover-based Salary (GAP)',
         'CBC' => 'Cash Back Coupon (CBC)',
         'BILL_MARGIN' => 'Billing Margin',
         'GOLD_MARGIN' => 'Gold Margin',

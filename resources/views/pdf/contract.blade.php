@@ -59,7 +59,7 @@
         <span class="muted">&nbsp;·&nbsp; Date: {{ optional($start)->format('d-m-Y') }}</span>
     </div>
 
-    {{-- AUTHORIZED DEALER  |  CUSTOMER --}}
+    {{-- AUTHORIZED DEALER  |  DISTRIBUTOR --}}
     <div class="abs" style="top:{{ $yParties }}mm;">
         <table style="width:100%">
             <tr>
@@ -71,7 +71,7 @@
                     <div class="muted">GSTN: {{ $branch->gst_no ?? '—' }}</div>
                 </td>
                 <td style="width:48%; vertical-align:top; padding-left:8px;">
-                    <div class="ctitle">CUSTOMER</div>
+                    <div class="ctitle">DISTRIBUTOR</div>
                     <div style="font-weight:bold; font-size:12px;">{{ $member->name ?? '—' }}</div>
                     <div class="muted">({{ $member->member_code ?? '' }})</div>
                     <div class="muted">{{ $member->address ?? '' }}{{ $member->city ? ', '.$member->city : '' }} {{ $member->pincode ?? '' }}</div>

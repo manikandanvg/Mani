@@ -27,7 +27,7 @@ class GenealogyTree extends Page
 
     protected static ?int $navigationSort = 3;
 
-    protected static ?string $title = 'Member Genealogy';
+    protected static ?string $title = 'Distributor Genealogy';
 
     protected static ?string $slug = 'genealogy';
 

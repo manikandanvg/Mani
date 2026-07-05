@@ -56,7 +56,7 @@ class RedemptionInvoiceResource extends BaseResource
             ->columns([
                 Tables\Columns\TextColumn::make('invoice_no')->label('Invoice')->searchable()->sortable(),
                 Tables\Columns\TextColumn::make('invoice_date')->label('Date')->date()->sortable(),
-                Tables\Columns\TextColumn::make('member.name')->label('Member')->searchable()
+                Tables\Columns\TextColumn::make('member.name')->label('Distributor')->searchable()
                     ->description(fn ($record) => $record->member?->member_code),
                 Tables\Columns\TextColumn::make('branch.name')->label('Branch')->searchable()->toggleable(),
                 Tables\Columns\TextColumn::make('taxable_total')->label('Taxable')->baseMoney()->toggleable(),

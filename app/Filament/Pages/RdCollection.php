@@ -115,7 +115,7 @@ class RdCollection extends Page implements HasForms
             ->mapWithKeys(fn (Bond $b) => [
                 $b->id => sprintf(
                     '%s (%s) — %s — ₹%s',
-                    $b->member?->name ?? 'Member',
+                    $b->member?->name ?? 'Distributor',
                     $b->member?->member_code ?? '—',
                     $b->plan ? Translatable::pick($b->plan->name, $locale) : 'RD',
                     number_format((float) $b->value, 2)

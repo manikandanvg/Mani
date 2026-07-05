@@ -90,9 +90,9 @@ class BondResource extends BaseResource
             ->defaultSort('bond_date', 'asc')
             ->columns([
                 Tables\Columns\TextColumn::make('invoice_no')->label('Invoice')->searchable()->sortable(),
-                Tables\Columns\TextColumn::make('member.name')->label('Member')->searchable()
+                Tables\Columns\TextColumn::make('member.name')->label('Distributor')->searchable()
                     ->description(fn (Bond $r) => $r->member?->member_code),
-                Tables\Columns\TextColumn::make('plan.code')->label('Plan')->sortable(),
+                Tables\Columns\TextColumn::make('plan.code')->label('Scheme')->sortable(),
                 Tables\Columns\TextColumn::make('value')->baseMoney()->sortable(),
                 Tables\Columns\TextColumn::make('bond_date')->label('Start')->date()->sortable(),
                 Tables\Columns\TextColumn::make('expires_on')
@@ -150,7 +150,7 @@ class BondResource extends BaseResource
                         . optional($record->member)->name . ' (' . optional($record->member)->phone . ') via WhatsApp?')
                     ->action(function (Bond $record) {
                         if (! optional($record->member)->phone) {
-                            \Filament\Notifications\Notification::make()->title('Member has no phone number')->warning()->send();
+                            \Filament\Notifications\Notification::make()->title('Distributor has no phone number')->warning()->send();
 
                             return;
                         }

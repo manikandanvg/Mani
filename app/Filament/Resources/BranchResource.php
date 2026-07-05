@@ -36,7 +36,7 @@ class BranchResource extends BaseResource
                         ->label('Supply-chain level')
                         ->options([
                             'hq' => 'Lord (HQ / Super-admin)',
-                            'zonal' => 'Zonal Director',
+                            'zonal' => 'Zonal Admin',
                             'district' => 'District',
                             'taluk' => 'Taluk',
                             'wholesaler' => 'Wholesaler',

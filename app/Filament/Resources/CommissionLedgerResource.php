@@ -32,15 +32,18 @@ class CommissionLedgerResource extends BaseResource
                 Forms\Components\TextInput::make('type')
                     ->required(),
                 Forms\Components\TextInput::make('member_id')
+                    ->label('Distributor ID')
                     ->required()
                     ->numeric(),
                 Forms\Components\TextInput::make('from_member_id')
+                    ->label('From Distributor ID')
                     ->numeric(),
                 Forms\Components\TextInput::make('bond_id')
                     ->numeric(),
                 Forms\Components\TextInput::make('invoice_no')
                     ->maxLength(40),
                 Forms\Components\TextInput::make('level')
+                    ->label('Placement Layer')
                     ->numeric(),
                 Forms\Components\TextInput::make('amount')
                     ->required()
@@ -62,9 +65,11 @@ class CommissionLedgerResource extends BaseResource
             ->columns([
                 Tables\Columns\TextColumn::make('type'),
                 Tables\Columns\TextColumn::make('member_id')
+                    ->label('Distributor ID')
                     ->numeric()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('from_member_id')
+                    ->label('From Distributor ID')
                     ->numeric()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('bond_id')
@@ -73,6 +78,7 @@ class CommissionLedgerResource extends BaseResource
                 Tables\Columns\TextColumn::make('invoice_no')
                     ->searchable(),
                 Tables\Columns\TextColumn::make('level')
+                    ->label('Placement Layer')
                     ->numeric()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('amount')

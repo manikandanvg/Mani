@@ -25,6 +25,13 @@ class MemberResource extends BaseResource
 
     protected static ?string $navigationIcon = 'heroicon-o-users';
 
+    // Auditor terminology (2026-07): members/customers are displayed as "Distributors".
+    protected static ?string $modelLabel = 'Distributor';
+
+    protected static ?string $pluralModelLabel = 'Distributors';
+
+    protected static ?string $navigationLabel = 'Distributors';
+
     public static function form(Form $form): Form
     {
         return $form
@@ -32,13 +39,16 @@ class MemberResource extends BaseResource
                 Forms\Components\TextInput::make('user_id')
                     ->numeric(),
                 Forms\Components\TextInput::make('member_code')
+                    ->label('Distributor Code')
                     ->required()
                     ->maxLength(30),
                 Forms\Components\DatePicker::make('joined_on')
                     ->required(),
                 Forms\Components\TextInput::make('upline_id')
+                    ->label('Senior Distributor ID')
                     ->numeric(),
                 Forms\Components\TextInput::make('referrer_id')
+                    ->label('Referred Distributor ID')
                     ->numeric(),
                 Forms\Components\TextInput::make('placement')
                     ->required(),
@@ -47,6 +57,7 @@ class MemberResource extends BaseResource
                 Forms\Components\TextInput::make('right_member_id')
                     ->numeric(),
                 Forms\Components\TextInput::make('rank_id')
+                    ->label('TBP Stage ID')
                     ->required()
                     ->numeric(),
                 Forms\Components\TextInput::make('branch_id')
@@ -96,18 +107,22 @@ class MemberResource extends BaseResource
                 Forms\Components\TextInput::make('photo_path')
                     ->maxLength(255),
                 Forms\Components\TextInput::make('bv')
+                    ->label('Business Volume (BV)')
                     ->required()
                     ->numeric()
                     ->default(0.00),
                 Forms\Components\TextInput::make('gbv')
+                    ->label('Gross Business Volume (GBV)')
                     ->required()
                     ->numeric()
                     ->default(0.00),
                 Forms\Components\TextInput::make('unpure_bv')
+                    ->label('Unpure Business Volume')
                     ->required()
                     ->numeric()
                     ->default(0.00),
                 Forms\Components\TextInput::make('unpure_gbv')
+                    ->label('Unpure Gross Business Volume')
                     ->required()
                     ->numeric()
                     ->default(0.00),
@@ -128,14 +143,17 @@ class MemberResource extends BaseResource
                     ->numeric()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('member_code')
+                    ->label('Distributor Code')
                     ->searchable(),
                 Tables\Columns\TextColumn::make('joined_on')
                     ->date()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('upline_id')
+                    ->label('Senior Distributor ID')
                     ->numeric()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('referrer_id')
+                    ->label('Referred Distributor ID')
                     ->numeric()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('placement'),
@@ -146,6 +164,7 @@ class MemberResource extends BaseResource
                     ->numeric()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('rank_id')
+                    ->label('TBP Stage ID')
                     ->numeric()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('branch_id')
@@ -191,15 +210,19 @@ class MemberResource extends BaseResource
                 Tables\Columns\TextColumn::make('photo_path')
                     ->searchable(),
                 Tables\Columns\TextColumn::make('bv')
+                    ->label('Business Volume (BV)')
                     ->numeric()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('gbv')
+                    ->label('Gross Business Volume (GBV)')
                     ->numeric()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('unpure_bv')
+                    ->label('Unpure Business Volume')
                     ->numeric()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('unpure_gbv')
+                    ->label('Unpure Gross Business Volume')
                     ->numeric()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('downline_count')

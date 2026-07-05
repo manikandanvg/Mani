@@ -37,6 +37,7 @@ class Member extends Model implements AuthenticatableContract
     public function rank() { return $this->belongsTo(Rank::class); }
     public function branch() { return $this->belongsTo(Branch::class); }
     public function wallet() { return $this->hasOne(MemberWallet::class); }
+    public function employeeProfile() { return $this->hasOne(EmployeeProfile::class); }
     public function bonds() { return $this->hasMany(Bond::class); }
     public function user() { return $this->belongsTo(User::class); }
 

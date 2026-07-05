@@ -22,6 +22,10 @@ Route::get('/admin/contracts/{bond}/pdf', fn (Bond $bond) => app(ContractService
 Route::get('/admin/redemptions/{invoice}/pdf', fn (\App\Models\RedemptionInvoice $invoice) => app(\App\Services\Redeem\RedemptionInvoicePdf::class)->stream($invoice))
     ->middleware(['web', 'auth'])->name('redemption.pdf');
 
+// Admin: stream a payroll payslip as a PDF (auth-guarded).
+Route::get('/admin/payslips/{payslip}/pdf', fn (\App\Models\Payslip $payslip) => app(\App\Services\Payroll\PayslipPdf::class)->stream($payslip))
+    ->middleware(['web', 'auth'])->name('payslip.pdf');
+
 // "View as Dealer" — super-admin impersonates a branch's distributor login, then steps back.
 Route::middleware(['web', 'auth'])->group(function () {
     Route::get('/admin/impersonate/leave', [ImpersonationController::class, 'leave'])->name('impersonate.leave');

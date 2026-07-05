@@ -78,14 +78,14 @@
             </tr>
             <tr>
                 <td><span class="lbl">Reference No</span>{{ $invoice->reference_no ?: '—' }}</td>
-                <td><span class="lbl">Referrer</span>{{ $invoice->referrer_name ?: '—' }}</td>
+                <td><span class="lbl">Referred Distributor</span>{{ $invoice->referrer_name ?: '—' }}</td>
             </tr>
             <tr>
                 <td style="width:50%;" rowspan="2">
                     <span class="lbl">Invoice To</span>
                     <span class="b">{{ $member?->name ?? '—' }}</span>@if ($member?->member_code) ({{ $member->member_code }})@endif<br>
                     @if ($member?->phone)<span class="muted">Phone: {{ $member->phone }}</span><br>@endif
-                    @if ($plan)<span class="muted">Plan: {{ Translatable::pick($plan->name) ?: $plan->code }}</span><br>@endif
+                    @if ($plan)<span class="muted">Scheme: {{ Translatable::pick($plan->name) ?: $plan->code }}</span><br>@endif
                     @if ($invoice->bond)<span class="muted">Bond/Contract: {{ $invoice->bond->invoice_no }}</span><br>@endif
                     <span class="b">GST: {{ $invoice->buyer_gst ?: '-NA-' }}</span>
                 </td>
@@ -214,7 +214,7 @@
                     <br>
                     <span style="font-size:7.5px; color:#6b7280;">Scan to download invoice</span>
                     <span style="font-size:7.5px; color:#6b7280; margin-left:6mm;">Get it on Play Store</span>
-                    <br><br><span class="b">Customer Seal &amp; Signature</span>
+                    <br><br><span class="b">Distributor Seal &amp; Signature</span>
                 </td>
                 <td style="border:0; width:45%; vertical-align:bottom;" class="right b red">
                     For {{ $company['legal_name'] }}<br><br><br>

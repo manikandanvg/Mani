@@ -108,9 +108,9 @@ class RedeemQr extends Page implements HasForms
                     ->visible(fn () => $this->ctx !== null)
                     ->columns(3)
                     ->schema([
-                        Placeholder::make('member')->label('Member')
+                        Placeholder::make('member')->label('Distributor')
                             ->content(fn () => $this->ctx['member'] ?? '—'),
-                        Placeholder::make('plan')->label('Plan')
+                        Placeholder::make('plan')->label('Scheme')
                             ->content(fn () => $this->ctx['plan'] ?? '—'),
                         Placeholder::make('worth')->label('QR worth')
                             ->content(fn () => new HtmlString('<span class="text-lg font-bold text-primary-600">₹' . number_format((float) ($this->ctx['worth'] ?? 0), 2) . '</span>')),
@@ -182,9 +182,9 @@ class RedeemQr extends Page implements HasForms
                         ])->columnSpanFull(),
                         TextInput::make('otp')
                             ->label('OTP')
-                            ->placeholder('5-digit code sent to the member'),
+                            ->placeholder('5-digit code sent to the distributor'),
                         TextInput::make('buyer_gst')
-                            ->label('Customer GST (optional)')
+                            ->label('Distributor GST (optional)')
                             ->placeholder('e.g. 33ABCDE1234F1Z5 — prints in "Invoice To"')
                             ->helperText('Shown on the tax invoice. If a dealer account is opened, this GSTIN is also set on the dealer branch.')
                             ->maxLength(25),
@@ -196,14 +196,14 @@ class RedeemQr extends Page implements HasForms
                             ->columnSpanFull()
                             ->schema([
                                 Checkbox::make('create_dealer')
-                                    ->label('Open a Distributor / Dealer account for this member')
-                                    ->helperText('Only tick if this customer should become a dealer. Creates a branch + login seeded with the redeemed stock (using the Customer GST above). Leave unticked for a plain redemption.')
+                                    ->label('Open a Dealer account for this distributor')
+                                    ->helperText('Only tick if this distributor should become a dealer. Creates a branch + login seeded with the redeemed stock (using the Distributor GST above). Leave unticked for a plain redemption.')
                                     ->extraAttributes(['class' => 'redeem-dealer-toggle'])
                                     ->live(),
                                 TextInput::make('dealer_branch_name')
                                     ->label('Dealer branch name')
                                     ->visible(fn (Get $get) => (bool) $get('create_dealer'))
-                                    ->placeholder('e.g. <Member name> — Dealer'),
+                                    ->placeholder('e.g. <Distributor name> — Dealer'),
                             ]),
                     ]),
             ])
@@ -274,7 +274,7 @@ class RedeemQr extends Page implements HasForms
 
         if ($phone === '') {
             Notification::make()->warning()->title('No phone on file')
-                ->body('OTP generated: ' . $otp . ' (could not send — member has no phone).')->send();
+                ->body('OTP generated: ' . $otp . ' (could not send — distributor has no phone).')->send();
 
             return;
         }
@@ -283,7 +283,7 @@ class RedeemQr extends Page implements HasForms
         $res = app(WhatsappSender::class)->sendText($phone, $msg);
 
         ($res['ok'] ?? false)
-            ? Notification::make()->success()->title('OTP sent on WhatsApp')->body('Sent to the member\'s number.')->send()
+            ? Notification::make()->success()->title('OTP sent on WhatsApp')->body('Sent to the distributor\'s number.')->send()
             : Notification::make()->warning()->title('OTP generated, WhatsApp send failed')->body($res['message'] ?? 'Gateway error.')->send();
     }
 
@@ -315,7 +315,7 @@ class RedeemQr extends Page implements HasForms
             ->success()
             ->title('Redeemed · ' . $invoice->invoice_no)
             ->body('Tax invoice ₹' . number_format((float) $invoice->grand_total, 2) . ' raised.'
-                . ($invoice->dealer_created ? ' Distributor account opened.' : ''))
+                . ($invoice->dealer_created ? ' Dealer account opened.' : ''))
             ->actions([
                 \Filament\Notifications\Actions\Action::make('print')
                     ->label('Print tax invoice')

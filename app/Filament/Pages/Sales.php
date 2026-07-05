@@ -84,16 +84,16 @@ class Sales extends Page implements HasForms
                 ->content(fn () => self::liveRateBanner()),
 
             Grid::make(6)->schema([
-                // ---------- Zone A: customer ----------
-                Section::make('Customer')
+                // ---------- Zone A: distributor (buying member; auditor terminology) ----------
+                Section::make('Distributor')
                     ->icon('heroicon-o-user-circle')
                     ->columnSpan(2)
                     ->columns(1)
                     ->schema([
                         ToggleButtons::make('mode')->label('')->inline()
-                            ->options(['new' => 'New customer', 'existing' => 'Existing customer'])
+                            ->options(['new' => 'New distributor', 'existing' => 'Existing distributor'])
                             ->default('new')->live(),
-                        Select::make('customer.member_id')->label('Select customer')
+                        Select::make('customer.member_id')->label('Select distributor')
                             ->visible(fn (Get $get) => $get('mode') === 'existing')
                             ->searchable()
                             ->getSearchResultsUsing(fn (string $search) => Member::query()
@@ -104,10 +104,10 @@ class Sales extends Page implements HasForms
                             ->getOptionLabelUsing(fn ($v) => ($m = Member::find($v)) ? "{$m->name} ({$m->member_code})" : null)
                             ->live()
                             ->afterStateUpdated(fn ($state, Set $set) => $this->fillExisting($state, $set)),
-                        TextInput::make('referrer_code')->label('Referrer User ID')->required()
+                        TextInput::make('referrer_code')->label('Referred Distributor User ID')->required()
                             ->live(onBlur: true)
                             ->helperText(fn (Get $get) => self::codeHint($get('referrer_code'))),
-                        TextInput::make('upline_code')->label('Upline User ID (Placement)')->required()
+                        TextInput::make('upline_code')->label('Senior Distributor User ID (Placement)')->required()
                             ->live(onBlur: true)
                             ->helperText(fn (Get $get) => self::codeHint($get('upline_code'))),
                         Select::make('payment_type')->label('Pay Mode')
@@ -227,15 +227,15 @@ class Sales extends Page implements HasForms
                     Placeholder::make('bill_summary')->label('')->columnSpanFull()
                         ->content(fn (Get $get) => self::billSummary($get('cart') ?? [])),
                 ]),
-                Section::make('Plan')->icon('heroicon-o-gift')
+                Section::make('Scheme')->icon('heroicon-o-gift')
                     ->columnSpan(4)
-                    ->description('Plans available for this cart value')
+                    ->description('Schemes available for this cart value')
                     ->schema([
-                        Select::make('plan_id')->label('Select Plan')
+                        Select::make('plan_id')->label('Select Scheme')
                             ->options(fn (Get $get) => self::planOptions($get('cart') ?? []))
                             ->live()->required()
-                            ->helperText('Plans are matched to your cart — Gold items → gold plan, Silver → silver plan, Cash → Digital/RD — and only those whose minimum value ≤ cart total.'),
-                        Placeholder::make('plan_benefits')->label('Plan Benefits')
+                            ->helperText('Schemes are matched to your cart — Gold items → gold scheme, Silver → silver scheme, Cash → Digital/RD — and only those whose minimum value ≤ cart total.'),
+                        Placeholder::make('plan_benefits')->label('Scheme Benefits')
                             ->content(fn (Get $get) => self::planBenefits($get('plan_id'), self::totals($get('cart') ?? []))),
                     ]),
             ]),
@@ -255,7 +255,7 @@ class Sales extends Page implements HasForms
             return;
         }
         if (empty($data['plan_id'])) {
-            Notification::make()->title('Select a plan')->danger()->send();
+            Notification::make()->title('Select a scheme')->danger()->send();
 
             return;
         }
@@ -729,7 +729,7 @@ class Sales extends Page implements HasForms
     {
         $p = $planId ? Plan::find($planId) : null;
         if (! $p) {
-            return new HtmlString('<div style="color:#6b7280;padding:.5rem">Select a plan to see benefits.</div>');
+            return new HtmlString('<div style="color:#6b7280;padding:.5rem">Select a scheme to see benefits.</div>');
         }
 
         $gross = (float) $totals['gross'];
@@ -783,13 +783,13 @@ class Sales extends Page implements HasForms
         $cb = $card('CB Coupon', '₹' . Number::format($cbTotal, 2),
             $cbCount > 0
                 ? 'Cashback ' . $pctTxt($p->cbc_value) . '% · ₹' . Number::format($cbMonthly, 2) . '/month × ' . $cbCount . ' months'
-                : 'No cashback coupon on this plan',
+                : 'No cashback coupon on this scheme',
             '', '#16a34a');
 
-        $icCard = $card('IC Commission', '₹' . Number::format($icTotal, 2),
-            'Instant · paid one-time across up to ' . count(array_filter($ic)) . ' levels', $grid($ic), '#e6ad46');
+        $icCard = $card('Promotional Incentive (IC)', '₹' . Number::format($icTotal, 2),
+            'Instant · paid one-time across up to ' . count(array_filter($ic)) . ' placement layers', $grid($ic), '#e6ad46');
 
-        $lvlCard = $card('Level Commission', '₹' . Number::format($lvlTotal, 2),
+        $lvlCard = $card('Turnover-based Salary (GAP)', '₹' . Number::format($lvlTotal, 2),
             $lvlMonths > 0 ? 'Monthly · over ' . $lvlMonths . ' months' : 'Monthly recurring', $grid($lvl), '#0ea5e9');
 
         return new HtmlString('<div style="display:flex;flex-direction:column;gap:.6rem">' . $head . $cb . $icCard . $lvlCard . '</div>');

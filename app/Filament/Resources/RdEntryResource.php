@@ -39,7 +39,7 @@ class RdEntryResource extends BaseResource
             ->columns([
                 Tables\Columns\TextColumn::make('paid_on')->label('Date')->date()->sortable(),
                 Tables\Columns\TextColumn::make('bond_id')->label('Bond')->sortable(),
-                Tables\Columns\TextColumn::make('member.name')->label('Member')->searchable()
+                Tables\Columns\TextColumn::make('member.name')->label('Distributor')->searchable()
                     ->description(fn (RdEntry $r) => $r->member?->member_code),
                 Tables\Columns\TextColumn::make('due_count')->label('Due #')->badge()->sortable(),
                 Tables\Columns\TextColumn::make('value')->label('Amount')->baseMoney()->sortable()

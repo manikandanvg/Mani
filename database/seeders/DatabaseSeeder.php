@@ -68,14 +68,16 @@ class DatabaseSeeder extends Seeder
         }
 
         // --- Ranks (legacy tbl_tar_deapth). target_bv on TALUK is the entry-gate BV (₹50k);
-        // tier_template = the balanced-leg thresholds checked against the top-5 legs. ---
+        // tier_template = the balanced-leg thresholds checked against the top-5 legs.
+        // Display names follow the 2026-07 board/auditor terminology (Director → Admin,
+        // Member → Distributor); the internal codes are unchanged. ---
         $ranks = [
-            ['code' => 'MEMBER', 'name' => ['en' => 'Member', 'ta' => 'உறுப்பினர்'], 'depth' => 0, 'target_bv' => 0, 'tier_template' => null, 'sort' => 1],
-            ['code' => 'TALUK_DIRECTOR', 'name' => ['en' => 'Taluk Director'], 'depth' => 1, 'target_bv' => 50000, 'tier_template' => null, 'reward_amount' => 0, 'sort' => 2],
-            ['code' => 'DISTRICT_DIRECTOR', 'name' => ['en' => 'District Director'], 'depth' => 2, 'target_bv' => 1000000, 'tier_template' => [500000, 500000, 0, 0, 0], 'sort' => 3],
-            ['code' => 'ZONAL_DIRECTOR', 'name' => ['en' => 'Zonal Director'], 'depth' => 3, 'target_bv' => 6000000, 'tier_template' => [2500000, 2500000, 1000000, 0, 0], 'sort' => 4],
-            ['code' => 'STATE_DIRECTOR', 'name' => ['en' => 'State Director'], 'depth' => 4, 'target_bv' => 32500000, 'tier_template' => [12500000, 12500000, 5000000, 2500000, 0], 'sort' => 5],
-            ['code' => 'CORPORATE_DIRECTOR', 'name' => ['en' => 'Corporate Director'], 'depth' => 5, 'target_bv' => 137500000, 'tier_template' => [62500000, 62500000, 25000000, 12500000, 7500000], 'sort' => 6],
+            ['code' => 'MEMBER', 'name' => ['en' => 'Distributor', 'ta' => 'விநியோகஸ்தர்'], 'depth' => 0, 'target_bv' => 0, 'tier_template' => null, 'sort' => 1],
+            ['code' => 'TALUK_DIRECTOR', 'name' => ['en' => 'Taluk Admin'], 'depth' => 1, 'target_bv' => 50000, 'tier_template' => null, 'reward_amount' => 0, 'sort' => 2],
+            ['code' => 'DISTRICT_DIRECTOR', 'name' => ['en' => 'District Admin'], 'depth' => 2, 'target_bv' => 1000000, 'tier_template' => [500000, 500000, 0, 0, 0], 'sort' => 3],
+            ['code' => 'ZONAL_DIRECTOR', 'name' => ['en' => 'Zonal Admin'], 'depth' => 3, 'target_bv' => 6000000, 'tier_template' => [2500000, 2500000, 1000000, 0, 0], 'sort' => 4],
+            ['code' => 'STATE_DIRECTOR', 'name' => ['en' => 'State Admin'], 'depth' => 4, 'target_bv' => 32500000, 'tier_template' => [12500000, 12500000, 5000000, 2500000, 0], 'sort' => 5],
+            ['code' => 'CORPORATE_DIRECTOR', 'name' => ['en' => 'Corporate Admin'], 'depth' => 5, 'target_bv' => 137500000, 'tier_template' => [62500000, 62500000, 25000000, 12500000, 7500000], 'sort' => 6],
         ];
         foreach ($ranks as $r) {
             Rank::updateOrCreate(['code' => $r['code']], $r);

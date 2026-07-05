@@ -32,12 +32,15 @@ class MemberResource extends JsonResource
             ]),
             'bv' => (float) $this->bv,
             'gbv' => (float) $this->gbv,
+            // Payroll (2026-07): drives the app's Attendance/Payslip cards.
+            'is_employee' => (bool) ($this->employeeProfile && $this->employeeProfile->status === 'active'),
             'wallet' => $wallet ? [
                 'currency_code' => $wallet->currency_code ?: 'INR',
                 'cash_balance' => (float) $wallet->cash_balance,
                 'epin_balance' => (float) $wallet->epin_balance,
                 'coupon_balance' => (float) $wallet->coupon_balance,
                 'earning_total' => (float) $wallet->earning_total,
+                'digi_gold_grams' => (float) ($wallet->digi_gold_grams ?? 0),
             ] : null,
         ];
     }
