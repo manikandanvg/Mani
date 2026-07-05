@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\Device\LboxController;
 use App\Http\Controllers\Api\V1\AccountController;
 use App\Http\Controllers\Api\V1\AttendanceController;
 use App\Http\Controllers\Api\V1\Auth\OtpController;
@@ -13,6 +14,7 @@ use App\Http\Controllers\Api\V1\NotificationController;
 use App\Http\Controllers\Api\V1\OrderController;
 use App\Http\Controllers\Api\V1\ShopController;
 use App\Http\Controllers\Api\V1\SupportController;
+use App\Http\Controllers\Api\V1\WalletController;
 use App\Http\Controllers\Api\V1\WhatsappWebhookController;
 use App\Models\LiveRate;
 use Illuminate\Support\Facades\Route;
@@ -121,10 +123,32 @@ Route::prefix('v1')->group(function () {
         Route::get('member/leave-requests', [AttendanceController::class, 'leaves']);
         Route::post('member/leave-requests', [AttendanceController::class, 'storeLeave']);
 
+        // Closed-wallet withdrawal via the branch L-BOX static QR (no gateway).
+        Route::get('member/wallet/qr/{uuid}', [WalletController::class, 'resolveQr']);
+        Route::post('member/wallet/withdraw', [WalletController::class, 'withdraw']);
+        Route::get('member/wallet/withdrawals', [WalletController::class, 'withdrawals']);
+
         // Live & Learn (Phase 6a) — scheduled meetings (Zoom deep-link).
         Route::get('meetings', [MeetingController::class, 'index']);
 
         // Training library (Phase 6b) — browse public drive folders/files (member-only).
         Route::get('library', [LibraryController::class, 'index']);
+    });
+});
+
+/*
+| L-BOX device API — the smart branch box (internal-only hardware). Bearer token
+| issued at pairing; register itself is authed by serial + one-time pairing code.
+*/
+Route::prefix('device/v1')->group(function () {
+    Route::post('register', [LboxController::class, 'register']);
+
+    Route::middleware('auth:sanctum')->group(function () {
+        Route::post('heartbeat', [LboxController::class, 'heartbeat']);
+        Route::post('attendance', [LboxController::class, 'attendance']);
+        Route::get('announcements', [LboxController::class, 'announcements']);
+        Route::post('announcements/ack', [LboxController::class, 'ackAnnouncements']);
+        Route::get('ota/check', [LboxController::class, 'otaCheck']);
+        Route::get('ota/download/{firmware}', [LboxController::class, 'otaDownload']);
     });
 });

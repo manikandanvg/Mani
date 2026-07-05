@@ -66,6 +66,10 @@ class EmployeeResource extends BaseResource
                 Forms\Components\TextInput::make('geofence_radius_m')
                     ->label('Check-in geofence (metres)')->numeric()
                     ->helperText('Only allow app check-in within this distance of the branch map pin. Empty = anywhere (field staff).'),
+                Forms\Components\TextInput::make('rfid_tag')
+                    ->label('RFID card UID (L-BOX)')
+                    ->unique(ignoreRecord: true)
+                    ->helperText('Card UID for attendance taps at the branch L-BOX. Empty = app check-in only.'),
             ]),
         ]);
     }

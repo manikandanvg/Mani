@@ -21,7 +21,10 @@ class AttendanceService
     public function checkIn(EmployeeProfile $employee, array $geo = [], ?UploadedFile $selfie = null, string $source = 'app'): AttendanceRecord
     {
         $this->assertActive($employee);
-        $this->assertWithinGeofence($employee, $geo);
+        if ($source === 'app') {
+            // The L-BOX ('device') is bolted to the branch — geofence only guards the app.
+            $this->assertWithinGeofence($employee, $geo);
+        }
         $today = Carbon::today()->toDateString();
 
         $existing = AttendanceRecord::where('employee_profile_id', $employee->id)
