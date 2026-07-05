@@ -71,6 +71,11 @@ return [
         // instead of the real customer — so testing never messages real members.
         // Clear WHATSAPP_TEST_RECIPIENT in production .env to send to actual customers.
         'test_recipient' => env('WHATSAPP_TEST_RECIPIENT'),
+        // Inbound webhook (Phase 4c-2): shared secret the gateway must present
+        // (header X-Webhook-Token or ?token=). When set, requests without it are
+        // rejected. `verify_token` echoes a Meta-style subscription challenge.
+        'webhook_token' => env('WHATSAPP_WEBHOOK_TOKEN'),
+        'verify_token' => env('WHATSAPP_VERIFY_TOKEN'),
     ],
 
     // Foreign-exchange rates. driver: open_er_api (free, keyless) | manual (no auto-fetch).

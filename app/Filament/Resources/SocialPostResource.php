@@ -23,59 +23,57 @@ class SocialPostResource extends BaseResource
 
     protected static ?string $navigationGroup = 'Community';
 
+    protected static ?string $navigationLabel = 'Announcements';
+
     protected static ?string $navigationIcon = 'heroicon-o-megaphone';
 
     public static function form(Form $form): Form
     {
         return $form
             ->schema([
-                Forms\Components\TextInput::make('author_id')
-                    ->required()
-                    ->numeric(),
-                Forms\Components\Textarea::make('body')
+                // The post is authored by the current HQ user; hidden + auto-filled.
+                Forms\Components\Hidden::make('author_id')->default(fn () => auth()->id()),
+                Forms\Components\TextInput::make('title')
+                    ->maxLength(255)
+                    ->placeholder('Headline (optional)')
                     ->columnSpanFull(),
-                Forms\Components\TextInput::make('visibility')
-                    ->required(),
-                Forms\Components\TextInput::make('like_count')
+                Forms\Components\Textarea::make('body')
                     ->required()
-                    ->numeric()
-                    ->default(0),
-                Forms\Components\TextInput::make('comment_count')
-                    ->required()
-                    ->numeric()
-                    ->default(0),
+                    ->rows(5)
+                    ->columnSpanFull(),
+                Forms\Components\Section::make()->columns(3)->schema([
+                    Forms\Components\Select::make('visibility')
+                        ->options(['public' => 'Everyone', 'members' => 'Members only', 'private' => 'Private'])
+                        ->default('members')
+                        ->required(),
+                    Forms\Components\Toggle::make('pinned')->default(false),
+                    Forms\Components\DateTimePicker::make('published_at')
+                        ->label('Publish at')
+                        ->helperText('Leave empty to publish now.'),
+                ]),
             ]);
     }
 
     public static function table(Table $table): Table
     {
         return $table
+            ->defaultSort('created_at', 'desc')
             ->columns([
-                Tables\Columns\TextColumn::make('author_id')
-                    ->numeric()
-                    ->sortable(),
-                Tables\Columns\TextColumn::make('visibility'),
-                Tables\Columns\TextColumn::make('like_count')
-                    ->numeric()
-                    ->sortable(),
-                Tables\Columns\TextColumn::make('comment_count')
-                    ->numeric()
-                    ->sortable(),
+                Tables\Columns\IconColumn::make('pinned')->boolean(),
+                Tables\Columns\TextColumn::make('title')->limit(40)->placeholder('—')->wrap(),
+                Tables\Columns\TextColumn::make('body')->limit(50)->wrap()->toggleable(),
+                Tables\Columns\TextColumn::make('visibility')->badge(),
+                Tables\Columns\TextColumn::make('reactions_count')->counts('reactions')->label('Likes'),
+                Tables\Columns\TextColumn::make('app_comments_count')->counts('appComments')->label('Comments'),
+                Tables\Columns\TextColumn::make('published_at')->dateTime()->placeholder('Now')->sortable(),
                 Tables\Columns\TextColumn::make('created_at')
-                    ->dateTime()
-                    ->sortable()
-                    ->toggleable(isToggledHiddenByDefault: true),
-                Tables\Columns\TextColumn::make('updated_at')
-                    ->dateTime()
-                    ->sortable()
-                    ->toggleable(isToggledHiddenByDefault: true),
-                Tables\Columns\TextColumn::make('deleted_at')
                     ->dateTime()
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
-                //
+                Tables\Filters\SelectFilter::make('visibility')
+                    ->options(['public' => 'Everyone', 'members' => 'Members only', 'private' => 'Private']),
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),
