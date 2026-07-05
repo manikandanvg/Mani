@@ -118,6 +118,8 @@ Route::prefix('v1')->group(function () {
         Route::post('member/attendance/check-in', [AttendanceController::class, 'checkIn']);
         Route::post('member/attendance/check-out', [AttendanceController::class, 'checkOut']);
         Route::get('member/payslips', [AttendanceController::class, 'payslips']);
+        Route::get('member/leave-requests', [AttendanceController::class, 'leaves']);
+        Route::post('member/leave-requests', [AttendanceController::class, 'storeLeave']);
 
         // Live & Learn (Phase 6a) — scheduled meetings (Zoom deep-link).
         Route::get('meetings', [MeetingController::class, 'index']);

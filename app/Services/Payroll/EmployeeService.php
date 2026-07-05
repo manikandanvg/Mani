@@ -45,16 +45,35 @@ class EmployeeService
     }
 
     /**
-     * Enrol every active member holding a TBP stage who is not yet an employee.
+     * Auto-enrol hook fired on rank promotion. Quiet variant of enroll(): only ever
+     * CREATES a profile — a soft-deleted one stays deleted (HQ removed that employee
+     * deliberately; a re-promotion must not silently rehire them).
+     */
+    public function autoEnroll(int $memberId): ?EmployeeProfile
+    {
+        if (EmployeeProfile::withTrashed()->where('member_id', $memberId)->exists()) {
+            return null;
+        }
+
+        $member = Member::with('rank')->find($memberId);
+        if (! $member || $member->status !== 'active' || ! $member->rank || (int) $member->rank->depth < 1) {
+            return null;
+        }
+
+        return $this->enroll($member);
+    }
+
+    /**
+     * Enrol every active member holding a TBP stage who has never been an employee.
      * Returns the number of new enrolments. Existing profiles are left untouched
-     * (salary overrides survive re-syncs).
+     * (salary overrides survive re-syncs) and removed employees stay removed.
      */
     public function syncFromRanks(): int
     {
         $eligible = Member::query()
             ->where('status', 'active')
             ->whereHas('rank', fn ($q) => $q->where('depth', '>=', 1))
-            ->whereDoesntHave('employeeProfile')
+            ->whereDoesntHave('employeeProfile', fn ($q) => $q->withTrashed())
             ->with('rank')
             ->get();
 

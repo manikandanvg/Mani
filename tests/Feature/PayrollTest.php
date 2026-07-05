@@ -66,6 +66,42 @@ class PayrollTest extends TestCase
         app(EmployeeService::class)->enroll($plain);
     }
 
+    public function test_rank_promotion_auto_enrols_but_never_rehires_a_removed_employee(): void
+    {
+        $base = Rank::create(['code' => 'MEMBER', 'name' => ['en' => 'Distributor'], 'depth' => 0, 'target_bv' => 0]);
+        $mkMember = fn (string $code, ?int $uplineId = null) => Member::create([
+            'member_code' => $code, 'name' => "M {$code}", 'phone' => '90001' . rand(10000, 99999),
+            'joined_on' => now(), 'placement' => 'level', 'rank_id' => $base->id, 'status' => 'active',
+            'upline_id' => $uplineId, 'unpure_bv' => 60000,
+        ]);
+
+        // Entry gate: own unpure_bv ≥ 50k AND one direct downline ≥ 50k.
+        $senior = $mkMember('AUTO1');
+        $mkMember('AUTO2', $senior->id);
+
+        app(\App\Services\NetworkService::class)->evaluateRank($senior->id);
+
+        $senior->refresh();
+        $this->assertSame($this->stage->id, $senior->rank_id);
+        $profile = $senior->employeeProfile;
+        $this->assertNotNull($profile, 'Promotion onto a TBP stage must auto-enrol the member.');
+        $this->assertSame('EMP-AUTO1', $profile->employee_code);
+        $this->assertSame(20000.0, (float) $profile->monthly_salary);
+
+        // HQ removes the employee — a later re-promotion must NOT silently rehire.
+        $profile->delete();
+        app(\App\Services\NetworkService::class)->evaluateRank($senior->id);
+        $this->assertNull($senior->fresh()->employeeProfile);
+
+        // Batch recompute enrols fresh promotions but leaves the removed one removed.
+        $other = $mkMember('AUTO3');
+        $mkMember('AUTO4', $other->id);
+        app(\App\Services\NetworkService::class)->recomputeRanks();
+
+        $this->assertNull($senior->fresh()->employeeProfile);
+        $this->assertNotNull($other->fresh()->employeeProfile, 'Batch rank recompute must enrol new stage holders.');
+    }
+
     public function test_run_prorates_salary_from_attendance_and_applies_pf_esi_tds(): void
     {
         $member = $this->makeEmployee();

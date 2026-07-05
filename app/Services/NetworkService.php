@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Member;
 use App\Models\Plan;
 use App\Models\Rank;
+use App\Services\Payroll\EmployeeService;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -224,6 +225,9 @@ class NetworkService
                 DB::table('members')->whereIn('id', $chunk)->update(['rank_id' => $rankId]);
             }
         }
+
+        // Payroll mandate: anyone now holding a TBP stage becomes an employee.
+        app(EmployeeService::class)->syncFromRanks();
     }
 
     /**
@@ -253,6 +257,11 @@ class NetworkService
         $depth = $this->computeDepth((float) $m->unpure_bv, $legs, $directQualified);
         $rankId = $cfg['byDepth']->get($depth)?->id ?? $cfg['memberRankId'];
         DB::table('members')->where('id', $memberId)->update(['rank_id' => $rankId]);
+
+        // Payroll mandate: promotion onto a TBP stage auto-enrols the member as an employee.
+        if ($depth >= 1) {
+            app(EmployeeService::class)->autoEnroll($memberId);
+        }
     }
 
     /**

@@ -5,9 +5,11 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\AttendanceRecord;
 use App\Models\EmployeeProfile;
+use App\Models\LeaveRequest;
 use App\Models\Member;
 use App\Models\Payslip;
 use App\Services\Payroll\AttendanceService;
+use App\Services\Payroll\LeaveService;
 use App\Services\Payroll\PayslipPdf;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -103,6 +105,39 @@ class AttendanceController extends Controller
         return response()->json(['ok' => true, 'record' => $this->present($record)]);
     }
 
+    /** GET /member/leave-requests — the employee's requests, newest first. */
+    public function leaves(Request $request): JsonResponse
+    {
+        $employee = $this->employee($request);
+
+        $requests = LeaveRequest::where('employee_profile_id', $employee->id)
+            ->orderByDesc('id')->limit(50)->get();
+
+        return response()->json([
+            'data' => $requests->map(fn (LeaveRequest $r) => $this->presentLeave($r)),
+        ]);
+    }
+
+    /** POST /member/leave-requests — from, to (Y-m-d), reason. HQ decides paid vs unpaid. */
+    public function storeLeave(Request $request): JsonResponse
+    {
+        $employee = $this->employee($request);
+
+        $data = $request->validate([
+            'from' => ['required', 'date_format:Y-m-d'],
+            'to' => ['required', 'date_format:Y-m-d'],
+            'reason' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        try {
+            $leave = app(LeaveService::class)->request($employee, $data['from'], $data['to'], $data['reason'] ?? null);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        return response()->json(['ok' => true, 'request' => $this->presentLeave($leave)], 201);
+    }
+
     /** GET /member/payslips — newest first, each with a short-lived signed PDF link. */
     public function payslips(Request $request): JsonResponse
     {
@@ -145,6 +180,21 @@ class AttendanceController extends Controller
             ->firstOrFail();
 
         return app(PayslipPdf::class)->stream($payslip);
+    }
+
+    protected function presentLeave(LeaveRequest $r): array
+    {
+        return [
+            'id' => $r->id,
+            'from' => $r->start_date->toDateString(),
+            'to' => $r->end_date->toDateString(),
+            'days' => $r->days(),
+            'reason' => $r->reason,
+            'status' => $r->status,
+            'approved_type' => $r->approved_type,
+            'admin_note' => $r->admin_note,
+            'requested_at' => $r->created_at->toIso8601String(),
+        ];
     }
 
     protected function present(AttendanceRecord $r): array
