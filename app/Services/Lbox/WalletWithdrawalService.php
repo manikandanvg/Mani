@@ -65,10 +65,11 @@ class WalletWithdrawalService
                 'status' => 'pending',
             ]);
 
-            $this->announcements->queue($device, 'withdrawal', sprintf(
-                'Rupees %s received from %s. Please disburse at the counter.',
-                number_format($amount, 0), $member->name,
-            ), [
+            $line = ($device->language ?? 'en') === 'ta'
+                ? sprintf('ரூபாய் %s, %s அவர்களிடமிருந்து பெறப்பட்டது. கவுண்டரில் வழங்கவும்.', number_format($amount, 0), $member->name)
+                : sprintf('Rupees %s received from %s. Please disburse at the counter.', number_format($amount, 0), $member->name);
+
+            $this->announcements->queue($device, 'withdrawal', $line, [
                 'withdrawal_id' => $withdrawal->id,
                 'amount' => $amount,
                 'member_code' => $member->member_code,

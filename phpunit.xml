@@ -36,5 +36,7 @@
         <env name="PAN_DRIVER" value="fake"/>
         <env name="TRANSLATE_DRIVER" value="echo"/>
         <env name="EXCHANGE_DRIVER" value="manual"/>
+        <env name="LBOX_TTS_ENABLED" value="false"/>
+        <env name="LBOX_STT_ENABLED" value="false"/>
     </php>
 </phpunit>

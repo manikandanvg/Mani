@@ -150,5 +150,7 @@ Route::prefix('device/v1')->group(function () {
         Route::post('announcements/ack', [LboxController::class, 'ackAnnouncements']);
         Route::get('ota/check', [LboxController::class, 'otaCheck']);
         Route::get('ota/download/{firmware}', [LboxController::class, 'otaDownload']);
+        Route::post('ai/ask', [LboxController::class, 'aiAsk']);
+        Route::post('ai/voice', [LboxController::class, 'aiVoice']);
     });
 });

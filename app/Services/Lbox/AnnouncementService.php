@@ -14,6 +14,10 @@ use Illuminate\Support\Collection;
  */
 class AnnouncementService
 {
+    public function __construct(protected VoiceRenderService $voice)
+    {
+    }
+
     /** Queue a line on every ACTIVE box of a branch. Returns how many boxes got it. */
     public function queueForBranch(?int $branchId, string $type, string $message, array $payload = []): int
     {
@@ -36,15 +40,23 @@ class AnnouncementService
             'type' => $type,
             'message' => $message,
             'payload' => $payload ?: null,
+            'audio_path' => $this->voice->render($message, $device->language ?? 'en'),
             'status' => 'pending',
         ]);
     }
 
-    /** Device poll: oldest pending lines, marked delivered. */
+    /**
+     * Device poll: oldest pending lines, marked delivered. Lines delivered over a
+     * minute ago but never ACKed re-deliver — a box that dies mid-speak (power cut,
+     * crash) gets the line again instead of silently losing it.
+     */
     public function pull(Device $device, int $limit = 5): Collection
     {
         $pending = $device->announcements()
-            ->where('status', 'pending')
+            ->where(fn ($q) => $q
+                ->where('status', 'pending')
+                ->orWhere(fn ($q2) => $q2->where('status', 'delivered')
+                    ->where('delivered_at', '<', Carbon::now()->subMinute())))
             ->orderBy('id')
             ->limit($limit)
             ->get();

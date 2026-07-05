@@ -47,6 +47,10 @@ class DeviceResource extends BaseResource
                 Forms\Components\Select::make('board_type')->label('Board')
                     ->options(['lite' => 'Lite (ESP32, Wi-Fi)', 'pro' => 'Pro (TTGO, 4G + GPS)'])
                     ->default('lite')->required(),
+                Forms\Components\Select::make('language')->label('Spoken language')
+                    ->options(['en' => 'English', 'ta' => 'Tamil (தமிழ்)'])
+                    ->default('en')->required()
+                    ->helperText('Voice announcements and tap replies are spoken in this language.'),
                 Forms\Components\Select::make('branch_id')->label('Branch')
                     ->options(fn () => Branch::orderBy('name')->pluck('name', 'id'))
                     ->searchable()
@@ -120,6 +124,13 @@ class DeviceResource extends BaseResource
                         Notification::make()->title('Queued — the box speaks it on its next poll')->success()->send();
                     }),
             ]);
+    }
+
+    public static function getRelations(): array
+    {
+        return [
+            \App\Filament\Resources\DeviceResource\RelationManagers\AnnouncementsRelationManager::class,
+        ];
     }
 
     public static function getPages(): array

@@ -1,0 +1,119 @@
+<?php
+
+namespace App\Services\Lbox;
+
+use App\Models\Device;
+use App\Models\LiveRate;
+use Illuminate\Support\Carbon;
+
+/**
+ * "Hello L-BOX" Tier-1 brain: keyword intents answered from REAL business data
+ * (live rates, branch, clock) in the device's language — free, instant, and
+ * incapable of hallucinating a wrong gold rate at a jewellery counter. Anything
+ * unmatched gets a polite fallback (Tier-2 LLM hook can slot in there later).
+ * Every answer is TTS-rendered through the same voice pipeline the box streams.
+ */
+class AssistantService
+{
+    public function __construct(protected VoiceRenderService $voice)
+    {
+    }
+
+    /** @return array{intent: string, answer: string, audio_path: ?string} */
+    public function ask(Device $device, string $text): array
+    {
+        $lang = $device->language ?? 'en';
+        $q = mb_strtolower(trim($text));
+
+        [$intent, $answer] = $this->answer($device, $q, $lang);
+
+        return [
+            'intent' => $intent,
+            'answer' => $answer,
+            'audio_path' => $this->voice->render($answer, $lang),
+        ];
+    }
+
+    /** @return array{0: string, 1: string} [intent, answer] */
+    protected function answer(Device $device, string $q, string $lang): array
+    {
+        $rate = LiveRate::latestFor($device->branch?->country ?: 'IN');
+        $ta = $lang === 'ta';
+
+        $hasGold = $this->hits($q, ['gold', 'தங்கம்', 'தங்க']);
+        $hasSilver = $this->hits($q, ['silver', 'வெள்ளி']);
+        $hasDiamond = $this->hits($q, ['diamond', 'வைரம்', 'வைர']);
+        $asksRate = $hasGold || $hasSilver || $hasDiamond || $this->hits($q, ['rate', 'price', 'விலை', 'ரேட்']);
+
+        if ($asksRate && ! $rate) {
+            return ['rate_unavailable', $ta
+                ? 'மன்னிக்கவும், இன்றைய விலை இப்போது கிடைக்கவில்லை. கவுண்டரில் கேளுங்கள்.'
+                : 'Sorry, today\'s rate is not available right now. Please ask at the counter.'];
+        }
+
+        if ($hasGold) {
+            return ['gold_rate', $ta
+                ? sprintf('இன்றைய தங்கம் விலை ஒரு கிராமுக்கு ரூபாய் %s.', number_format((float) $rate->gold, 2))
+                : sprintf('Today\'s gold rate is rupees %s per gram.', number_format((float) $rate->gold, 2))];
+        }
+        if ($hasSilver) {
+            return ['silver_rate', $ta
+                ? sprintf('இன்றைய வெள்ளி விலை ஒரு கிராமுக்கு ரூபாய் %s.', number_format((float) $rate->silver, 2))
+                : sprintf('Today\'s silver rate is rupees %s per gram.', number_format((float) $rate->silver, 2))];
+        }
+        if ($hasDiamond) {
+            return ['diamond_rate', $ta
+                ? sprintf('இன்றைய வைர விலை ரூபாய் %s.', number_format((float) $rate->diamond, 2))
+                : sprintf('Today\'s diamond rate is rupees %s.', number_format((float) $rate->diamond, 2))];
+        }
+        if ($asksRate) {
+            return ['rates', $ta
+                ? sprintf('இன்றைய விலை: தங்கம் கிராமுக்கு ரூபாய் %s, வெள்ளி கிராமுக்கு ரூபாய் %s.',
+                    number_format((float) $rate->gold, 2), number_format((float) $rate->silver, 2))
+                : sprintf('Today\'s rates: gold rupees %s per gram, silver rupees %s per gram.',
+                    number_format((float) $rate->gold, 2), number_format((float) $rate->silver, 2))];
+        }
+
+        if ($this->hits($q, ['time', 'date', 'day', 'நேரம்', 'மணி', 'தேதி', 'நாள்'])) {
+            $now = Carbon::now();
+
+            return ['datetime', $ta
+                ? sprintf('இன்று %s, நேரம் %s.', $now->translatedFormat('j F Y'), $now->format('g:i'))
+                : sprintf('Today is %s and the time is %s.', $now->format('l, jS F Y'), $now->format('g:i A'))];
+        }
+
+        if ($this->hits($q, ['branch', 'shop', 'store', 'address', 'கிளை', 'கடை', 'முகவரி'])) {
+            $name = $device->branch?->name ?? 'LORD Jeweller';
+
+            return ['branch', $ta
+                ? sprintf('இது லார்ட் ஜுவல்லர், %s கிளை. உங்களை வரவேற்கிறோம்!', $name)
+                : sprintf('This is LORD Jeweller, %s branch. Welcome!', $name)];
+        }
+
+        if ($this->hits($q, ['hello', 'hi ', 'vanakkam', 'வணக்கம்', 'ஹலோ'])) {
+            return ['greeting', $ta
+                ? 'வணக்கம்! தங்கம், வெள்ளி விலை, நேரம், கிளை விவரங்கள் கேளுங்கள்.'
+                : 'Hello! Ask me about gold and silver rates, the time, or this branch.'];
+        }
+
+        if ($this->hits($q, ['thank', 'நன்றி'])) {
+            return ['thanks', $ta ? 'நன்றி! மீண்டும் வருக.' : 'You are welcome. Visit again!'];
+        }
+
+        // Tier-2 hook: an LLM (Ollama/Claude) could take over here later.
+        return ['fallback', $ta
+            ? 'மன்னிக்கவும், அது எனக்குத் தெரியவில்லை. தங்கம், வெள்ளி விலை, நேரம், கிளை விவரங்கள் கேட்கலாம்.'
+            : 'Sorry, I do not know that yet. You can ask about gold and silver rates, the time, or this branch.'];
+    }
+
+    protected function hits(string $q, array $keywords): bool
+    {
+        foreach ($keywords as $k) {
+            if (mb_stripos($q, $k) !== false) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+}

@@ -188,6 +188,42 @@ class LboxDeviceApiTest extends TestCase
         $this->getJson('/api/device/v1/ota/check')->assertOk()->assertJsonPath('update', null);
     }
 
+    public function test_assistant_answers_rate_questions_from_live_data_in_the_device_language(): void
+    {
+        $this->activateDevice();
+        \App\Models\LiveRate::create([
+            'country' => 'IN', 'gold' => 7250.50, 'silver' => 95.25, 'diamond' => 0,
+            'effective_at' => now(),
+        ]);
+        // latestFor() memoizes per process — read the value the assistant will see.
+        $gold = number_format((float) \App\Models\LiveRate::latestFor('IN')->gold, 2);
+
+        Sanctum::actingAs($this->device, ['*']);
+
+        // English device
+        $res = $this->postJson('/api/device/v1/ai/ask', ['text' => 'What is the gold rate today?'])
+            ->assertOk()->assertJsonPath('intent', 'gold_rate');
+        $this->assertStringContainsString($gold, $res->json('answer'));
+
+        $this->postJson('/api/device/v1/ai/ask', ['text' => 'silver price?'])
+            ->assertOk()->assertJsonPath('intent', 'silver_rate');
+
+        // Tamil device answers in Tamil
+        $this->device->update(['language' => 'ta']);
+        $ta = $this->postJson('/api/device/v1/ai/ask', ['text' => 'இன்று தங்கம் விலை என்ன?'])
+            ->assertOk()->assertJsonPath('intent', 'gold_rate');
+        $this->assertStringContainsString('தங்கம்', $ta->json('answer'));
+
+        // unmatched → polite fallback (Tier-2 LLM hook point)
+        $this->postJson('/api/device/v1/ai/ask', ['text' => 'sing me a song'])
+            ->assertOk()->assertJsonPath('intent', 'fallback');
+
+        // STT disabled in tests → voice endpoint refuses gracefully
+        $this->postJson('/api/device/v1/ai/voice', [
+            'audio' => \Illuminate\Http\UploadedFile::fake()->create('q.wav', 10),
+        ])->assertStatus(422);
+    }
+
     protected function activateDevice(array $extra = []): void
     {
         $this->device->update(['status' => 'active', 'pairing_code' => null, 'registered_at' => now()] + $extra);

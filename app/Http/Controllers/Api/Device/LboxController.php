@@ -90,7 +90,11 @@ class LboxController extends Controller
 
         $result = $taps->tap($device, $data['tag_uid']);
 
-        return response()->json(['ok' => true] + $result);
+        // Spoken form of the result (cached per line — "Welcome X" renders once).
+        $audio = app(\App\Services\Lbox\VoiceRenderService::class)
+            ->render($result['message'], $device->language ?? 'en');
+
+        return response()->json(['ok' => true, 'audio_url' => $this->audioUrl($audio)] + $result);
     }
 
     /** GET announcements — oldest pending lines (marked delivered). Poll every few seconds. */
@@ -106,6 +110,7 @@ class LboxController extends Controller
                 'type' => $a->type,
                 'message' => $a->message,
                 'payload' => $a->payload,
+                'audio_url' => $this->audioUrl($a->audio_path),
             ])->values(),
         ]);
     }
@@ -121,6 +126,52 @@ class LboxController extends Controller
         ]);
 
         return response()->json(['ok' => true, 'acked' => $this->announcements->ack($device, $data['ids'])]);
+    }
+
+    /** POST ai/ask — {text}. Tier-1 intent answers from live business data. */
+    public function aiAsk(Request $request, \App\Services\Lbox\AssistantService $assistant): JsonResponse
+    {
+        $device = $this->device($request);
+
+        $data = $request->validate(['text' => ['required', 'string', 'max:500']]);
+
+        $reply = $assistant->ask($device, $data['text']);
+
+        return response()->json([
+            'ok' => true,
+            'intent' => $reply['intent'],
+            'answer' => $reply['answer'],
+            'audio_url' => $this->audioUrl($reply['audio_path']),
+        ]);
+    }
+
+    /** POST ai/voice — multipart {audio: wav}. Whisper transcribes, then Tier-1 answers. */
+    public function aiVoice(
+        Request $request,
+        \App\Services\Lbox\SttService $stt,
+        \App\Services\Lbox\AssistantService $assistant,
+    ): JsonResponse {
+        $device = $this->device($request);
+
+        $request->validate(['audio' => ['required', 'file', 'max:10240']]);
+
+        $path = $request->file('audio')->store('lbox-stt-inbox');
+        $transcript = $stt->transcribe(Storage::path($path), $device->language ?? null);
+        Storage::delete($path);
+
+        if (! $transcript) {
+            return response()->json(['message' => 'Could not understand the audio.'], 422);
+        }
+
+        $reply = $assistant->ask($device, $transcript);
+
+        return response()->json([
+            'ok' => true,
+            'transcript' => $transcript,
+            'intent' => $reply['intent'],
+            'answer' => $reply['answer'],
+            'audio_url' => $this->audioUrl($reply['audio_path']),
+        ]);
     }
 
     /** GET ota/check — newer active firmware for this board, if any. */
@@ -154,6 +205,12 @@ class LboxController extends Controller
         abort_unless(Storage::disk('local')->exists($fw->path), 404, 'Firmware binary missing.');
 
         return Storage::disk('local')->download($fw->path, "lbox-{$fw->board_type}-{$fw->version}.bin");
+    }
+
+    /** Absolute URL for a rendered voice WAV on the public disk (null-safe). */
+    protected function audioUrl(?string $path): ?string
+    {
+        return $path ? Storage::disk(\App\Services\Lbox\VoiceRenderService::DISK)->url($path) : null;
     }
 
     /** Resolve the authenticated Device, or 403 (member/customer tokens don't belong here). */
