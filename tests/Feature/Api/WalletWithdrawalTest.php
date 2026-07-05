@@ -37,6 +37,12 @@ class WalletWithdrawalTest extends TestCase
             'branch_id' => $this->branch->id, 'status' => 'active', 'pairing_code' => null,
         ]);
 
+        // The branch must have OPENED today (incharge RFID tap) for withdrawals.
+        \App\Models\BranchAttendance::create([
+            'branch_id' => $this->branch->id, 'date' => now()->toDateString(),
+            'device_id' => $this->device->id, 'opened_at' => now(),
+        ]);
+
         $rank = Rank::create(['code' => 'MEMBER', 'name' => ['en' => 'Distributor'], 'depth' => 0, 'target_bv' => 0]);
         $this->member = Member::create([
             'member_code' => 'WD1', 'name' => 'Withdrawer', 'phone' => '9000000080',
@@ -120,6 +126,29 @@ class WalletWithdrawalTest extends TestCase
         $this->assertSame(3000.0, (float) $wallet->withdrawn_total);   // only the disbursed one counts
 
         $this->assertSame(2, WalletWithdrawal::count());
+    }
+
+    public function test_withdrawals_blocked_when_branch_not_opened_or_box_displaced(): void
+    {
+        Sanctum::actingAs($this->member, ['*']);
+
+        // branch not opened today → offline
+        \App\Models\BranchAttendance::query()->delete();
+        $this->postJson('/api/v1/member/wallet/withdraw', [
+            'device_uuid' => $this->device->uuid, 'amount' => 100,
+        ])->assertStatus(422);
+
+        // reopen, but the box was MOVED from its anchor → offline
+        \App\Models\BranchAttendance::create([
+            'branch_id' => $this->branch->id, 'date' => now()->toDateString(), 'opened_at' => now(),
+        ]);
+        $this->device->update(['is_displaced' => true]);
+        $res = $this->postJson('/api/v1/member/wallet/withdraw', [
+            'device_uuid' => $this->device->uuid, 'amount' => 100,
+        ])->assertStatus(422);
+        $this->assertStringContainsString('moved', $res->json('message'));
+
+        $this->assertSame(10000.0, (float) MemberWallet::find($this->member->id)->cash_balance);
     }
 
     public function test_withdrawal_to_a_box_without_branch_or_inactive_box_is_refused(): void

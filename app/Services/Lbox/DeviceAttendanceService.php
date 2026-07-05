@@ -3,6 +3,7 @@
 namespace App\Services\Lbox;
 
 use App\Models\AttendanceRecord;
+use App\Models\BranchAttendance;
 use App\Models\Device;
 use App\Models\EmployeeProfile;
 use App\Services\Payroll\AttendanceService;
@@ -43,7 +44,9 @@ class DeviceAttendanceService
             ->first();
 
         if (! $today || ! $today->check_in_at) {
-            $this->attendance->checkIn($employee, [], null, 'device');
+            $record = $this->attendance->checkIn($employee, [], null, 'device');
+            $record->update(['device_id' => $device->id]);   // which box the tap happened at
+            $this->openBranch($device, $employee);
 
             return ['result' => 'checked_in', 'message' => $this->say($lang, 'checked_in', $name), 'employee' => $name];
         }
@@ -53,11 +56,41 @@ class DeviceAttendanceService
                 return ['result' => 'duplicate', 'message' => $this->say($lang, 'duplicate', $name), 'employee' => $name];
             }
             $this->attendance->checkOut($employee);
+            $this->closeBranch($device, $employee);
 
             return ['result' => 'checked_out', 'message' => $this->say($lang, 'checked_out', $name), 'employee' => $name];
         }
 
         return ['result' => 'day_complete', 'message' => $this->say($lang, 'day_complete', $name), 'employee' => $name];
+    }
+
+    /** First tap of the day at this box = the branch OPENS (goes online). */
+    protected function openBranch(Device $device, EmployeeProfile $employee): void
+    {
+        if (! $device->branch_id) {
+            return;
+        }
+
+        $day = BranchAttendance::firstOrCreate(
+            ['branch_id' => $device->branch_id, 'date' => Carbon::today()->toDateString()],
+            ['device_id' => $device->id],
+        );
+
+        if (! $day->opened_at) {
+            $day->update(['opened_at' => Carbon::now(), 'opened_by' => $employee->id]);
+        }
+    }
+
+    /** Check-out taps stamp/refresh the closing time — the LAST one wins. */
+    protected function closeBranch(Device $device, EmployeeProfile $employee): void
+    {
+        if (! $device->branch_id) {
+            return;
+        }
+
+        BranchAttendance::where('branch_id', $device->branch_id)
+            ->whereDate('date', Carbon::today()->toDateString())
+            ->update(['closed_at' => Carbon::now(), 'closed_by' => $employee->id]);
     }
 
     protected function say(string $lang, string $key, string $name = ''): string

@@ -188,6 +188,62 @@ class LboxDeviceApiTest extends TestCase
         $this->getJson('/api/device/v1/ota/check')->assertOk()->assertJsonPath('update', null);
     }
 
+    public function test_first_gps_fix_anchors_the_box_and_saves_the_branch_location_and_movement_displaces(): void
+    {
+        $this->activateDevice();
+        Sanctum::actingAs($this->device, ['*']);
+
+        // installation fix → anchor + branch location saved
+        $this->postJson('/api/device/v1/heartbeat', ['lat' => 9.4535168, 'lng' => 77.5521164])->assertOk();
+        $fresh = $this->device->fresh();
+        $this->assertSame(9.4535168, (float) $fresh->anchor_lat);
+        $this->assertFalse((bool) $fresh->is_displaced);
+        $this->assertSame(9.4535168, (float) $this->branch->fresh()->latitude);
+
+        // ~1.1km away → DISPLACED (branch treated offline)
+        $this->postJson('/api/device/v1/heartbeat', ['lat' => 9.4635168, 'lng' => 77.5521164])->assertOk();
+        $this->assertTrue((bool) $this->device->fresh()->is_displaced);
+
+        // back home → clears automatically
+        $this->postJson('/api/device/v1/heartbeat', ['lat' => 9.4535200, 'lng' => 77.5521100])->assertOk();
+        $this->assertFalse((bool) $this->device->fresh()->is_displaced);
+
+        // HQ-approved relocation: re-anchor forgets home; the next fix re-anchors
+        app(\App\Services\Lbox\DeviceService::class)->reAnchor($this->device->fresh());
+        $this->postJson('/api/device/v1/heartbeat', ['lat' => 10.0, 'lng' => 78.0])->assertOk();
+        $moved = $this->device->fresh();
+        $this->assertSame(10.0, (float) $moved->anchor_lat);
+        $this->assertFalse((bool) $moved->is_displaced);
+    }
+
+    public function test_rfid_taps_write_the_branch_opening_and_closing_register(): void
+    {
+        $this->activateDevice();
+        $employee = $this->makeEmployee('TAGBR01');
+        Sanctum::actingAs($this->device, ['*']);
+
+        $this->assertFalse(\App\Models\BranchAttendance::isOpenToday($this->branch->id));
+
+        // morning tap → branch OPENS
+        $this->postJson('/api/device/v1/attendance', ['tag_uid' => 'TAGBR01'])->assertOk();
+        $day = \App\Models\BranchAttendance::firstOrFail();
+        $this->assertTrue(\App\Models\BranchAttendance::isOpenToday($this->branch->id));
+        $this->assertNotNull($day->opened_at);
+        $this->assertSame($employee->employeeProfile->id, (int) $day->opened_by);
+        $this->assertNull($day->closed_at);
+
+        // the tap recorded WHICH box it happened at
+        $this->assertSame($this->device->id, (int) AttendanceRecord::firstOrFail()->device_id);
+
+        // evening check-out tap → closing time stamped
+        AttendanceRecord::query()->update(['check_in_at' => now()->subHours(9)]);
+        $this->postJson('/api/device/v1/attendance', ['tag_uid' => 'TAGBR01'])->assertOk()
+            ->assertJsonPath('result', 'checked_out');
+        $day->refresh();
+        $this->assertNotNull($day->closed_at);
+        $this->assertSame($employee->employeeProfile->id, (int) $day->closed_by);
+    }
+
     public function test_assistant_answers_rate_questions_from_live_data_in_the_device_language(): void
     {
         $this->activateDevice();

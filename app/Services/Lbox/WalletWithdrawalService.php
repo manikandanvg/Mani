@@ -31,6 +31,14 @@ class WalletWithdrawalService
             throw new \RuntimeException('This QR does not belong to an active branch L-BOX.');
         }
 
+        // Branch-offline controls: a moved box or an unopened branch takes no money.
+        if ($device->is_displaced) {
+            throw new \RuntimeException('This L-BOX has been moved from its branch — withdrawals are suspended. Contact Head Office.');
+        }
+        if (! \App\Models\BranchAttendance::isOpenToday($device->branch_id)) {
+            throw new \RuntimeException('This branch has not opened today — withdrawals resume once the incharge checks in at the L-BOX.');
+        }
+
         return $device;
     }
 

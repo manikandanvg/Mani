@@ -11,6 +11,10 @@
  * Upgrade path for premium Tamil: AI4Bharat Indic-TTS behind the 'command' engine.
  */
 return [
+    // A box reporting GPS beyond this distance from its installation anchor is
+    // DISPLACED: the branch is treated offline and withdrawals at it are blocked.
+    'anchor_radius_m' => env('LBOX_ANCHOR_RADIUS_M', 150),
+
     'tts' => [
         'enabled' => env('LBOX_TTS_ENABLED', true),
 

@@ -77,9 +77,15 @@ class DeviceResource extends BaseResource
                 Tables\Columns\TextColumn::make('board_type')->label('Board')->badge()
                     ->color(fn ($state) => $state === 'pro' ? 'info' : 'gray'),
                 Tables\Columns\TextColumn::make('branch.name')->label('Branch'),
-                Tables\Columns\TextColumn::make('online')->label('Online')->badge()
-                    ->getStateUsing(fn (Device $d) => $d->isOnline() ? 'online' : 'offline')
-                    ->color(fn ($state) => $state === 'online' ? 'success' : 'danger'),
+                Tables\Columns\TextColumn::make('online')->label('Box')->badge()
+                    ->getStateUsing(fn (Device $d) => $d->is_displaced ? 'MOVED!' : ($d->isOnline() ? 'online' : 'offline'))
+                    ->color(fn ($state) => match ($state) {
+                        'online' => 'success', 'MOVED!' => 'danger', default => 'gray',
+                    }),
+                Tables\Columns\TextColumn::make('branch_open')->label('Branch today')->badge()
+                    ->getStateUsing(fn (Device $d) => $d->branch_id && \App\Models\BranchAttendance::isOpenToday($d->branch_id)
+                        ? 'open' : 'not opened')
+                    ->color(fn ($state) => $state === 'open' ? 'success' : 'warning'),
                 Tables\Columns\TextColumn::make('battery_pct')->label('Battery')
                     ->formatStateUsing(fn ($state) => $state !== null ? "{$state}%" : '—'),
                 Tables\Columns\TextColumn::make('rssi')->label('Signal')
@@ -111,6 +117,17 @@ class DeviceResource extends BaseResource
                     ->url(fn (Device $record) => app(\App\Services\Qr\QrCodeService::class)
                         ->store($record->uuid, "lbox-{$record->serial_no}"), shouldOpenInNewTab: true)
                     ->tooltip('Print this QR on the box — distributors scan it to withdraw their wallet at this branch.'),
+                Tables\Actions\Action::make('reAnchor')
+                    ->label('Re-anchor')
+                    ->icon('heroicon-o-map-pin')
+                    ->color('warning')
+                    ->visible(fn (Device $d) => $d->anchor_lat !== null)
+                    ->requiresConfirmation()
+                    ->modalDescription('Approve this box\'s NEW location: the anchor is forgotten and the next GPS fix becomes home. Use only after a genuine, authorised relocation.')
+                    ->action(function (Device $record) {
+                        app(DeviceService::class)->reAnchor($record);
+                        Notification::make()->title('Anchor cleared — next GPS fix re-anchors the box')->success()->send();
+                    }),
                 Tables\Actions\Action::make('testVoice')
                     ->label('Test voice')
                     ->icon('heroicon-o-speaker-wave')
