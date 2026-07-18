@@ -224,8 +224,9 @@ class LboxDeviceApiTest extends TestCase
 
         $this->assertFalse(\App\Models\BranchAttendance::isOpenToday($this->branch->id));
 
-        // morning tap → branch OPENS
-        $this->postJson('/api/device/v1/attendance', ['tag_uid' => 'TAGBR01'])->assertOk();
+        // morning tap → branch OPENS (the box celebrates this tap: green ring + OLED)
+        $this->postJson('/api/device/v1/attendance', ['tag_uid' => 'TAGBR01'])->assertOk()
+            ->assertJsonPath('branch_opened', true);
         $day = \App\Models\BranchAttendance::firstOrFail();
         $this->assertTrue(\App\Models\BranchAttendance::isOpenToday($this->branch->id));
         $this->assertNotNull($day->opened_at);
@@ -235,8 +236,15 @@ class LboxDeviceApiTest extends TestCase
         // the tap recorded WHICH box it happened at
         $this->assertSame($this->device->id, (int) AttendanceRecord::firstOrFail()->device_id);
 
+        // a second employee's morning tap checks in WITHOUT re-opening the branch
+        $this->makeEmployee('TAGBR02');
+        $this->postJson('/api/device/v1/attendance', ['tag_uid' => 'TAGBR02'])->assertOk()
+            ->assertJsonPath('result', 'checked_in')
+            ->assertJsonPath('branch_opened', false);
+
         // evening check-out tap → closing time stamped
-        AttendanceRecord::query()->update(['check_in_at' => now()->subHours(9)]);
+        AttendanceRecord::query()->where('device_id', $this->device->id)
+            ->update(['check_in_at' => now()->subHours(9)]);
         $this->postJson('/api/device/v1/attendance', ['tag_uid' => 'TAGBR01'])->assertOk()
             ->assertJsonPath('result', 'checked_out');
         $day->refresh();
@@ -287,12 +295,12 @@ class LboxDeviceApiTest extends TestCase
 
     protected function makeEmployee(string $rfidTag): Member
     {
-        $stage = Rank::create([
-            'code' => 'TALUK_DIRECTOR', 'name' => ['en' => 'Taluk Admin'], 'depth' => 1,
+        $stage = Rank::firstOrCreate(['code' => 'TALUK_DIRECTOR'], [
+            'name' => ['en' => 'Taluk Admin'], 'depth' => 1,
             'target_bv' => 50000, 'monthly_salary' => 20000, 'tds_pct' => 0,
         ]);
         $member = Member::create([
-            'member_code' => 'LBXE1', 'name' => 'Box Worker', 'phone' => '9000000071',
+            'member_code' => 'LBXE-'.$rfidTag, 'name' => 'Box Worker '.$rfidTag, 'phone' => sprintf('9%09d', crc32($rfidTag) % 999999999),
             'joined_on' => now(), 'placement' => 'level', 'rank_id' => $stage->id,
             'branch_id' => $this->branch->id, 'status' => 'active',
         ]);

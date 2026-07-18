@@ -46,9 +46,14 @@ class DeviceAttendanceService
         if (! $today || ! $today->check_in_at) {
             $record = $this->attendance->checkIn($employee, [], null, 'device');
             $record->update(['device_id' => $device->id]);   // which box the tap happened at
-            $this->openBranch($device, $employee);
+            $opened = $this->openBranch($device, $employee);
 
-            return ['result' => 'checked_in', 'message' => $this->say($lang, 'checked_in', $name), 'employee' => $name];
+            return [
+                'result' => 'checked_in',
+                'message' => $this->say($lang, 'checked_in', $name),
+                'employee' => $name,
+                'branch_opened' => $opened,   // first tap of the day — box celebrates it
+            ];
         }
 
         if (! $today->check_out_at) {
@@ -64,21 +69,32 @@ class DeviceAttendanceService
         return ['result' => 'day_complete', 'message' => $this->say($lang, 'day_complete', $name), 'employee' => $name];
     }
 
-    /** First tap of the day at this box = the branch OPENS (goes online). */
-    protected function openBranch(Device $device, EmployeeProfile $employee): void
+    /** First tap of the day at this box = the branch OPENS (goes online). Returns true only for THE opening tap. */
+    protected function openBranch(Device $device, EmployeeProfile $employee): bool
     {
         if (! $device->branch_id) {
-            return;
+            return false;
         }
 
-        $day = BranchAttendance::firstOrCreate(
-            ['branch_id' => $device->branch_id, 'date' => Carbon::today()->toDateString()],
-            ['device_id' => $device->id],
-        );
+        // NOT firstOrCreate: the 'date' cast stores a time component, so an
+        // equality lookup on the plain date string misses the existing row
+        // (second check-in of the day would then violate the unique index).
+        $day = BranchAttendance::where('branch_id', $device->branch_id)
+            ->whereDate('date', Carbon::today()->toDateString())
+            ->first()
+            ?? BranchAttendance::create([
+                'branch_id' => $device->branch_id,
+                'date' => Carbon::today(),
+                'device_id' => $device->id,
+            ]);
 
         if (! $day->opened_at) {
             $day->update(['opened_at' => Carbon::now(), 'opened_by' => $employee->id]);
+
+            return true;
         }
+
+        return false;
     }
 
     /** Check-out taps stamp/refresh the closing time — the LAST one wins. */
