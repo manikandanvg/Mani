@@ -136,8 +136,10 @@ class CommissionApprovalService
         }
 
         DB::transaction(function () use ($row, $paidOn) {
-            // worth is INR base; present in the member's currency.
-            [$fx, $ccy] = $this->memberCurrency($row->member_id);
+            // worth is INR base; pay in the currency + rate FROZEN at issue on the row
+            // (rows from before the stamping default to INR/1.0 — unchanged behaviour).
+            $fx = (float) ($row->fx_rate ?: 1);
+            $ccy = $row->currency_code ?: 'INR';
             $worth = round((float) $row->worth / $fx, 2);
             $epin = round($worth * self::CBC_TO_EPIN_PCT / 100, 2);
             $coupon = round($worth - $epin, 2);
@@ -188,15 +190,6 @@ class CommissionApprovalService
         $branch = $row->branch;
 
         return $branch?->distributorUser?->memberAccount?->id;
-    }
-
-    /** Member's home currency + frozen-rate (INR per unit) from their branch. */
-    protected function memberCurrency(int $memberId): array
-    {
-        $branchId = \App\Models\Member::whereKey($memberId)->value('branch_id');
-        $branch = $branchId ? \App\Models\Branch::find($branchId) : null;
-
-        return [$branch?->fxRateToBase() ?? 1.0, $branch?->currency_code ?: 'INR'];
     }
 
     /** Post to the single member wallet (separate balance buckets), creating it if absent. */

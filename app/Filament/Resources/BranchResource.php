@@ -60,6 +60,10 @@ class BranchResource extends BaseResource
                     Forms\Components\TextInput::make('country')->required()->maxLength(2)->default('IN'),
                     Forms\Components\TextInput::make('order_limit')->numeric(),
                     Forms\Components\Toggle::make('is_active')->default(true),
+                    Forms\Components\TextInput::make('rfid_tag')->label('Branch RFID card')
+                        ->maxLength(32)->unique(ignoreRecord: true)
+                        ->helperText('The branch\'s own attendance card: its morning tap on the L-BOX opens the branch, the evening tap closes it. Tap an unregistered card on the box to read its number off the screen. Card lost? Just replace the number here.')
+                        ->dehydrateStateUsing(fn (?string $state) => $state ? strtoupper(trim($state)) : null),
                 ]),
                 Forms\Components\Section::make('Currency & tax')->columns(3)
                     ->description('Operating currency and tax regime for this branch. India branches use INR + GST; a foreign branch (e.g. London) uses its own currency and VAT or none.')

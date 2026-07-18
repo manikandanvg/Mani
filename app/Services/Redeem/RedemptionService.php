@@ -210,8 +210,17 @@ class RedemptionService
 
             abort_unless($this->verifyOtp($qr, $data['otp'] ?? null), 422, 'Invalid or missing OTP.');
 
-            // Build the priced lines.
-            $rate = $this->liveRate();
+            // Currency context: the redeeming branch's currency and its INR rate frozen
+            // onto the invoice (same policy as SalesService — India = INR/1.0, unchanged).
+            $branch = Branch::find($branchId);
+            $fx = $branch?->fxRateToBase() ?? 1.0;
+            $currency = $branch?->currency_code ?: 'INR';
+
+            // Build the priced lines — at the branch REGION's metal rate (quoted in
+            // the branch currency), so a foreign redemption prices in its own market.
+            // Fresh query on purpose: LiveRate::latestFor's static memo outlives a
+            // request only in long-lived processes (tests) and would serve stale rows.
+            $rate = $this->liveRate($branch?->country ?: 'IN');
             $lines = $modeA
                 ? $ctx['cart']
                 : collect($data['lines'] ?? [])
@@ -224,12 +233,19 @@ class RedemptionService
 
             $taxable = round(array_sum(array_column($lines, 'taxable')), 2);
             $gst = round(array_sum(array_column($lines, 'gst')), 2);
-            $grand = round($taxable + $gst, 2);
+            // Tax follows the branch regime (GST split / flat VAT / none).
+            $tax = $branch
+                ? $branch->taxOn($taxable, $gst)
+                : ['mode' => 'gst', 'total' => $gst, 'cgst' => round($gst / self::GST_SPLIT, 2), 'sgst' => round($gst / self::GST_SPLIT, 2)];
+            $grand = round($taxable + $tax['total'], 2);
 
             // Worth gate (Mode B): the invoice must cover at least the QR's worth.
+            // cash_worth is INR base; compare in the branch currency at the frozen rate.
             if (! $modeA) {
-                abort_if($grand + 0.01 < (float) $qr->cash_worth, 422,
-                    'Redeemed value (₹' . number_format($grand, 2) . ') is below the QR worth (₹' . number_format((float) $qr->cash_worth, 2) . ').');
+                $sym = $branch?->currencySymbol() ?: '₹';
+                $worthLocal = round((float) $qr->cash_worth / $fx, 2);
+                abort_if($grand + 0.01 < $worthLocal, 422,
+                    'Redeemed value (' . $sym . number_format($grand, 2) . ') is below the QR worth (' . $sym . number_format($worthLocal, 2) . ').');
             }
 
             $invoice = RedemptionInvoice::create([
@@ -247,9 +263,13 @@ class RedemptionService
                 'gold_rate' => (float) ($rate->gold ?? 0),
                 'silver_rate' => (float) ($rate->silver ?? 0),
                 'taxable_total' => $taxable,
-                'cgst' => round($gst / self::GST_SPLIT, 2),
-                'sgst' => round($gst / self::GST_SPLIT, 2),
+                'cgst' => $tax['cgst'],
+                'sgst' => $tax['sgst'],
+                'tax_regime' => $tax['mode'],
+                'tax_total' => $tax['total'],
                 'grand_total' => $grand,
+                'currency_code' => $currency,
+                'fx_rate' => $fx,
                 'created_by' => $data['created_by'] ?? auth()->id(),
             ]);
 
@@ -338,6 +358,9 @@ class RedemptionService
             $totals[$l['material']] += $weight * (float) ($cp->gm_margin ?? 0);
         }
 
+        // gm_margin is a ₹/gram constant → the margin is INR base (same as SalesService);
+        // com_value stays INR base for coherent caps, the branch balance shows its own currency.
+        $fx = (float) ($invoice->fx_rate ?: 1);
         foreach (['gold' => 2, 'silver' => 3] as $material => $comType) {
             $margin = round($totals[$material], 2);
             if ($margin <= 0) {
@@ -350,10 +373,12 @@ class RedemptionService
                 'user_id' => $invoice->created_by,
                 'branch_id' => $branchId,
                 'com_value' => $margin,
+                'currency_code' => $invoice->currency_code ?: 'INR',
+                'fx_rate' => $fx,
                 'reference_member_id' => $member?->id,
                 'status' => 'passed',
             ]);
-            Branch::where('id', $branchId)->increment($material . '_gm_margin', $margin);
+            Branch::where('id', $branchId)->increment($material . '_gm_margin', round($margin / $fx, 2));
         }
     }
 

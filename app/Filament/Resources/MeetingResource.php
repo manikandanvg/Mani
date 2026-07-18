@@ -44,7 +44,7 @@ class MeetingResource extends BaseResource
                 Forms\Components\TextInput::make('duration_min')->label('Duration (min)')->numeric()->default(60),
                 Forms\Components\TextInput::make('host_name')->label('Host'),
                 Forms\Components\Select::make('visibility')
-                    ->options(['members' => 'Members only', 'public' => 'Everyone'])->default('members')->required(),
+                    ->options(['members' => 'Distributors only', 'public' => 'Everyone'])->default('members')->required(),
                 Forms\Components\Toggle::make('is_published')->default(true),
             ]),
         ]);

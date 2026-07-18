@@ -29,10 +29,22 @@ class DeviceAttendanceService
     public function tap(Device $device, string $tagUid): array
     {
         $lang = $device->language ?? 'en';
-        $employee = EmployeeProfile::where('rfid_tag', strtoupper(trim($tagUid)))->first();
+        $uid = strtoupper(trim($tagUid));
+
+        // The BRANCH's own card (held by the incharge): morning tap opens the
+        // branch, evening tap closes it — no employee attendance involved.
+        if ($device->branch_id && $device->branch?->rfid_tag === $uid) {
+            return $this->branchCardTap($device, $lang);
+        }
+
+        $employee = EmployeeProfile::where('rfid_tag', $uid)->first();
 
         if (! $employee) {
-            return ['result' => 'unknown_tag', 'message' => $this->say($lang, 'unknown_tag')];
+            return [
+                'result' => 'unknown_tag',
+                'message' => $this->say($lang, 'unknown_tag'),
+                'tag_uid' => $uid,   // box displays it — HQ registers the card by this number
+            ];
         }
         if ($employee->status !== 'active') {
             return ['result' => 'blocked', 'message' => $this->say($lang, 'blocked')];
@@ -67,6 +79,37 @@ class DeviceAttendanceService
         }
 
         return ['result' => 'day_complete', 'message' => $this->say($lang, 'day_complete', $name), 'employee' => $name];
+    }
+
+    /** The branch card: first tap of the day OPENS, later taps stamp/refresh the CLOSE. */
+    protected function branchCardTap(Device $device, string $lang): array
+    {
+        $day = BranchAttendance::where('branch_id', $device->branch_id)
+            ->whereDate('date', Carbon::today()->toDateString())
+            ->first();
+
+        if (! $day || ! $day->opened_at) {
+            $day ??= BranchAttendance::create([
+                'branch_id' => $device->branch_id,
+                'date' => Carbon::today(),
+                'device_id' => $device->id,
+            ]);
+            $day->update(['opened_at' => Carbon::now()]);
+
+            return [
+                'result' => 'branch_opened',
+                'message' => $this->say($lang, 'branch_opened'),
+                'branch_opened' => true,
+            ];
+        }
+
+        if ($day->opened_at->gt(Carbon::now()->subSeconds(self::DUPLICATE_WINDOW_S))) {
+            return ['result' => 'duplicate', 'message' => $this->say($lang, 'branch_duplicate')];
+        }
+
+        $day->update(['closed_at' => Carbon::now()]);
+
+        return ['result' => 'branch_closed', 'message' => $this->say($lang, 'branch_closed')];
     }
 
     /** First tap of the day at this box = the branch OPENS (goes online). Returns true only for THE opening tap. */
@@ -119,6 +162,9 @@ class DeviceAttendanceService
                 'day_complete' => "Attendance already complete, {$name}",
                 'unknown_tag' => 'Card not recognised. Contact Head Office.',
                 'blocked' => 'This employee is not active on the payroll.',
+                'branch_opened' => 'Branch opened. Have a great day!',
+                'branch_closed' => 'Branch closed. Goodbye!',
+                'branch_duplicate' => 'Branch is already open.',
             ],
             'ta' => [
                 'checked_in' => "வணக்கம் {$name}",
@@ -127,6 +173,9 @@ class DeviceAttendanceService
                 'day_complete' => "இன்றைய வருகை முடிந்துவிட்டது, {$name}",
                 'unknown_tag' => 'அட்டை அடையாளம் காணப்படவில்லை. தலைமை அலுவலகத்தைத் தொடர்பு கொள்ளவும்.',
                 'blocked' => 'இந்த ஊழியர் ஊதியப் பட்டியலில் செயலில் இல்லை.',
+                'branch_opened' => 'கிளை திறக்கப்பட்டது. நல்ல நாள்!',
+                'branch_closed' => 'கிளை மூடப்பட்டது. சென்று வாருங்கள்!',
+                'branch_duplicate' => 'கிளை ஏற்கனவே திறந்துள்ளது.',
             ],
         ];
 

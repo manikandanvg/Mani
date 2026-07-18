@@ -252,6 +252,67 @@ class LboxDeviceApiTest extends TestCase
         $this->assertSame($employee->employeeProfile->id, (int) $day->closed_by);
     }
 
+    public function test_branch_card_opens_and_closes_and_unknown_cards_report_their_uid(): void
+    {
+        $this->activateDevice();
+        Sanctum::actingAs($this->device, ['*']);
+
+        // Unknown card → the box shows its UID so HQ can register it
+        $this->postJson('/api/device/v1/attendance', ['tag_uid' => 'cafe01'])->assertOk()
+            ->assertJsonPath('result', 'unknown_tag')
+            ->assertJsonPath('tag_uid', 'CAFE01');
+
+        // HQ registers that card as THE branch card (lost card = replace this value)
+        $this->branch->update(['rfid_tag' => 'CAFE01']);
+        $this->device->unsetRelation('branch');   // acting instance caches the relation
+
+        // Morning tap → branch OPENS (no employee attendance involved)
+        $this->postJson('/api/device/v1/attendance', ['tag_uid' => 'cafe01'])->assertOk()
+            ->assertJsonPath('result', 'branch_opened')
+            ->assertJsonPath('branch_opened', true);
+        $this->assertTrue(\App\Models\BranchAttendance::isOpenToday($this->branch->id));
+
+        // Same card again within the duplicate window → no accidental close
+        $this->postJson('/api/device/v1/attendance', ['tag_uid' => 'CAFE01'])->assertOk()
+            ->assertJsonPath('result', 'duplicate');
+
+        // Evening tap → closing time stamped
+        \App\Models\BranchAttendance::query()->update(['opened_at' => now()->subHours(9)]);
+        $this->postJson('/api/device/v1/attendance', ['tag_uid' => 'CAFE01'])->assertOk()
+            ->assertJsonPath('result', 'branch_closed');
+        $this->assertNotNull(\App\Models\BranchAttendance::firstOrFail()->closed_at);
+    }
+
+    public function test_hq_volume_rides_the_heartbeat_and_voice_commands_carry_an_action(): void
+    {
+        $this->activateDevice();
+        Sanctum::actingAs($this->device, ['*']);
+
+        // No HQ volume set yet → null level, version 0 (box never applies)
+        $this->postJson('/api/device/v1/heartbeat', [])->assertOk()
+            ->assertJsonPath('volume', null)
+            ->assertJsonPath('volume_ver', 0);
+
+        // HQ picks level 2 on the Devices page → next heartbeat carries it with a fresh version
+        // (update the SAME instance Sanctum::actingAs holds — a fresh() copy would leave it stale)
+        $this->device->update(['volume_level' => 2]);
+        $res = $this->postJson('/api/device/v1/heartbeat', [])->assertOk()
+            ->assertJsonPath('volume', 2);
+        $this->assertGreaterThan(0, $res->json('volume_ver'));
+
+        // "Hi L-BOX ... volume up" → the assistant answers AND tells the box to act
+        $reply = app(\App\Services\Lbox\AssistantService::class)->ask($this->device->fresh(), 'Please turn the volume up');
+        $this->assertSame('volume_up', $reply['intent']);
+        $this->assertSame('volume_up', $reply['action']);
+
+        $reply = app(\App\Services\Lbox\AssistantService::class)->ask($this->device->fresh(), 'volume down a little');
+        $this->assertSame('volume_down', $reply['action']);
+
+        // ...while a pure question carries no action
+        $reply = app(\App\Services\Lbox\AssistantService::class)->ask($this->device->fresh(), 'what is the time now');
+        $this->assertNull($reply['action']);
+    }
+
     public function test_assistant_answers_rate_questions_from_live_data_in_the_device_language(): void
     {
         $this->activateDevice();

@@ -76,6 +76,9 @@ class LboxController extends Controller
             'pending_announcements' => $device->announcements()->where('status', 'pending')->count(),
             'ota_available' => $latest !== null
                 && version_compare($latest->version, (string) $device->firmware_version, '>'),
+            // HQ speaker volume: the box applies it when volume_ver changes (0 = never set)
+            'volume' => $device->volume_level,
+            'volume_ver' => $device->volume_updated_at?->getTimestamp() ?? 0,
         ]);
     }
 
@@ -141,6 +144,7 @@ class LboxController extends Controller
             'ok' => true,
             'intent' => $reply['intent'],
             'answer' => $reply['answer'],
+            'action' => $reply['action'] ?? null,
             'audio_url' => $this->audioUrl($reply['audio_path']),
         ]);
     }
@@ -170,6 +174,7 @@ class LboxController extends Controller
             'transcript' => $transcript,
             'intent' => $reply['intent'],
             'answer' => $reply['answer'],
+            'action' => $reply['action'] ?? null,
             'audio_url' => $this->audioUrl($reply['audio_path']),
         ]);
     }
@@ -207,10 +212,16 @@ class LboxController extends Controller
         return Storage::disk('local')->download($fw->path, "lbox-{$fw->board_type}-{$fw->version}.bin");
     }
 
-    /** Absolute URL for a rendered voice WAV on the public disk (null-safe). */
+    /**
+     * Absolute URL for a rendered voice WAV on the public disk (null-safe).
+     * Built from THIS request's host+base, not APP_URL: the boxes call the API
+     * by LAN IP (e.g. 192.168.1.2/lordicl-next/public) while APP_URL is a
+     * dev-only hostname (lordicl.test) the ESP32 cannot resolve — a WAV link
+     * on that host downloads nothing and the box stays silent.
+     */
     protected function audioUrl(?string $path): ?string
     {
-        return $path ? Storage::disk(\App\Services\Lbox\VoiceRenderService::DISK)->url($path) : null;
+        return $path ? url('storage/' . ltrim($path, '/')) : null;
     }
 
     /** Resolve the authenticated Device, or 403 (member/customer tokens don't belong here). */

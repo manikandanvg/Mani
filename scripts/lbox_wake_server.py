@@ -81,6 +81,7 @@ async def handle_box(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
                 "transcript": body.get("transcript"),
                 "answer": body.get("answer") or body.get("message"),
                 "audio_url": body.get("audio_url"),
+                "action": body.get("action"),   # e.g. volume_up / volume_down — box applies locally
             }
             print(f"[wake] {serial} 🎙 {reply['transcript']!r} → 🤖 {reply['answer']!r}")
             writer.write((json.dumps(reply) + "\n").encode())
@@ -99,7 +100,7 @@ async def main():
     p.add_argument("--model", default="hey_jarvis", help="openWakeWord model name or .onnx path")
     p.add_argument("--threshold", type=float, default=0.5)
     p.add_argument("--record-seconds", type=float, default=4.0)
-    p.add_argument("--api", default="http://lordicl.test/api/device/v1")
+    p.add_argument("--api", default="http://192.168.1.2/lordicl-next/public/api/device/v1")
     args = p.parse_args()
 
     if not args.model.endswith(".onnx"):

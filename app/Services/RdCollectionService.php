@@ -38,6 +38,12 @@ class RdCollectionService
             abort_unless($bond->status === 'active', 422, 'This bond is not active.');
             abort_unless($amount > 0, 422, 'Installment amount must be greater than zero.');
 
+            // Currency context: the installment is collected in the BRANCH's currency;
+            // the rate to INR is frozen on the entry (India = INR/1.0, unchanged).
+            $branch = Branch::find($branchId);
+            $fx = $branch?->fxRateToBase() ?? 1.0;
+            $currency = $branch?->currency_code ?: 'INR';
+
             // due sequence number = installments already collected + 1
             $dueCount = RdEntry::where('bond_id', $bond->id)->count() + 1;
 
@@ -48,13 +54,15 @@ class RdCollectionService
                 'value' => $amount,
                 'due_count' => $dueCount,
                 'branch_id' => $branchId,
+                'currency_code' => $currency,
+                'fx_rate' => $fx,
             ]);
 
             if (! empty($data['cash_stock_id'])) {
                 $this->deductCashStock((int) $data['cash_stock_id'], $branchId, $amount, $paidOn, $userId);
             }
 
-            $this->payBillMargin($bond, $branchId, $userId, $amount, $paidOn);
+            $this->payBillMargin($bond, $branchId, $userId, $amount, $paidOn, $currency, $fx);
 
             return $entry;
         });
@@ -81,14 +89,17 @@ class RdCollectionService
     }
 
     /** Branch billing margin on the collection (legacy tbl_reseller_com), skipped for HQ. */
-    protected function payBillMargin(Bond $bond, int $branchId, ?int $userId, float $amount, string $paidOn): void
+    protected function payBillMargin(Bond $bond, int $branchId, ?int $userId, float $amount, string $paidOn, string $currency = 'INR', float $fx = 1.0): void
     {
         $plan = $bond->plan;
         if ($branchId === self::HQ_BRANCH_ID || ! $plan || (float) $plan->billing_margin == 0.0) {
             return;
         }
-        $margin = round($amount * (float) $plan->billing_margin / 100, 2);
-        if ($margin <= 0) {
+        // Margin computes in the branch currency; the ledger stores INR base
+        // (caps stay coherent), the branch balance shows its own currency —
+        // same policy as SalesService::payBillMargin.
+        $marginLocal = round($amount * (float) $plan->billing_margin / 100, 2);
+        if ($marginLocal <= 0) {
             return;
         }
         ResellerCommission::create([
@@ -97,10 +108,12 @@ class RdCollectionService
             'com_type_id' => 2,   // 2 = RD/GS renewal margin (1 = sale)
             'user_id' => $userId,
             'branch_id' => $branchId,
-            'com_value' => $margin,
+            'com_value' => round($marginLocal * $fx, 2),
+            'currency_code' => $currency,
+            'fx_rate' => $fx,
             'reference_member_id' => $bond->member_id,
             'status' => 'passed',
         ]);
-        Branch::where('id', $branchId)->increment('bill_margin', $margin);
+        Branch::where('id', $branchId)->increment('bill_margin', $marginLocal);
     }
 }

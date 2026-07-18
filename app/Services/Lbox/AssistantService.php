@@ -19,22 +19,23 @@ class AssistantService
     {
     }
 
-    /** @return array{intent: string, answer: string, audio_path: ?string} */
+    /** @return array{intent: string, answer: string, action: ?string, audio_path: ?string} */
     public function ask(Device $device, string $text): array
     {
         $lang = $device->language ?? 'en';
         $q = mb_strtolower(trim($text));
 
-        [$intent, $answer] = $this->answer($device, $q, $lang);
+        [$intent, $answer, $action] = array_pad($this->answer($device, $q, $lang), 3, null);
 
         return [
             'intent' => $intent,
             'answer' => $answer,
+            'action' => $action,   // device-side command (volume_up / volume_down), null for pure Q&A
             'audio_path' => $this->voice->render($answer, $lang),
         ];
     }
 
-    /** @return array{0: string, 1: string} [intent, answer] */
+    /** @return array{0: string, 1: string, 2?: string} [intent, answer, action?] */
     protected function answer(Device $device, string $q, string $lang): array
     {
         $rate = LiveRate::latestFor($device->branch?->country ?: 'IN');
@@ -72,6 +73,17 @@ class AssistantService
                     number_format((float) $rate->gold, 2), number_format((float) $rate->silver, 2))
                 : sprintf('Today\'s rates: gold rupees %s per gram, silver rupees %s per gram.',
                     number_format((float) $rate->gold, 2), number_format((float) $rate->silver, 2))];
+        }
+
+        // Volume by voice — the box applies the action locally and confirms.
+        // Check "down" first: phrases like "volume down" also contain "volume".
+        if ($this->hits($q, ['volume down', 'quieter', 'softer', 'lower the volume', 'reduce the volume',
+            'decrease volume', 'sound down', 'சத்தம் குறை', 'சத்தத்தை குறை', 'சத்தம் கம்மி', 'மெதுவா'])) {
+            return ['volume_down', $ta ? 'சரி, சத்தத்தை குறைக்கிறேன்.' : 'Okay, turning the volume down.', 'volume_down'];
+        }
+        if ($this->hits($q, ['volume up', 'louder', 'increase volume', 'increase the volume', 'raise the volume',
+            'sound up', 'சத்தம் கூட்டு', 'சத்தத்தை கூட்டு', 'சத்தம் அதிகம்', 'சத்தமா'])) {
+            return ['volume_up', $ta ? 'சரி, சத்தத்தை கூட்டுகிறேன்.' : 'Okay, turning the volume up.', 'volume_up'];
         }
 
         if ($this->hits($q, ['time', 'date', 'day', 'நேரம்', 'மணி', 'தேதி', 'நாள்'])) {

@@ -80,7 +80,7 @@ class AdminPanelProvider extends PanelProvider
                 \Filament\Navigation\NavigationGroup::make('Commissions')->label(fn () => __('Commissions')),
                 \Filament\Navigation\NavigationGroup::make('Payroll')->label(fn () => __('Payroll')),
                 \Filament\Navigation\NavigationGroup::make('L-BOX')->label(fn () => __('L-BOX')),
-                \Filament\Navigation\NavigationGroup::make('Network')->label(fn () => __('Network')),
+                \Filament\Navigation\NavigationGroup::make('Network')->label(fn () => __('Distributor Network')),
                 \Filament\Navigation\NavigationGroup::make('Orders')->label(fn () => __('Orders')),
                 \Filament\Navigation\NavigationGroup::make('Website')->label(fn () => __('Website')),
                 \Filament\Navigation\NavigationGroup::make('Community')->label(fn () => __('Community')),

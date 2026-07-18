@@ -35,8 +35,10 @@ class SalesInvoiceResource extends BaseResource
                 Forms\Components\DatePicker::make('date')
                     ->required(),
                 Forms\Components\TextInput::make('customer_member_id')
+                    ->label('Distributor ID')
                     ->numeric(),
                 Forms\Components\TextInput::make('customer_name')
+                    ->label('Distributor name')
                     ->maxLength(200),
                 Forms\Components\TextInput::make('branch_id')
                     ->numeric(),
@@ -85,9 +87,11 @@ class SalesInvoiceResource extends BaseResource
                     ->date()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('customer_member_id')
+                    ->label('Distributor ID')
                     ->numeric()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('customer_name')
+                    ->label('Distributor name')
                     ->searchable(),
                 Tables\Columns\TextColumn::make('branch_id')
                     ->numeric()

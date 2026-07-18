@@ -127,6 +127,7 @@ class MemberResource extends BaseResource
                     ->numeric()
                     ->default(0.00),
                 Forms\Components\TextInput::make('downline_count')
+                    ->label('Team size')
                     ->required()
                     ->numeric()
                     ->default(0),
@@ -226,6 +227,7 @@ class MemberResource extends BaseResource
                     ->numeric()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('downline_count')
+                    ->label('Team size')
                     ->numeric()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('status'),

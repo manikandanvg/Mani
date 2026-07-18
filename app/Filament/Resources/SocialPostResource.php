@@ -43,7 +43,7 @@ class SocialPostResource extends BaseResource
                     ->columnSpanFull(),
                 Forms\Components\Section::make()->columns(3)->schema([
                     Forms\Components\Select::make('visibility')
-                        ->options(['public' => 'Everyone', 'members' => 'Members only', 'private' => 'Private'])
+                        ->options(['public' => 'Everyone', 'members' => 'Distributors only', 'private' => 'Private'])
                         ->default('members')
                         ->required(),
                     Forms\Components\Toggle::make('pinned')->default(false),
@@ -73,7 +73,7 @@ class SocialPostResource extends BaseResource
             ])
             ->filters([
                 Tables\Filters\SelectFilter::make('visibility')
-                    ->options(['public' => 'Everyone', 'members' => 'Members only', 'private' => 'Private']),
+                    ->options(['public' => 'Everyone', 'members' => 'Distributors only', 'private' => 'Private']),
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),

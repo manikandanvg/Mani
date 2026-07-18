@@ -125,12 +125,18 @@ class CommissionService
             ->chunkById(200, function ($bonds) use (&$issued, $period) {
                 foreach ($bonds as $bond) {
                     DB::transaction(function () use ($bond, $period, &$issued) {
+                        // worth is INR base; freeze the earner's currency + rate at issue
+                        // (approval converts at THIS rate, never a later one).
+                        $branch = $bond->member?->branch_id
+                            ? \App\Models\Branch::find($bond->member->branch_id) : null;
                         \App\Models\CbcEntry::create([
                             'bond_id' => $bond->id,
                             'member_id' => $bond->member_id,
                             'cbc_date' => $period->toDateString(),
                             'code' => strtoupper(\Illuminate\Support\Str::random(12)),
                             'worth' => round((float) $bond->cbc_value, 2),
+                            'currency_code' => $branch?->currency_code ?: 'INR',
+                            'fx_rate' => $branch?->fxRateToBase() ?? 1.0,
                             'status' => 'pending',
                         ]);
                         $bond->increment('cbc_issued');
@@ -214,9 +220,18 @@ class CommissionService
      * Record an earning as PENDING only. The wallet is credited later, when an admin
      * approves it on the Commission Approval page (CommissionApprovalService) — funds
      * never reach a wallet before approval.
+     *
+     * The amount is INR base; the earner's home currency + INR rate are frozen HERE,
+     * at earn time — approval converts at exactly this rate (same policy as the
+     * billing-path IC in SalesService). India = INR/1.0, byte-identical behaviour.
      */
     protected function credit(Member $member, float $amount, array $ledger): void
     {
-        CommissionLedger::create($ledger + ['member_id' => $member->id]);
+        $branch = $member->branch_id ? \App\Models\Branch::find($member->branch_id) : null;
+        CommissionLedger::create($ledger + [
+            'member_id' => $member->id,
+            'currency_code' => $branch?->currency_code ?: 'INR',
+            'fx_rate' => $branch?->fxRateToBase() ?? 1.0,
+        ]);
     }
 }

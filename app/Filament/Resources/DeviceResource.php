@@ -51,6 +51,10 @@ class DeviceResource extends BaseResource
                     ->options(['en' => 'English', 'ta' => 'Tamil (தமிழ்)'])
                     ->default('en')->required()
                     ->helperText('Voice announcements and tap replies are spoken in this language.'),
+                Forms\Components\Select::make('volume_level')->label('Speaker volume (HQ)')
+                    ->options([1 => '1 — very soft', 2 => '2 — soft', 3 => '3 — medium', 4 => '4 — loud (default)', 5 => '5 — maximum'])
+                    ->placeholder('Leave to the box')
+                    ->helperText('Applied on the box\'s next heartbeat (within a minute). Staff can still adjust locally by touch pad or voice.'),
                 Forms\Components\Select::make('branch_id')->label('Branch')
                     ->options(fn () => Branch::orderBy('name')->pluck('name', 'id'))
                     ->searchable()
@@ -127,6 +131,38 @@ class DeviceResource extends BaseResource
                     ->action(function (Device $record) {
                         app(DeviceService::class)->reAnchor($record);
                         Notification::make()->title('Anchor cleared — next GPS fix re-anchors the box')->success()->send();
+                    }),
+                Tables\Actions\Action::make('branchCard')
+                    ->label('Branch card')
+                    ->icon('heroicon-o-identification')
+                    ->disabled(fn (Device $d) => $d->branch_id === null)
+                    ->tooltip(fn (Device $d) => $d->branch_id
+                        ? 'Set or replace this branch\'s RFID card'
+                        : 'Assign the device to a branch first (Edit → Branch)')
+                    ->form([
+                        Forms\Components\TextInput::make('rfid_tag')
+                            ->label('Branch RFID card number')
+                            ->default(fn (Device $record) => $record->branch?->rfid_tag)
+                            ->maxLength(32)
+                            ->helperText('Tap an unregistered card on this box — its number appears on the box screen. Paste it here. Replacing the number instantly retires the old card (lost-card reset). Leave empty to remove.'),
+                    ])
+                    ->action(function (Device $record, array $data) {
+                        if (! $record->branch) {
+                            Notification::make()->title('Assign the device to a branch first (Edit → Branch)')->danger()->send();
+
+                            return;
+                        }
+                        $uid = strtoupper(trim((string) ($data['rfid_tag'] ?? ''))) ?: null;
+                        if ($uid && \App\Models\Branch::where('rfid_tag', $uid)->where('id', '!=', $record->branch_id)->exists()) {
+                            Notification::make()->title('That card is already registered to another branch')->danger()->send();
+
+                            return;
+                        }
+                        $record->branch->update(['rfid_tag' => $uid]);
+                        Notification::make()
+                            ->title($uid ? "Branch card set: {$uid}" : 'Branch card removed')
+                            ->body("{$record->branch->name} — morning tap opens the branch, evening tap closes it.")
+                            ->success()->send();
                     }),
                 Tables\Actions\Action::make('testVoice')
                     ->label('Test voice')

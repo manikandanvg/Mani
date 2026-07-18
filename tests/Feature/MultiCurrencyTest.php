@@ -4,14 +4,22 @@ namespace Tests\Feature;
 
 use App\Models\Bond;
 use App\Models\Branch;
+use App\Models\CatalogProduct;
+use App\Models\CbcEntry;
 use App\Models\CommissionLedger;
 use App\Models\Currency;
+use App\Models\LiveRate;
 use App\Models\Member;
 use App\Models\MemberWallet;
 use App\Models\Plan;
 use App\Models\Rank;
+use App\Models\RedeemableQr;
 use App\Models\ResellerCommission;
+use App\Models\Stock;
 use App\Services\CommissionApprovalService;
+use App\Services\CommissionService;
+use App\Services\RdCollectionService;
+use App\Services\Redeem\RedemptionService;
 use App\Services\SalesService;
 use Database\Seeders\DatabaseSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -139,5 +147,102 @@ class MultiCurrencyTest extends TestCase
         $wallet = MemberWallet::where('member_id', $upline->id)->firstOrFail();
         $this->assertEquals('EUR', $wallet->currency_code);
         $this->assertEquals(0.90, (float) $wallet->cash_balance);
+    }
+
+    /** A Mode-B redemption at the London branch prices in EUR at the GB rate, VAT line, frozen stamp. */
+    public function test_eur_redemption_prices_in_eur_with_vat_and_frozen_stamp(): void
+    {
+        $london = Branch::create(['name' => 'London Redeem', 'country' => 'GB', 'currency_code' => 'EUR', 'tax_regime' => 'vat', 'vat_pct' => 20, 'level' => 'reseller', 'is_active' => true]);
+        LiveRate::create(['country' => 'GB', 'currency_code' => 'EUR', 'gold' => 50, 'silver' => 1, 'diamond' => 0, 'source' => 'manual', 'effective_at' => now()]);
+
+        $member = $this->member('RDM1', null, $london->id);
+        $bond = Bond::create(['member_id' => $member->id, 'plan_id' => $this->plan->id, 'branch_id' => $london->id, 'bond_date' => now(), 'value' => 50000, 'invoice_no' => 'INV-RDM1', 'status' => 'active']);
+        $cp = CatalogProduct::create(['code' => 'MCG', 'name' => ['en' => 'Gold 1g'], 'material' => 'gold', 'gm_margin' => 50, 'making_charge_pct' => 0, 'wastage_charge_pct' => 0, 'hallmark_charge' => 0, 'gst_pct' => 3, 'hsn_code' => '71082000', 'is_active' => true]);
+        Stock::create(['branch_id' => $london->id, 'catalog_product_id' => $cp->id, 'quantity' => 100]);
+        // cash_worth is INR base: ₹50,000 = €500 at the pinned rate.
+        $qr = RedeemableQr::create(['bond_id' => $bond->id, 'member_id' => $member->id, 'branch_id' => $london->id, 'invoice_no' => 'INV-RDM1', 'qr_code' => 'QMC1', 'qr_mode' => 'cash', 'cash_worth' => 50000, 'status' => 'pending']);
+
+        $svc = app(RedemptionService::class);
+        $svc->generateOtp($qr);
+
+        // 20 × 1g gold @ €50 = €1,000 taxable (≥ €500 worth) → 20% VAT €200 → €1,200.
+        $invoice = $svc->redeem([
+            'qr_code' => 'QMC1', 'branch_id' => $london->id, 'otp' => $qr->fresh()->otp,
+            'lines' => [['catalog_product_id' => $cp->id, 'unit_weight' => 1, 'quantity' => 20]],
+        ]);
+
+        $this->assertEquals('EUR', $invoice->currency_code);
+        $this->assertEquals(100.0, (float) $invoice->fx_rate);
+        $this->assertEquals('vat', $invoice->tax_regime);
+        $this->assertEquals(1000.0, (float) $invoice->taxable_total);
+        $this->assertEquals(200.0, (float) $invoice->tax_total);
+        $this->assertEquals(0.0, (float) $invoice->cgst);
+        $this->assertEquals(0.0, (float) $invoice->sgst);
+        $this->assertEquals(1200.0, (float) $invoice->grand_total);
+        $this->assertEquals(50.0, (float) $invoice->gold_rate);   // the GB feed, in EUR
+
+        // GM margin: 20g × ₹50/g = ₹1,000 INR base in the ledger, €10 on the branch balance.
+        $gm = ResellerCommission::where('branch_id', $london->id)->where('com_type_id', 2)->firstOrFail();
+        $this->assertEquals(1000.0, (float) $gm->com_value);
+        $this->assertEquals('EUR', $gm->currency_code);
+        $this->assertEquals(100.0, (float) $gm->fx_rate);
+        $this->assertEquals(10.0, (float) $london->fresh()->gold_gm_margin);
+    }
+
+    /** An RD installment collected in London: entry in EUR with the frozen rate, margin INR base. */
+    public function test_eur_rd_collection_stamps_entry_and_margin(): void
+    {
+        $london = Branch::create(['name' => 'London RD', 'country' => 'GB', 'currency_code' => 'EUR', 'tax_regime' => 'vat', 'vat_pct' => 20, 'level' => 'reseller', 'is_active' => true]);
+        $rdPlan = Plan::create([
+            'code' => 'MCRD', 'name' => ['en' => 'MC RD'], 'plan_type' => 2, 'type' => 'rd',
+            'min_value' => 0, 'allocation_pct' => 100, 'validity_months' => 12,
+            'cbc_value' => 0, 'cbc_count' => 0, 'ic_schedule' => [], 'level_schedule' => [],
+            'level_depth' => 0, 'level_com_duration' => 12, 'billing_margin' => 2, 'gm_margin' => 0,
+            'is_active' => true,
+        ]);
+        $member = $this->member('RDC1', null, $london->id);
+        $bond = Bond::create(['member_id' => $member->id, 'plan_id' => $rdPlan->id, 'branch_id' => $london->id, 'bond_date' => now(), 'value' => 0, 'status' => 'active']);
+
+        $entry = app(RdCollectionService::class)->collect([
+            'bond_id' => $bond->id, 'branch_id' => $london->id, 'amount' => 100,   // €100
+        ]);
+
+        // The entry records the money as it changed hands: €100 at the frozen rate.
+        $this->assertEquals(100.0, (float) $entry->value);
+        $this->assertEquals('EUR', $entry->currency_code);
+        $this->assertEquals(100.0, (float) $entry->fx_rate);
+
+        // Bill margin 2%: €2 on the branch balance, ₹200 INR base in the ledger.
+        $com = ResellerCommission::where('branch_id', $london->id)->where('com_type_id', 2)->firstOrFail();
+        $this->assertEquals(200.0, (float) $com->com_value);
+        $this->assertEquals('EUR', $com->currency_code);
+        $this->assertEquals(2.0, (float) $london->fresh()->bill_margin);
+    }
+
+    /** CBC freezes the earner's rate at ISSUE — a later rate change must not move the payout. */
+    public function test_cbc_pays_at_the_rate_frozen_at_issue(): void
+    {
+        $london = Branch::create(['name' => 'London CBC', 'country' => 'GB', 'currency_code' => 'EUR', 'tax_regime' => 'vat', 'vat_pct' => 20, 'is_active' => true]);
+        $member = $this->member('CBC1', null, $london->id);
+        Bond::create([
+            'member_id' => $member->id, 'plan_id' => $this->plan->id, 'bond_date' => now(),
+            'value' => 100000, 'cbc_value' => 1000, 'cbc_count' => 1, 'cbc_issued' => 0, 'status' => 'active',
+        ]);
+
+        app(CommissionService::class)->issueCbc();
+        $entry = CbcEntry::where('member_id', $member->id)->firstOrFail();
+        $this->assertEquals('EUR', $entry->currency_code);
+        $this->assertEquals(100.0, (float) $entry->fx_rate);   // frozen at issue: 1 EUR = ₹100
+
+        // The rate moves AFTER issue (1 EUR = ₹50). The payout must ignore it.
+        Currency::where('code', 'EUR')->update(['rate_to_base' => 0.02]);
+
+        app(CommissionApprovalService::class)->approve($entry->fresh());
+        $wallet = MemberWallet::where('member_id', $member->id)->firstOrFail();
+        // ₹1,000 at the FROZEN ₹100/EUR = €10 → 40% EPIN €4 + 60% coupon €6 (not €20 at the new rate).
+        $this->assertEquals('EUR', $wallet->currency_code);
+        $this->assertEquals(4.0, (float) $wallet->epin_balance);
+        $this->assertEquals(6.0, (float) $wallet->coupon_balance);
+        $this->assertEquals(10.0, (float) $wallet->earning_total);
     }
 }

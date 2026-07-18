@@ -5,7 +5,16 @@
     $plan   = $invoice->bond?->plan;
     $fmt    = fn ($n) => number_format((float) $n, 2);
     $wt     = fn ($n) => rtrim(rtrim(number_format((float) $n, 3), '0'), '.');
-    $totalGst = (float) $invoice->cgst + (float) $invoice->sgst;
+
+    // The invoice renders in ITS OWN stamped currency + tax regime (India = ₹/GST,
+    // a foreign branch = its symbol + a single VAT line, or tax-free).
+    $sym      = \App\Support\Money::currency($invoice->currency_code ?: 'INR')?->symbol ?? '₹';
+    $taxLabel = match ($invoice->tax_regime ?? 'gst') {
+        'vat' => 'VAT',
+        'none' => 'Tax (exempt)',
+        default => 'CGST + SGST',
+    };
+    $totalGst = (float) ($invoice->tax_total ?: ((float) $invoice->cgst + (float) $invoice->sgst));
 
     // Optional foreign-currency reference. INR stays the legal invoice currency (GST
     // documents must be in INR); we only ADD an approximate converted grand total.
@@ -93,8 +102,8 @@
                 <td><span class="lbl">Payment Reference</span>{{ $invoice->payment_reference ?: '—' }}</td>
             </tr>
             <tr>
-                <td><span class="lbl">Gold Market Price</span>₹{{ $fmt($invoice->gold_rate) }}/gm</td>
-                <td><span class="lbl">Silver Market Price</span>₹{{ $fmt($invoice->silver_rate) }}/gm</td>
+                <td><span class="lbl">Gold Market Price</span>{{ $sym }}{{ $fmt($invoice->gold_rate) }}/gm</td>
+                <td><span class="lbl">Silver Market Price</span>{{ $sym }}{{ $fmt($invoice->silver_rate) }}/gm</td>
             </tr>
         </table>
 
@@ -107,9 +116,9 @@
                     <th style="width:11%;">HSN</th>
                     <th style="width:9%;">Wt (g)</th>
                     <th style="width:8%;">Qty</th>
-                    <th style="width:11%;">Rate ₹</th>
-                    <th style="width:10%;">Making ₹</th>
-                    <th style="width:12%;" class="right">Amount ₹</th>
+                    <th style="width:11%;">Rate {{ $sym }}</th>
+                    <th style="width:10%;">Making {{ $sym }}</th>
+                    <th style="width:12%;" class="right">Amount {{ $sym }}</th>
                 </tr>
             </thead>
             <tbody>
@@ -132,12 +141,12 @@
                     <td class="right">{{ $fmt($invoice->taxable_total) }}</td>
                 </tr>
                 <tr>
-                    <td colspan="7" class="right">CGST + SGST</td>
+                    <td colspan="7" class="right">{{ $taxLabel }}</td>
                     <td class="right">{{ $fmt($totalGst) }}</td>
                 </tr>
                 <tr>
                     <td colspan="7" class="right b red" style="font-size:11px;">GRAND TOTAL</td>
-                    <td class="right b red" style="font-size:11px;">₹{{ $fmt($invoice->grand_total) }}</td>
+                    <td class="right b red" style="font-size:11px;">{{ $sym }}{{ $fmt($invoice->grand_total) }}</td>
                 </tr>
                 @if ($showFx)
                 <tr>

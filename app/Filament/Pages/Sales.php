@@ -281,7 +281,7 @@ class Sales extends Page implements HasForms
             return $l;
         }, $data['cart']);
 
-        $rate = LiveRate::latestFor('IN');
+        $rate = self::pageRate();
         $data['gold_rate'] = $rate?->gold ?? 0;
         $data['silver_rate'] = $rate?->silver ?? 0;
         $data['diamond_rate'] = $rate?->diamond ?? 0;
@@ -521,9 +521,31 @@ class Sales extends Page implements HasForms
         );
     }
 
+    /** The operator's branch — the currency + rate-region authority for this sale. */
+    protected static function operatorBranch(): ?Branch
+    {
+        $branchId = auth()->user()?->branch_id;
+
+        return $branchId ? Branch::find($branchId) : null;
+    }
+
+    /** The metal rate feed for the operator's REGION (HQ / no branch = India). */
+    protected static function pageRate(): ?LiveRate
+    {
+        $branch = self::operatorBranch();
+
+        return ($branch ? LiveRate::forBranch($branch) : null) ?? LiveRate::latestFor('IN');
+    }
+
+    /** The operator's currency symbol (₹ for India / no branch). */
+    protected static function sym(): string
+    {
+        return self::operatorBranch()?->currencySymbol() ?: '₹';
+    }
+
     protected static function liveRateBanner(): HtmlString
     {
-        $r = LiveRate::latestFor('IN');
+        $r = self::pageRate();
         if (! $r) {
             return new HtmlString('<span style="color:#ab222f">Live rate not set.</span>');
         }
@@ -532,9 +554,10 @@ class Sales extends Page implements HasForms
         $s = Number::format((float) $r->silver, precision: 2);
         $d = Number::format((float) $r->diamond, precision: 2);
 
+        $sym = self::sym();
         $chip = fn (string $label, string $val, string $color) => '<span style="margin:0 1.75rem;font-weight:600">'
             . '<span style="color:' . $color . '">● ' . $label . '</span> '
-            . '<span style="color:#fff">₹' . $val . '/g</span></span>';
+            . '<span style="color:#fff">' . $sym . $val . '/g</span></span>';
 
         $segment = $chip('GOLD', $g, '#e6ad46') . $chip('SILVER', $s, '#cbd5e1') . $chip('DIAMOND', $d, '#7dd3fc')
             . '<span style="margin:0 1.75rem;color:#9ca3af">Live Price (per gram)</span>';
@@ -588,7 +611,7 @@ class Sales extends Page implements HasForms
         if (! $p) {
             return;
         }
-        $rate = LiveRate::latestFor('IN');
+        $rate = self::pageRate();
         $set('material', $p->material);
         $set('purity', $p->default_purity);
         $set('making_charge_pct', $p->making_charge_pct);
@@ -658,19 +681,22 @@ class Sales extends Page implements HasForms
             . $chip('TOTAL WEIGHT/QTY', Number::format($weight, 3) . ' g')
             . '</div>'
             . '<div style="padding:0 .9rem .3rem">'
-            . $row('Gross Total', '₹ ' . Number::format($t['gross'], 2))
-            . $row('GST', '₹ ' . Number::format($t['gst'], 2))
+            . $row('Gross Total', self::sym() . ' ' . Number::format($t['gross'], 2))
+            . $row('GST', self::sym() . ' ' . Number::format($t['gst'], 2))
             . '</div>'
             // grand total band
             . '<div style="background:linear-gradient(90deg,#8a1b26,#ab222f);color:#fff;padding:.7rem .9rem;'
             . 'display:flex;justify-content:space-between;align-items:center">'
             . '<span style="font-weight:600;letter-spacing:.03em">GRAND TOTAL</span>'
-            . '<span style="font-weight:800;font-size:1.35rem;font-variant-numeric:tabular-nums">₹ ' . Number::format($t['grand'], 2) . '</span>'
+            . '<span style="font-weight:800;font-size:1.35rem;font-variant-numeric:tabular-nums">' . self::sym() . ' ' . Number::format($t['grand'], 2) . '</span>'
             . '</div>'
             . $fxLine
-            . '<div style="padding:.5rem .9rem;font-size:.72rem;color:#6b7280;background:#fff">'
-            . '<span style="color:#e6ad46;font-weight:700">In words:</span> ' . ($t['grand'] > 0 ? e(inr_words($t['grand'])) : '—')
-            . '</div>'
+            // amount-in-words is an INR (Indian-numbering) formatter — INR bills only
+            . (strtoupper(self::operatorBranch()?->currency_code ?: 'INR') === 'INR'
+                ? '<div style="padding:.5rem .9rem;font-size:.72rem;color:#6b7280;background:#fff">'
+                    . '<span style="color:#e6ad46;font-weight:700">In words:</span> ' . ($t['grand'] > 0 ? e(inr_words($t['grand'])) : '—')
+                    . '</div>'
+                : '')
             . '</div>';
 
         return new HtmlString($html);
@@ -760,7 +786,7 @@ class Sales extends Page implements HasForms
                 $dim = (float) $pct <= 0 ? 'opacity:.45;' : '';
                 $cells .= '<div style="' . $dim . 'background:#fff;border:1px solid #e5e7eb;border-radius:.5rem;padding:.35rem .4rem;text-align:center">'
                     . '<div style="font-size:.6rem;color:#9ca3af;letter-spacing:.02em">' . ($ord[$i] ?? ($i + 1)) . ' · ' . $pctTxt($pct) . '%</div>'
-                    . '<div style="font-weight:700;font-size:.8rem;color:#111827">₹' . Number::format($amt, 2) . '</div></div>';
+                    . '<div style="font-weight:700;font-size:.8rem;color:#111827">' . self::sym() . Number::format($amt, 2) . '</div></div>';
             }
 
             return '<div style="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:.35rem;margin-top:.4rem">' . $cells . '</div>';
@@ -774,22 +800,23 @@ class Sales extends Page implements HasForms
             . ($sub ? '<div style="font-size:.7rem;color:#6b7280;margin-top:.1rem">' . $sub . '</div>' : '')
             . $body . '</div>';
 
+        $sym = self::sym();
         $head = '<div style="display:flex;gap:1rem;flex-wrap:wrap;margin-bottom:.6rem">'
             . '<div><div style="font-size:.65rem;color:#9ca3af">ALLOCATION (' . $pctTxt($p->allocation_pct) . '%)</div>'
-            . '<div style="font-weight:800;color:#ab222f;font-size:1.05rem">₹' . Number::format($allocation, 2) . '</div></div>'
+            . '<div style="font-weight:800;color:#ab222f;font-size:1.05rem">' . $sym . Number::format($allocation, 2) . '</div></div>'
             . '<div><div style="font-size:.65rem;color:#9ca3af">PAID + GST</div>'
-            . '<div style="font-weight:800;color:#111827;font-size:1.05rem">₹' . Number::format((float) $totals['grand'], 2) . '</div></div></div>';
+            . '<div style="font-weight:800;color:#111827;font-size:1.05rem">' . $sym . Number::format((float) $totals['grand'], 2) . '</div></div></div>';
 
-        $cb = $card('CB Coupon', '₹' . Number::format($cbTotal, 2),
+        $cb = $card('CB Coupon', $sym . Number::format($cbTotal, 2),
             $cbCount > 0
-                ? 'Cashback ' . $pctTxt($p->cbc_value) . '% · ₹' . Number::format($cbMonthly, 2) . '/month × ' . $cbCount . ' months'
+                ? 'Cashback ' . $pctTxt($p->cbc_value) . '% · ' . $sym . Number::format($cbMonthly, 2) . '/month × ' . $cbCount . ' months'
                 : 'No cashback coupon on this scheme',
             '', '#16a34a');
 
-        $icCard = $card('Promotional Incentive (IC)', '₹' . Number::format($icTotal, 2),
+        $icCard = $card('Promotional Incentive (IC)', $sym . Number::format($icTotal, 2),
             'Instant · paid one-time across up to ' . count(array_filter($ic)) . ' placement layers', $grid($ic), '#e6ad46');
 
-        $lvlCard = $card('Turnover-based Salary (GAP)', '₹' . Number::format($lvlTotal, 2),
+        $lvlCard = $card('Turnover-based Salary (GAP)', $sym . Number::format($lvlTotal, 2),
             $lvlMonths > 0 ? 'Monthly · over ' . $lvlMonths . ' months' : 'Monthly recurring', $grid($lvl), '#0ea5e9');
 
         return new HtmlString('<div style="display:flex;flex-direction:column;gap:.6rem">' . $head . $cb . $icCard . $lvlCard . '</div>');

@@ -26,6 +26,7 @@ class Device extends Authenticatable
         'lng' => 'decimal:7',
         'registered_at' => 'datetime',
         'last_seen_at' => 'datetime',
+        'volume_updated_at' => 'datetime',
     ];
 
     protected static function booted(): void
@@ -33,6 +34,14 @@ class Device extends Authenticatable
         static::creating(function (Device $device) {
             $device->uuid ??= (string) Str::uuid();
             $device->pairing_code ??= self::newPairingCode();
+        });
+
+        // volume_updated_at is the change-version the firmware compares against:
+        // bumping it makes every box apply the new HQ level exactly once.
+        static::saving(function (Device $device) {
+            if ($device->isDirty('volume_level')) {
+                $device->volume_updated_at = now();
+            }
         });
     }
 
