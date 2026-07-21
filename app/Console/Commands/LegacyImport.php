@@ -413,19 +413,30 @@ class LegacyImport extends Command
 
     protected function importCustomers(): void
     {
+        // customers.phone is NOT NULL + UNIQUE: skip blank phones, dedupe repeats
+        // (first occurrence wins), and chunk the insert so one bad row can't void all.
+        [$in, $skip] = [0, 0];
         $batch = [];
-        foreach ($this->legacy->table('tbl_customer')->get() as $c) {
+        $seen = [];
+        foreach ($this->legacy->table('tbl_customer')->orderBy('cusid')->get() as $c) {
+            $phone = $this->clip($c->phone ?: null, 20);
+            if ($phone === null || isset($seen[$phone])) {
+                $skip++;
+                continue;
+            }
+            $seen[$phone] = true;
             $batch[] = [
                 'name' => $this->clip($c->name ?: 'Customer ' . $c->cusid, 255),
-                'phone' => $this->clip($c->phone ?: null, 20),
+                'phone' => $phone,
                 'email' => $this->clip($c->email ?: null, 255),
                 'created_at' => now(), 'updated_at' => now(),
             ];
         }
-        if ($batch) {
-            DB::table('customers')->insert($batch);
+        foreach (array_chunk($batch, 1000) as $chunk) {
+            DB::table('customers')->insert($chunk);
+            $in += count($chunk);
         }
-        $this->note('customers', count($batch), 0);
+        $this->note('customers', $in, $skip);
     }
 
     // ----------------------------------------------------------- transactions
@@ -449,7 +460,10 @@ class LegacyImport extends Command
                         'member_id' => $memberId,
                         'plan_id' => $planId,
                         'branch_id' => $this->branchMap[(int) $b->branchid] ?? null,
-                        'product_id' => $this->productMap[$b->bprid] ?? null,
+                        // NOT productMap: bonds.product_id is an enforced FK to the
+                        // storefront `products` table; productMap holds CATALOG ids.
+                        // Legacy bprid has no products-table counterpart — leave null.
+                        'product_id' => null,
                         'bond_date' => $date,
                         'value' => $this->num($b->bvalue),
                         'invoice_no' => $this->clip($b->invoiceno ?: null, 40),
@@ -786,15 +800,23 @@ class LegacyImport extends Command
     protected function importDigiQueue(): void
     {
         [$in, $skip] = [0, 0];
+        // digi_queue.qr_code is NOT NULL + UNIQUE — same guard as importDigiOrders:
+        // blank/duplicate codes fall back to a synthetic key from the legacy PK.
+        $seen = [];
         $this->legacy->table('tbl_digi_queue')->orderBy('trid')
-            ->chunk(2000, function ($rows) use (&$in) {
+            ->chunk(2000, function ($rows) use (&$in, &$seen) {
                 $batch = [];
                 foreach ($rows as $q) {
                     $date = $this->date($q->dot) ?? '2020-01-01';
                     $mode = strtolower((string) $q->qrmode);
+                    $code = $this->clip($q->qrcode ?: null, 40);
+                    if ($code === null || isset($seen[$code])) {
+                        $code = 'DQ' . $q->trid;
+                    }
+                    $seen[$code] = true;
                     $batch[] = [
                         'member_id' => $this->memberMap[$this->clip($q->userid, 30)] ?? null,
-                        'qr_code' => $this->clip($q->qrcode ?: null, 40),
+                        'qr_code' => $code,
                         'qr_mode' => in_array($mode, ['cash', 'gold', 'silver'], true) ? $mode : 'cash',
                         'gram_worth' => $this->num($q->gm_worth),
                         'cash_worth' => $this->num($q->cash_worth),

@@ -364,16 +364,25 @@ class SalesService
         $days = min(30, $start->diffInDays($firstDue));
         $firstWorth = round($monthly / 30 * $days, 2);
 
+        // worth is INR base; freeze the earner's currency + rate at schedule time —
+        // the SAME stamp CommissionService::issueCbc applies (approval pays at
+        // exactly this rate; an unstamped row would default to INR/1.0).
+        $earnerBranch = $member->branch_id ? \App\Models\Branch::find($member->branch_id) : null;
+        $stamp = [
+            'currency_code' => $earnerBranch?->currency_code ?: 'INR',
+            'fx_rate' => $earnerBranch?->fxRateToBase() ?? 1.0,
+        ];
+
         CbcEntry::create([
             'bond_id' => $bond->id, 'member_id' => $member->id, 'cbc_date' => $firstDue->toDateString(),
             'code' => $this->cbcCode(), 'worth' => $firstWorth, 'status' => 'pending',
-        ]);
+        ] + $stamp);
         for ($i = 1; $i < $count; $i++) {
             CbcEntry::create([
                 'bond_id' => $bond->id, 'member_id' => $member->id,
                 'cbc_date' => $firstDue->copy()->addMonthsNoOverflow($i)->toDateString(),
                 'code' => $this->cbcCode(), 'worth' => $monthly, 'status' => 'pending',
-            ]);
+            ] + $stamp);
         }
     }
 

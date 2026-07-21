@@ -220,7 +220,12 @@ class RedemptionService
             // the branch currency), so a foreign redemption prices in its own market.
             // Fresh query on purpose: LiveRate::latestFor's static memo outlives a
             // request only in long-lived processes (tests) and would serve stale rows.
-            $rate = $this->liveRate($branch?->country ?: 'IN');
+            $rate = $this->liveRate($country = $branch?->country ?: 'IN');
+            // Mode B prices from this feed — refuse loudly when the region has no
+            // rate row (the zero-rate stub would price every line at 0 and fail the
+            // worth gate with a misleading "below the QR worth" message).
+            abort_if($ctx['mode'] === 'B' && ! $rate->exists, 422,
+                "No live metal rate configured for region {$country} — set it before redeeming.");
             $lines = $modeA
                 ? $ctx['cart']
                 : collect($data['lines'] ?? [])

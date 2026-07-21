@@ -113,7 +113,8 @@ class RedeemQr extends Page implements HasForms
                         Placeholder::make('plan')->label('Scheme')
                             ->content(fn () => $this->ctx['plan'] ?? '—'),
                         Placeholder::make('worth')->label('QR worth')
-                            ->content(fn () => new HtmlString('<span class="text-lg font-bold text-primary-600">₹' . number_format((float) ($this->ctx['worth'] ?? 0), 2) . '</span>')),
+                            ->content(fn () => new HtmlString('<span class="text-lg font-bold text-primary-600">'
+                                . $this->sym() . number_format(round((float) ($this->ctx['worth'] ?? 0) / $this->fx(), 2), 2) . '</span>')),
                         Placeholder::make('mode')->label('Mode')
                             ->content(fn () => ($this->ctx['mode'] ?? '') === 'A'
                                 ? new HtmlString('<span class="font-semibold">A — Metal purchase</span> <span class="text-gray-500">(cart from original sale · billing branch only · no stock/margin)</span>')
@@ -159,8 +160,8 @@ class RedeemQr extends Page implements HasForms
                                     ->numeric()->default(0)->live(onBlur: true)->columnSpan(3),
                                 TextInput::make('quantity')->label('Qty')
                                     ->numeric()->default(1)->live(onBlur: true)->columnSpan(2),
-                                Placeholder::make('line_total')->label('Line ₹')
-                                    ->content(fn (Get $get) => '₹' . number_format($this->priceRow($get('catalog_product_id'), (float) $get('unit_weight'), (float) $get('quantity')), 2))
+                                Placeholder::make('line_total')->label('Line total')
+                                    ->content(fn (Get $get) => $this->sym() . number_format($this->priceRow($get('catalog_product_id'), (float) $get('unit_weight'), (float) $get('quantity')), 2))
                                     ->columnSpan(2),
                             ]),
                         Placeholder::make('cart_total')
@@ -311,10 +312,11 @@ class RedeemQr extends Page implements HasForms
             return;
         }
 
+        $sym = \App\Support\Money::currency($invoice->currency_code ?: 'INR')?->symbol ?? '₹';
         Notification::make()
             ->success()
             ->title('Redeemed · ' . $invoice->invoice_no)
-            ->body('Tax invoice ₹' . number_format((float) $invoice->grand_total, 2) . ' raised.'
+            ->body('Tax invoice ' . $sym . number_format((float) $invoice->grand_total, 2) . ' raised.'
                 . ($invoice->dealer_created ? ' Dealer account opened.' : ''))
             ->actions([
                 \Filament\Notifications\Actions\Action::make('print')
@@ -346,6 +348,36 @@ class RedeemQr extends Page implements HasForms
         return (int) (auth()->user()?->branch_id ?: 1);
     }
 
+    /** The currently selected redeeming branch — currency + rate-region authority. */
+    protected function redeemBranch(): ?Branch
+    {
+        $id = (int) ($this->data['branch_id'] ?? $this->defaultBranchId());
+
+        return $id ? Branch::find($id) : null;
+    }
+
+    /** The regional metal-rate feed the SERVICE will price with (null = not seeded). */
+    protected function regionRate(): ?\App\Models\LiveRate
+    {
+        return \App\Models\LiveRate::latestFor($this->redeemBranch()?->country ?: 'IN');
+    }
+
+    /** Currency symbol of the redeeming branch (₹ for India / unset). */
+    protected function sym(): string
+    {
+        return $this->redeemBranch()?->currencySymbol() ?: '₹';
+    }
+
+    /** INR per branch-currency unit — display-safe (1.0 when unconfigured). */
+    protected function fx(): float
+    {
+        try {
+            return $this->redeemBranch()?->fxRateToBase() ?? 1.0;
+        } catch (\RuntimeException) {
+            return 1.0;   // preview only; the service will fail loudly on submit
+        }
+    }
+
     protected function isDistributor(): bool
     {
         $u = auth()->user();
@@ -363,7 +395,7 @@ class RedeemQr extends Page implements HasForms
             ])->all();
     }
 
-    /** Live price of one Mode-B row (₹ incl. GST). */
+    /** Live price of one Mode-B row (branch currency, incl. GST) — the SAME regional feed the service bills with. */
     protected function priceRow($catalogProductId, float $unitWeight, float $quantity): float
     {
         if (! $catalogProductId || $quantity <= 0) {
@@ -374,7 +406,7 @@ class RedeemQr extends Page implements HasForms
             return 0.0;
         }
 
-        return (float) app(RedemptionService::class)->priceLine($cp, $unitWeight, $quantity)['line_total'];
+        return (float) app(RedemptionService::class)->priceLine($cp, $unitWeight, $quantity, $this->regionRate())['line_total'];
     }
 
     protected function renderCartTotal(array $lines): string
@@ -383,13 +415,16 @@ class RedeemQr extends Page implements HasForms
         foreach ($lines as $l) {
             $total += $this->priceRow($l['catalog_product_id'] ?? null, (float) ($l['unit_weight'] ?? 0), (float) ($l['quantity'] ?? 0));
         }
-        $worth = (float) ($this->ctx['worth'] ?? 0);
+        // cash_worth is INR base; the gate (and this preview) compares in the
+        // branch currency at the frozen rate — mirrors RedemptionService::redeem().
+        $sym = $this->sym();
+        $worth = round((float) ($this->ctx['worth'] ?? 0) / $this->fx(), 2);
         $ok = $total + 0.01 >= $worth;
         $colour = $ok ? '#16a34a' : '#dc2626';
         $note = $ok ? 'meets the QR worth' : 'below the QR worth — add more';
 
-        return '<span style="font-size:1.25rem;font-weight:700;color:' . $colour . '">₹' . number_format($total, 2) . '</span>'
-            . ' <span style="color:#6b7280">/ worth ₹' . number_format($worth, 2) . ' — ' . $note . '</span>';
+        return '<span style="font-size:1.25rem;font-weight:700;color:' . $colour . '">' . $sym . number_format($total, 2) . '</span>'
+            . ' <span style="color:#6b7280">/ worth ' . $sym . number_format($worth, 2) . ' — ' . $note . '</span>';
     }
 
     protected function renderModeACart(): string
@@ -399,7 +434,7 @@ class RedeemQr extends Page implements HasForms
             $rows .= '<tr>'
                 . '<td style="padding:4px 8px;border-bottom:1px solid #eee">' . e($l['description'] ?? '') . '</td>'
                 . '<td style="padding:4px 8px;border-bottom:1px solid #eee;text-align:right">' . number_format((float) ($l['quantity'] ?? 0), 3) . '</td>'
-                . '<td style="padding:4px 8px;border-bottom:1px solid #eee;text-align:right">₹' . number_format((float) ($l['line_total'] ?? 0), 2) . '</td>'
+                . '<td style="padding:4px 8px;border-bottom:1px solid #eee;text-align:right">' . $this->sym() . number_format((float) ($l['line_total'] ?? 0), 2) . '</td>'
                 . '</tr>';
         }
         if ($rows === '') {

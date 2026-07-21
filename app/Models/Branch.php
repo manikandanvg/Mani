@@ -42,8 +42,16 @@ class Branch extends Model
             return 1.0;
         }
         $perInr = (float) Currency::where('code', $code)->value('rate_to_base');
+        if ($perInr <= 0) {
+            // Fail LOUDLY: a silent 1.0 here would freeze fx=1.0 onto invoices,
+            // ledgers and CBC/RD entries — mispricing everything at this branch
+            // by the whole fx factor with no visible symptom.
+            throw new \RuntimeException(
+                "No usable exchange rate for {$code}: currencies.rate_to_base must be set > 0 before this branch can transact."
+            );
+        }
 
-        return $perInr > 0 ? round(1 / $perInr, 6) : 1.0;
+        return round(1 / $perInr, 6);
     }
 
     public function currencySymbol(): string

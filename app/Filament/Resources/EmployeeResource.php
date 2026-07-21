@@ -69,6 +69,16 @@ class EmployeeResource extends BaseResource
                 Forms\Components\TextInput::make('rfid_tag')
                     ->label('RFID card UID (L-BOX)')
                     ->unique(ignoreRecord: true)
+                    ->rule(fn () => function (string $attribute, $value, \Closure $fail) {
+                        // Mirror guard of BranchResource: an employee card must never
+                        // collide with a BRANCH card — the box matches the branch card
+                        // first, so this employee's taps would open/close the branch
+                        // instead of checking them in.
+                        $uid = strtoupper(trim((string) $value));
+                        if ($uid !== '' && \App\Models\Branch::where('rfid_tag', $uid)->exists()) {
+                            $fail('This card is already registered as a BRANCH open/close card.');
+                        }
+                    })
                     ->helperText('Card UID for attendance taps at the branch L-BOX. Empty = app check-in only.'),
             ]),
         ]);

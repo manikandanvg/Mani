@@ -282,9 +282,17 @@ class Sales extends Page implements HasForms
         }, $data['cart']);
 
         $rate = self::pageRate();
-        $data['gold_rate'] = $rate?->gold ?? 0;
-        $data['silver_rate'] = $rate?->silver ?? 0;
-        $data['diamond_rate'] = $rate?->diamond ?? 0;
+        if (! $rate) {   // foreign branch, no regional feed — refuse rather than misprice
+            Notification::make()
+                ->title('No live metal rate for this branch\'s region')
+                ->body('Ask HQ to set the region\'s live rate before billing.')
+                ->danger()->send();
+
+            return;
+        }
+        $data['gold_rate'] = $rate->gold ?? 0;
+        $data['silver_rate'] = $rate->silver ?? 0;
+        $data['diamond_rate'] = $rate->diamond ?? 0;
         $data['created_by'] = auth()->id();
 
         // carry the KYC verification outcome so it is stored on the member
@@ -529,12 +537,21 @@ class Sales extends Page implements HasForms
         return $branchId ? Branch::find($branchId) : null;
     }
 
-    /** The metal rate feed for the operator's REGION (HQ / no branch = India). */
+    /**
+     * The metal rate feed for the operator's REGION (HQ / no branch = India).
+     * A FOREIGN-currency branch with no regional rate row gets NULL — never the
+     * India feed: INR-magnitude rates under a foreign symbol would price bills
+     * wrong by the whole fx factor. generate() refuses to bill on null.
+     */
     protected static function pageRate(): ?LiveRate
     {
         $branch = self::operatorBranch();
+        $regional = $branch ? LiveRate::forBranch($branch) : null;
+        if ($regional) {
+            return $regional;
+        }
 
-        return ($branch ? LiveRate::forBranch($branch) : null) ?? LiveRate::latestFor('IN');
+        return strtoupper($branch?->currency_code ?: 'INR') === 'INR' ? LiveRate::latestFor('IN') : null;
     }
 
     /** The operator's currency symbol (₹ for India / no branch). */

@@ -63,6 +63,19 @@ class BranchResource extends BaseResource
                     Forms\Components\TextInput::make('rfid_tag')->label('Branch RFID card')
                         ->maxLength(32)->unique(ignoreRecord: true)
                         ->helperText('The branch\'s own attendance card: its morning tap on the L-BOX opens the branch, the evening tap closes it. Tap an unregistered card on the box to read its number off the screen. Card lost? Just replace the number here.')
+                        // Normalize BEFORE validation (unique compares the live state);
+                        // dehydrate stays as the belt for programmatic fills.
+                        ->live(onBlur: true)
+                        ->afterStateUpdated(fn (?string $state, Forms\Set $set) => $set('rfid_tag', $state ? strtoupper(trim($state)) : null))
+                        ->rule(fn () => function (string $attribute, $value, \Closure $fail) {
+                            // A branch card must never collide with an EMPLOYEE card —
+                            // the box checks the branch card first and would swallow
+                            // that employee's attendance taps as open/close events.
+                            $uid = strtoupper(trim((string) $value));
+                            if ($uid !== '' && \App\Models\EmployeeProfile::where('rfid_tag', $uid)->exists()) {
+                                $fail('This card is already registered as an EMPLOYEE attendance card.');
+                            }
+                        })
                         ->dehydrateStateUsing(fn (?string $state) => $state ? strtoupper(trim($state)) : null),
                 ]),
                 Forms\Components\Section::make('Currency & tax')->columns(3)

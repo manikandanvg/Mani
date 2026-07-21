@@ -45,6 +45,7 @@ class CurrencyResource extends BaseResource
                 Forms\Components\TextInput::make('rate_to_base')
                     ->required()
                     ->numeric()
+                    ->gt(0)   // 0 would freeze fx=1.0 onto every document at branches using this currency
                     ->default(1.00000000),
                 Forms\Components\Toggle::make('is_base')
                     ->required(),

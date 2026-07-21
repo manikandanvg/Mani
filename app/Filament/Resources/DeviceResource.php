@@ -158,6 +158,13 @@ class DeviceResource extends BaseResource
 
                             return;
                         }
+                        if ($uid && \App\Models\EmployeeProfile::where('rfid_tag', $uid)->exists()) {
+                            // The box matches the branch card BEFORE the employee lookup —
+                            // reusing an employee's card would swallow their attendance taps.
+                            Notification::make()->title('That card belongs to an EMPLOYEE — their attendance taps would break')->danger()->send();
+
+                            return;
+                        }
                         $record->branch->update(['rfid_tag' => $uid]);
                         Notification::make()
                             ->title($uid ? "Branch card set: {$uid}" : 'Branch card removed')

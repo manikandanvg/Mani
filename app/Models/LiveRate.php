@@ -16,12 +16,16 @@ class LiveRate extends Model
 
     public function updatedBy() { return $this->belongsTo(User::class, 'updated_by'); }
 
-    /** Latest effective rate for a country (price history kept as separate rows). */
+    /**
+     * Latest effective rate for a country (price history kept as separate rows).
+     * Memoized with once(): request-scoped (flushed by Octane per request and by
+     * the test harness per test) — the previous `static $cache` never invalidated,
+     * serving stale rates to queue workers/tests and forcing callers into
+     * hand-rolled fresh queries (ChargeResolver, RedemptionService).
+     */
     public static function latestFor(string $country = 'IN'): ?self
     {
-        static $cache = [];
-
-        return $cache[$country] ??= static::where('country', $country)->latest('effective_at')->first();
+        return once(fn () => static::where('country', $country)->latest('effective_at')->first());
     }
 
     /** The metal rate for a branch's region — quoted natively in that region's currency. */
