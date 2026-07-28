@@ -31,10 +31,11 @@ class CommissionApprovalService
     public const SERVICE_PCT = 5.0;
 
     /**
-     * UI dropdown — the 7 commission types in display order.
+     * UI dropdown — the commission streams in display order.
      * Display names follow the 2026-07 board/auditor terminology: IC is shown as
      * "Promotional Incentive" (legacy Sales Profit) and GAP as "Turnover-based
-     * Salary" (legacy Level Income). Internal keys are unchanged.
+     * Salary" (legacy Level Income). Internal keys are unchanged. RD Renewal Margin
+     * (2026-07) was carved out of Gold Margin, which it used to share an id with.
      */
     public const TYPES = [
         'IC' => 'Promotional Incentive (IC)',
@@ -44,14 +45,16 @@ class CommissionApprovalService
         'GOLD_MARGIN' => 'Gold Margin',
         'SILVER_MARGIN' => 'Silver Margin',
         'STOCK_TRANSFER_MARGIN' => 'Stock Transfer Margin',
+        'RD_RENEWAL_MARGIN' => 'RD Renewal Margin',
     ];
 
     /** reseller_commissions.com_type_id for each margin type. */
     protected const RESELLER_COM = [
-        'BILL_MARGIN' => 1,
-        'GOLD_MARGIN' => 2,
-        'SILVER_MARGIN' => 3,
-        'STOCK_TRANSFER_MARGIN' => 4,
+        'BILL_MARGIN' => ResellerCommission::COM_BILL_MARGIN,
+        'GOLD_MARGIN' => ResellerCommission::COM_GOLD_MARGIN,
+        'SILVER_MARGIN' => ResellerCommission::COM_SILVER_MARGIN,
+        'STOCK_TRANSFER_MARGIN' => ResellerCommission::COM_STOCK_TRANSFER_MARGIN,
+        'RD_RENEWAL_MARGIN' => ResellerCommission::COM_RD_RENEWAL_MARGIN,
     ];
 
     /**

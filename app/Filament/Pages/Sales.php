@@ -232,7 +232,7 @@ class Sales extends Page implements HasForms
                     ->description('Schemes available for this cart value')
                     ->schema([
                         Select::make('plan_id')->label('Select Scheme')
-                            ->options(fn (Get $get) => self::planOptions($get('cart') ?? []))
+                            ->options(fn (Get $get) => self::planOptions($get('cart') ?? [], $get('branch_id')))
                             ->live()->required()
                             ->helperText('Schemes are matched to your cart — Gold items → gold scheme, Silver → silver scheme, Cash → Digital/RD — and only those whose minimum value ≤ cart total.'),
                         Placeholder::make('plan_benefits')->label('Scheme Benefits')
@@ -731,9 +731,12 @@ class Sales extends Page implements HasForms
         return ['gross' => round($gross, 2), 'gst' => round($gst, 2), 'grand' => round($gross + $gst, 2)];
     }
 
-    protected static function planOptions(array $cart): array
+    protected static function planOptions(array $cart, $branchId = null): array
     {
-        $grand = self::totals($cart)['grand'];
+        // Plan min/max ceilings are INR base; the cart totals are in the branch
+        // currency — convert once so the filter agrees with assertPlanCaps.
+        $fx = Branch::find($branchId)?->fxRateToBase() ?? 1.0;
+        $grand = round(self::totals($cart)['grand'] * $fx, 2);
         $types = self::planTypesForCart($cart);
 
         return Plan::where('is_active', true)
@@ -750,7 +753,7 @@ class Sales extends Page implements HasForms
 
     /**
      * Map the cart's item materials to the plan `type`s allowed for it:
-     *   gold → gold (P206) · silver → silver (P212) · cash → digital + rd.
+     *   gold → gold (P206) · silver → silver (P211) · cash → digital + rd.
      * Returns null when the cart is empty (no type restriction yet).
      */
     protected static function planTypesForCart(array $cart): ?array

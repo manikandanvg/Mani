@@ -22,7 +22,7 @@ class RedeemableQrTest extends TestCase
     {
         $plan = Plan::create([
             'code' => 'P201', 'name' => ['en' => 'Dealer'], 'plan_type' => 1, 'type' => 'rd',
-            'min_value' => 0, 'allocation_bv' => 100, 'is_active' => true,
+            'min_value' => 0, 'allocation_bv' => 100, 'is_redeem' => true, 'is_contract' => true, 'is_active' => true,
         ]);
         $rankId = \App\Models\Rank::create(['code' => 'MEMBER', 'name' => 'Member', 'depth' => 0, 'is_active' => true])->id;
         $member = Member::create([

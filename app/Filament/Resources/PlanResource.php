@@ -98,7 +98,26 @@ class PlanResource extends BaseResource
                         ->searchable(),
                     Forms\Components\Toggle::make('is_active')->label('Visible / billable')->default(true),
                 ]),
-                Forms\Components\Section::make()->schema([
+                Forms\Components\Section::make('RD gold QR')->columns(3)->schema([
+                    Forms\Components\TextInput::make('rd_qr_grams')->label('Gold weight (g)')->numeric()
+                        ->helperText('QR + fixed renewal amount backed by this gold weight (e.g. 0.100 = 100 mg); blank = value-based QR'),
+                    Forms\Components\Select::make('rd_qr_on')->label('QR minted')
+                        ->options(['always' => 'At bill + every renewal', 'first_renewal' => 'Once, at first renewal'])
+                        ->placeholder('Never'),
+                    Forms\Components\Select::make('rd_qr_product_id')->label('QR product')
+                        ->relationship('rdQrProduct', 'code')
+                        ->helperText('Catalog product supplying making/wastage/GST %')
+                        ->searchable(),
+                ]),
+                Forms\Components\Section::make('Settlement')->columns(3)->schema([
+                    Forms\Components\TextInput::make('settlement_cycle_months')->label('Cycle (months)')->numeric()
+                        ->helperText('Months from contract start to the settlement event; blank = never settles'),
+                    Forms\Components\TextInput::make('settlement_qr_pct')->label('QR worth %')->numeric()
+                        ->helperText('Settlement gold-QR worth as % of the contract amount'),
+                    Forms\Components\TextInput::make('settlement_bonus_months')->label('RD bonus months')->numeric()->default(0)
+                        ->helperText('G11 RD: QR = paid total + bonus months × monthly'),
+                    Forms\Components\Toggle::make('settlement_close')->label('Close contract at settlement'),
+                    Forms\Components\Toggle::make('settlement_suspend')->label('Suspend dealer login'),
                     Forms\Components\Textarea::make('settlement')->label('Settlement note')->rows(2)->maxLength(255),
                 ]),
             ]);

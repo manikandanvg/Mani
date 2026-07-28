@@ -227,6 +227,6 @@ class MemberBusinessController extends Controller
 
     protected function resellerLabel(int $comTypeId): string
     {
-        return [1 => 'BILL_MARGIN', 2 => 'GOLD_MARGIN', 3 => 'SILVER_MARGIN', 4 => 'STOCK_TRANSFER_MARGIN'][$comTypeId] ?? 'MARGIN';
+        return [1 => 'BILL_MARGIN', 2 => 'GOLD_MARGIN', 3 => 'SILVER_MARGIN', 4 => 'STOCK_TRANSFER_MARGIN', 5 => 'RD_RENEWAL_MARGIN'][$comTypeId] ?? 'MARGIN';
     }
 }

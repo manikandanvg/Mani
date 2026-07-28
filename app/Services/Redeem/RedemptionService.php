@@ -22,51 +22,35 @@ use Illuminate\Support\Str;
 /**
  * Stock-QR redemption — the ACTUAL sale (legacy admin/trade/redeeminvqr). Two modes:
  *
- *  A) Metal-purchase plans (P206 G10-Gold, P212 G10-Silver): the metal was billed on the
- *     original sale, so the cart is rebuilt from that sale's lines, it can be redeemed ONLY
- *     at the billing branch, no stock is moved, and NO margin is paid (already earned at billing).
+ *  A) Metal-purchase plans (type gold/silver — G10 Gold P206, G10 Silver P211): the metal was
+ *     billed on the original sale, so the cart is rebuilt from that sale's lines, it can be
+ *     redeemed ONLY at the billing branch, no stock is moved, and NO margin is paid (already
+ *     earned at billing).
  *
  *  B) Every other redeemable bond: the operator picks stock to the QR's worth, redeemable at
  *     ANY branch; the carted items are deducted from the redeeming branch's stock and the branch
- *     earns the gold/silver GM margin (no bill margin). Optionally a "digital"-contract customer
- *     is turned into a dealer (branch + distributor) seeded with the redeemed stock.
+ *     earns the gold/silver GM margin (no bill margin). Plans flagged `useraccess` may turn the
+ *     customer into a dealer (branch + distributor) seeded with the redeemed stock.
  *
  * Pricing is a normal sale (live rate + catalog making/wastage/hallmark/GST) — no cash→gold reversal.
  */
 class RedemptionService
 {
-    /** Plans whose metal is billed up front (Mode A). Codes are stored P-prefixed (P206/P212). */
-    public const METAL_PURCHASE_PLAN_CODES = ['P206', 'P212'];
-
-    /** Digital-contract plans NOT eligible to open a dealer account. */
-    public const DEALER_INELIGIBLE_PLAN_CODES = ['P202'];
-
     public const DEALER_DEFAULT_PASSWORD = '123456';
 
     /** GST halves (CGST + SGST). */
     public const GST_SPLIT = 2;
 
+    /** Mode A = the metal itself was billed up front (plans typed gold/silver). */
     public function isMetalPurchasePlan($plan): bool
     {
-        return $plan && $this->codeMatches($plan->code, self::METAL_PURCHASE_PLAN_CODES);
+        return $plan && in_array($plan->type, ['gold', 'silver'], true);
     }
 
+    /** Dealer-account opening at redeem is driven by the plan's `useraccess` flag (schema v2). */
     public function dealerEligible($plan): bool
     {
-        return $plan
-            && $plan->type === 'digital'
-            && ! $this->codeMatches($plan->code, self::DEALER_INELIGIBLE_PLAN_CODES);
-    }
-
-    /**
-     * Match a plan code against a list, tolerant of an optional leading "P" prefix
-     * (real data stores P206/P212/P202; some fixtures use bare 206/212/202).
-     */
-    protected function codeMatches(?string $code, array $list): bool
-    {
-        $norm = fn ($c) => ltrim(strtoupper(trim((string) $c)), 'P');
-
-        return in_array($norm($code), array_map($norm, $list), true);
+        return (bool) ($plan?->useraccess);
     }
 
     /**
@@ -331,10 +315,13 @@ class RedemptionService
             if ($qty <= 0) {
                 continue;
             }
-            $stock = Stock::firstOrCreate(
-                ['branch_id' => $branchId, 'catalog_product_id' => $l['catalog_product_id']],
-                ['quantity' => 0],
-            );
+            // Redeem consumes the REDEEMING branch's own stock only — never HQ/admin
+            // stock, and never below zero.
+            $stock = Stock::where('branch_id', $branchId)
+                ->where('catalog_product_id', $l['catalog_product_id'])
+                ->lockForUpdate()->first();
+            abort_if(! $stock || (float) $stock->quantity + 1e-6 < $qty, 422,
+                'Insufficient branch stock for ' . $l['description'] . ' — redemption uses the redeeming branch\'s own stock.');
             $stock->decrement('quantity', $qty);
             StockMovement::create([
                 'branch_id' => $branchId,
@@ -366,7 +353,7 @@ class RedemptionService
         // gm_margin is a ₹/gram constant → the margin is INR base (same as SalesService);
         // com_value stays INR base for coherent caps, the branch balance shows its own currency.
         $fx = (float) ($invoice->fx_rate ?: 1);
-        foreach (['gold' => 2, 'silver' => 3] as $material => $comType) {
+        foreach (['gold' => ResellerCommission::COM_GOLD_MARGIN, 'silver' => ResellerCommission::COM_SILVER_MARGIN] as $material => $comType) {
             $margin = round($totals[$material], 2);
             if ($margin <= 0) {
                 continue;

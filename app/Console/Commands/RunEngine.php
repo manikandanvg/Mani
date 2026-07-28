@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Services\CommissionService;
 use App\Services\NetworkService;
+use App\Services\SettlementService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
 
@@ -19,11 +20,11 @@ use Illuminate\Support\Carbon;
  */
 class RunEngine extends Command
 {
-    protected $signature = 'engine:run {--only= : recompute|gap|cbc|statements} {--period= : YYYY-MM}';
+    protected $signature = 'engine:run {--only= : recompute|gap|cbc|settlement|statements} {--period= : YYYY-MM}';
 
-    protected $description = 'Recompute BV/ranks and generate IC/GAP/CBC commissions + payout statements';
+    protected $description = 'Recompute BV/ranks, generate IC/GAP/CBC commissions and settle matured contracts';
 
-    public function handle(NetworkService $network, CommissionService $commission): int
+    public function handle(NetworkService $network, CommissionService $commission, SettlementService $settlement): int
     {
         $period = $this->option('period')
             ? Carbon::createFromFormat('Y-m', $this->option('period'))->startOfMonth()
@@ -48,7 +49,15 @@ class RunEngine extends Command
             $this->line("  {$n} CBC rows issued.");
         }
 
-        if (! $only || $only === 'statements') {
+        if (! $only || $only === 'settlement') {
+            $this->info('Settling matured contracts...');
+            $n = $settlement->run();
+            $this->line("  {$n} contracts settled.");
+        }
+
+        // Retired payout-statement system: EXPLICIT opt-in only — never part of the full
+        // chain, because it flips pending ledger rows to approved behind the manual gate.
+        if ($only === 'statements') {
             $this->info('Generating payout statements...');
             $n = $commission->generatePayoutStatements($period->format('Y-m'));
             $this->line("  {$n} statements generated.");

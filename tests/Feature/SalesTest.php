@@ -34,6 +34,7 @@ class SalesTest extends TestCase
             'ic_schedule' => ['10', '5', '2'], 'level_schedule' => ['2.5', '1'],
             'level_depth' => 2, 'level_com_duration' => 11,
             'billing_margin' => 2,
+            'is_redeem' => true, 'is_contract' => true,
             'is_active' => true,
         ]);
     }
@@ -121,6 +122,32 @@ class SalesTest extends TestCase
         $this->assertEquals(1030, (float) $qr->cash_worth);
         $this->assertEqualsWithDelta(1030 / 7000, (float) $qr->gram_worth, 0.0001);
         $this->assertFalse((bool) $qr->qr_sent); // delivery is skipped under tests
+
+        // contract created (plan is is_contract)
+        $this->assertDatabaseHas('member_contracts', ['bond_id' => $bond->id]);
+    }
+
+    /** Schema-v2 flags: plans without is_redeem / is_contract get neither a QR nor a contract. */
+    public function test_plan_flags_gate_qr_and_contract_creation(): void
+    {
+        $branch = Branch::create(['name' => 'Flag Shop', 'country' => 'IN', 'is_active' => true]);
+        $plain = Plan::create([
+            'code' => 'NOFLAGS', 'name' => ['en' => 'No Flags'], 'plan_type' => 2, 'type' => 'digital',
+            'min_value' => 0, 'allocation_bv' => 100, 'validity_months' => 12,
+            'cbc_value' => 0, 'cbc_count' => 0, 'ic_schedule' => [], 'level_schedule' => [],
+            'billing_margin' => 0, 'is_redeem' => false, 'is_contract' => false, 'is_active' => true,
+        ]);
+
+        app(SalesService::class)->generateInvoice([
+            'branch_id' => $branch->id,
+            'plan_id' => $plain->id,
+            'customer' => ['name' => 'Flagless', 'phone' => '9000000077'],
+            'cart' => [['material' => 'cash', 'net_total' => 1000, 'grand_total' => 1030]],
+        ]);
+
+        $bond = Bond::where('member_id', Member::where('name', 'Flagless')->value('id'))->firstOrFail();
+        $this->assertDatabaseMissing('redeemable_qrs', ['bond_id' => $bond->id]);
+        $this->assertDatabaseMissing('member_contracts', ['bond_id' => $bond->id]);
     }
 
     /** GM margin: gold lines credit gold_gm_margin, silver lines silver_gm_margin, instantly. */

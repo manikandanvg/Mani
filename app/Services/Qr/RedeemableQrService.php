@@ -26,6 +26,10 @@ class RedeemableQrService
     /**
      * Get (or create) the redeemable QR for a bond. Idempotent: one QR per bond.
      * $goldRate (₹/gram) is used to express the worth in grams when available.
+     *
+     * Worth (schema v2): RD gold-QR plans (rd_qr_grams) are worth the configured gold
+     * weight at the live rate incl. making/wastage/GST; contract-split plans are worth
+     * the allocation_cont % of the billed value; everything else the full billed value.
      */
     public function forBond(Bond $bond, float $goldRate = 0.0): RedeemableQr
     {
@@ -33,7 +37,13 @@ class RedeemableQrService
             return $existing;
         }
 
-        $cashWorth = (float) ($bond->epin_value ?: $bond->value);
+        $plan = $bond->loadMissing('plan')->plan;
+        $grand = (float) ($bond->epin_value ?: $bond->value);
+        $cashWorth = match (true) {
+            $plan && (float) $plan->rd_qr_grams > 0 => app(GoldQrPricing::class)->price($plan),
+            $plan && (float) $plan->allocation_cont > 0 => round($grand * (float) $plan->allocation_cont / 100, 2),
+            default => $grand,
+        };
         $gramWorth = $goldRate > 0 ? round($cashWorth / $goldRate, 4) : null;
 
         return RedeemableQr::create([
@@ -50,6 +60,27 @@ class RedeemableQrService
         ]);
     }
 
+    /**
+     * Mint a SETTLEMENT gold QR at an explicit worth (maturity benefit — e.g. 70/80% of
+     * the contract amount, or the RD paid-total + bonus). Unlike forBond this is never
+     * idempotent: a bond can hold a sale QR and a settlement QR side by side.
+     */
+    public function mintSettlementQr(Bond $bond, float $worth): RedeemableQr
+    {
+        return RedeemableQr::create([
+            'bond_id' => $bond->id,
+            'member_id' => $bond->member_id,
+            'branch_id' => $bond->branch_id,
+            'invoice_no' => $bond->invoice_no,
+            'qr_code' => $this->uniqueToken(),
+            'qr_mode' => 'gold',
+            'gram_worth' => null,
+            'cash_worth' => round($worth, 2),
+            'status' => 'pending',
+            'qr_sent' => false,
+        ]);
+    }
+
     /** Public URL of the QR PNG (rendered + cached on the public disk). */
     public function imageUrl(RedeemableQr $qr): string
     {
@@ -61,10 +92,10 @@ class RedeemableQrService
      * Best-effort: never throws into billing. Marks qr_sent on success. The actual recipient
      * is governed by config('services.whatsapp.test_recipient') during testing.
      */
-    public function deliver(RedeemableQr $qr): array
+    public function deliver(RedeemableQr $qr, bool $withContract = true): array
     {
         try {
-            $qr->loadMissing('member', 'bond');
+            $qr->loadMissing('member', 'bond.plan');
             $phone = (string) ($qr->member?->phone ?? '');
             if ($phone === '') {
                 return ['ok' => false, 'message' => 'Distributor has no phone number.'];
@@ -72,8 +103,9 @@ class RedeemableQrService
 
             $results = [];
 
-            // 1) Contract PDF
-            if ($qr->bond) {
+            // 1) Contract PDF — only for contract-bearing plans (schema-v2 is_contract);
+            //    settlement QRs pass withContract=false (the contract went out at sale).
+            if ($withContract && $qr->bond && $qr->bond->plan?->is_contract) {
                 $results['contract'] = $this->whatsapp->sendMedia(
                     $phone,
                     $this->contracts->store($qr->bond),

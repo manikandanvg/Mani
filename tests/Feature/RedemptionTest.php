@@ -40,9 +40,9 @@ class RedemptionTest extends TestCase
         ], $attrs));
     }
 
-    protected function plan(string $code, string $type = 'digital'): Plan
+    protected function plan(string $code, string $type = 'digital', array $extra = []): Plan
     {
-        return Plan::create(['code' => $code, 'name' => ['en' => "Plan {$code}"], 'plan_type' => 1, 'type' => $type, 'min_value' => 0, 'allocation_bv' => 100, 'is_active' => true]);
+        return Plan::create(array_merge(['code' => $code, 'name' => ['en' => "Plan {$code}"], 'plan_type' => 1, 'type' => $type, 'min_value' => 0, 'allocation_bv' => 100, 'is_active' => true], $extra));
     }
 
     protected function gold(string $code = 'G1'): CatalogProduct
@@ -236,11 +236,47 @@ class RedemptionTest extends TestCase
             'lines' => [['catalog_product_id' => $cp->id, 'unit_weight' => 1, 'quantity' => 1]]]);
     }
 
+    /** Silver purchase plan (P211, type silver) is Mode A too: billing-branch-locked. */
+    public function test_silver_purchase_plan_is_mode_a_branch_locked(): void
+    {
+        $billing = Branch::create(['name' => 'AgBilling', 'country' => 'IN', 'level' => 'reseller', 'is_active' => true]);
+        $other = Branch::create(['name' => 'AgOther', 'country' => 'IN', 'level' => 'reseller', 'is_active' => true]);
+        $plan = $this->plan('211', 'silver');
+        $member = $this->member('RAG1');
+        $bond = Bond::create(['member_id' => $member->id, 'plan_id' => $plan->id, 'branch_id' => $billing->id, 'bond_date' => now(), 'value' => 5000, 'invoice_no' => 'INV-RAG1', 'status' => 'active']);
+        RedeemableQr::create(['bond_id' => $bond->id, 'member_id' => $member->id, 'branch_id' => $billing->id, 'invoice_no' => 'INV-RAG1', 'qr_code' => 'QRAG1', 'qr_mode' => 'gold', 'cash_worth' => 5000, 'status' => 'pending']);
+
+        $ctx = app(RedemptionService::class)->lookup('QRAG1', $billing->id);
+        $this->assertEquals('A', $ctx['mode']);
+        $this->assertTrue($ctx['branch_locked']);
+
+        $this->expectException(\Symfony\Component\HttpKernel\Exception\HttpException::class);
+        app(RedemptionService::class)->lookup('QRAG1', $other->id);   // wrong branch blocked
+    }
+
+    /** Item 3: Mode B consumes the redeeming branch's OWN stock — insufficient stock aborts. */
+    public function test_mode_b_redeem_rejects_insufficient_branch_stock(): void
+    {
+        $branch = Branch::create(['name' => 'NoStock', 'country' => 'IN', 'level' => 'reseller', 'is_active' => true]);
+        $plan = $this->plan('560', 'digital');
+        $member = $this->member('RB9');
+        $bond = Bond::create(['member_id' => $member->id, 'plan_id' => $plan->id, 'branch_id' => $branch->id, 'bond_date' => now(), 'value' => 1000, 'invoice_no' => 'INV-RB9', 'status' => 'active']);
+        $cp = $this->gold('G9');
+        Stock::create(['branch_id' => $branch->id, 'catalog_product_id' => $cp->id, 'quantity' => 5]);   // holds only 5g
+        $qr = RedeemableQr::create(['bond_id' => $bond->id, 'member_id' => $member->id, 'branch_id' => $branch->id, 'invoice_no' => 'INV-RB9', 'qr_code' => 'QRB9', 'qr_mode' => 'cash', 'cash_worth' => 1000, 'status' => 'pending']);
+        $svc = app(RedemptionService::class);
+        $svc->generateOtp($qr);
+
+        $this->expectException(\Symfony\Component\HttpKernel\Exception\HttpException::class);
+        $svc->redeem(['qr_code' => 'QRB9', 'branch_id' => $branch->id, 'otp' => $qr->fresh()->otp,
+            'lines' => [['catalog_product_id' => $cp->id, 'unit_weight' => 1, 'quantity' => 10]]]);   // wants 10g
+    }
+
     /** Digital plan: redeem opens a dealer branch + distributor login seeded with the stock; idempotent. */
     public function test_dealer_account_created_and_seeded_then_idempotent(): void
     {
         $branch = Branch::create(['name' => 'Redeem Branch', 'country' => 'IN', 'level' => 'reseller', 'is_active' => true]);
-        $plan = $this->plan('510', 'digital');
+        $plan = $this->plan('510', 'digital', ['useraccess' => true]);   // dealer tick allowed (schema v2)
         $member = $this->member('DLR1', ['city' => 'Trichy']);
         $bond = Bond::create(['member_id' => $member->id, 'plan_id' => $plan->id, 'branch_id' => $branch->id, 'bond_date' => now(), 'value' => 100000, 'invoice_no' => 'INV-DLR1', 'status' => 'active']);
         $cp = $this->gold('GD1');

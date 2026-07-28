@@ -38,6 +38,7 @@ class PlanSchemaV2Seeder extends Seeder
             'level_depth' => 5, 'ic_schedule' => $dealerIc, 'level_schedule' => $dealerLevel,
             'level_com_duration' => 24, 'billing_margin' => 0.25, 'renewal_margin' => 0,
             'epin_count' => 1, 'is_active' => true, 'useraccess' => true,
+            'settlement_cycle_months' => 24,   // manual withdraw/renewal decision at maturity
         ];
 
         return [
@@ -60,6 +61,7 @@ class PlanSchemaV2Seeder extends Seeder
                 'level_schedule' => ['2.0', '0.80', '0.40', '0.40', '0.40'],
                 'level_com_duration' => 24, 'billing_margin' => 1.5, 'renewal_margin' => 0,
                 'epin_count' => 1, 'mou_id' => 8, 'is_active' => true, 'useraccess' => false,
+                'settlement_cycle_months' => 12, 'settlement_qr_pct' => 80,
                 'settlement' => '12 month once contract amount 80% gold qr'],
 
             ['code' => 'P201', 'hid' => 6, 'name' => ['en' => 'G5 Retailer Plan'],
@@ -71,6 +73,7 @@ class PlanSchemaV2Seeder extends Seeder
                 'ic_schedule' => $g5Ic, 'level_schedule' => $g5Level,
                 'level_com_duration' => 24, 'billing_margin' => 1, 'renewal_margin' => 0,
                 'epin_count' => 1, 'mou_id' => 2, 'is_active' => true, 'useraccess' => false,
+                'settlement_cycle_months' => 12, 'settlement_qr_pct' => 70,
                 'settlement' => '12 month once contract amount 70% gold qr'],
 
             ['code' => 'P205', 'hid' => 7, 'name' => ['en' => 'G24 Wholesaler Plan'],
@@ -83,6 +86,7 @@ class PlanSchemaV2Seeder extends Seeder
                 'level_schedule' => ['0.625', '0.250', '0.125', '0.125', '0.125'],
                 'level_com_duration' => 24, 'billing_margin' => 0.5, 'renewal_margin' => 0,
                 'epin_count' => 1, 'mou_id' => 6, 'is_active' => true, 'useraccess' => false,
+                'settlement_cycle_months' => 12, 'settlement_qr_pct' => 80,
                 'settlement' => '12 month closing 72000 Rs 80% gold QR'],
 
             ['code' => 'P210', 'hid' => 8, 'name' => ['en' => 'Area Distributor'],
@@ -95,6 +99,7 @@ class PlanSchemaV2Seeder extends Seeder
                 'level_schedule' => $zeroLevel,
                 'level_com_duration' => 12, 'billing_margin' => 5, 'renewal_margin' => 0,
                 'epin_count' => 1, 'mou_id' => 6, 'is_active' => true, 'useraccess' => true,
+                'settlement_cycle_months' => 12, 'settlement_close' => true, 'settlement_suspend' => true,
                 'settlement' => '12 month closing+useraccess close'],
 
             ['code' => 'P206', 'hid' => null, 'name' => ['en' => 'G10 Gold Purchase Plan'],
@@ -130,6 +135,8 @@ class PlanSchemaV2Seeder extends Seeder
                 'level_schedule' => $zeroLevel,
                 'level_com_duration' => 0, 'billing_margin' => 5, 'renewal_margin' => 5,
                 'epin_count' => 1, 'mou_id' => 1, 'is_active' => true, 'useraccess' => false,
+                'settlement_cycle_months' => 12, 'settlement_bonus_months' => 1, 'settlement_close' => true,
+                'rd_qr_grams' => 0.100, 'rd_qr_on' => 'always',   // 100 mg gold QR at bill + every renewal
                 'settlement' => '12 month 11m+ 1 month commission gold qr'],
 
             ['code' => 'P208', 'hid' => null, 'name' => ['en' => 'G11 Gold Savings Plan PLUS2'],
@@ -141,6 +148,8 @@ class PlanSchemaV2Seeder extends Seeder
                 'ic_schedule' => $plusIc, 'level_schedule' => $zeroLevel,
                 'level_com_duration' => 0, 'billing_margin' => 10, 'renewal_margin' => 10,
                 'epin_count' => 1, 'mou_id' => 1, 'is_active' => true, 'useraccess' => false,
+                'settlement_cycle_months' => 12, 'settlement_bonus_months' => 2, 'settlement_close' => true,
+                'rd_qr_grams' => 0.100, 'rd_qr_on' => 'first_renewal',   // single 100 mg QR at first renewal
                 'settlement' => '12 month 11m+ 2 month commission gold qr'],
 
             ['code' => 'P200', 'hid' => null, 'name' => ['en' => 'G11 Gold Savings Plan PLUS3'],
@@ -152,6 +161,7 @@ class PlanSchemaV2Seeder extends Seeder
                 'ic_schedule' => $plusIc, 'level_schedule' => $zeroLevel,
                 'level_com_duration' => 0, 'billing_margin' => 10, 'renewal_margin' => 10,
                 'epin_count' => 1, 'mou_id' => 1, 'is_active' => true, 'useraccess' => false,
+                'settlement_cycle_months' => 12, 'settlement_bonus_months' => 3, 'settlement_close' => true,
                 'settlement' => '12 th month closing with 11m+ 3 m commission gold qr'],
 
             ['code' => 'P212', 'hid' => null, 'name' => ['en' => 'G36 Smart Gold Booking Plan'],
@@ -163,6 +173,7 @@ class PlanSchemaV2Seeder extends Seeder
                 'ic_schedule' => $g5Ic, 'level_schedule' => $g5Level,
                 'level_com_duration' => 36, 'billing_margin' => 1, 'renewal_margin' => 0,
                 'epin_count' => 1, 'mou_id' => 2, 'is_active' => true, 'useraccess' => false,
+                'settlement_cycle_months' => 36,
                 'settlement' => '36 month after closing/renewal'],
 
             ['code' => 'P202', 'hid' => null, 'name' => ['en' => 'G12 Forward contractors'],
@@ -175,6 +186,7 @@ class PlanSchemaV2Seeder extends Seeder
                 'level_schedule' => ['2.5', '1.00', '0.50', '0.50', '0.50'],
                 'level_com_duration' => 12, 'billing_margin' => 2, 'renewal_margin' => 0,
                 'epin_count' => 1, 'mou_id' => 3, 'is_active' => true, 'useraccess' => false,
+                'settlement_cycle_months' => 12, 'settlement_qr_pct' => 100, 'settlement_close' => true, 'settlement_suspend' => true,
                 'settlement' => '12 month closing with invoice amount gold qr'],
         ];
     }

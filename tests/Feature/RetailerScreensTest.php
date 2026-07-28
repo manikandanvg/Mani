@@ -211,7 +211,7 @@ class RetailerScreensTest extends TestCase
         $branch = $this->branch();
         $plan = Plan::create([
             'code' => 'GS', 'name' => ['en' => 'Gold Saving'], 'plan_type' => 1, 'type' => 'rd',
-            'min_value' => 0, 'allocation_bv' => 100, 'billing_margin' => 2, 'is_active' => true,
+            'min_value' => 0, 'allocation_bv' => 100, 'billing_margin' => 2, 'renewal_margin' => 2, 'is_active' => true,
         ]);
         $member = Member::create([
             'member_code' => 'RDM1', 'name' => 'Saver', 'phone' => '9000000010',
@@ -244,8 +244,8 @@ class RetailerScreensTest extends TestCase
 
         // cash deducted
         $this->assertEquals(99000, (float) $stock->fresh()->quantity);
-        // bill margin 2% of 1000 = 20, accrued to the branch
-        $this->assertDatabaseHas('reseller_commissions', ['branch_id' => $branch->id, 'com_value' => 20.00, 'com_type_id' => 2]);
+        // renewal margin 2% of 1000 = 20, accrued to the branch (com_type 5 = RD renewal)
+        $this->assertDatabaseHas('reseller_commissions', ['branch_id' => $branch->id, 'com_value' => 20.00, 'com_type_id' => \App\Models\ResellerCommission::COM_RD_RENEWAL_MARGIN]);
         $this->assertEquals(20, (float) $branch->fresh()->bill_margin);
     }
 

@@ -22,6 +22,7 @@ class Branch extends Model
         'latitude' => 'decimal:7',
         'longitude' => 'decimal:7',
         'bill_margin' => 'decimal:3',
+        'digi_cash_balance' => 'decimal:2',
         'gold_gm_margin' => 'decimal:2',
         'silver_gm_margin' => 'decimal:2',
         'stock_trans_margin' => 'decimal:3',

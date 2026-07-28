@@ -30,7 +30,9 @@ class MemberDocumentController extends Controller
     {
         $member = $this->member($request);
 
-        $contracts = Bond::where('member_id', $member->id)->with('plan')->latest('bond_date')->get()
+        $contracts = Bond::where('member_id', $member->id)
+            ->whereHas('plan', fn ($q) => $q->where('is_contract', true))
+            ->with('plan')->latest('bond_date')->get()
             ->map(fn (Bond $b) => [
                 'type' => 'contract',
                 'id' => $b->id,

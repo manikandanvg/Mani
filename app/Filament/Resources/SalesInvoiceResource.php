@@ -25,6 +25,24 @@ class SalesInvoiceResource extends BaseResource
 
     protected static ?string $navigationIcon = 'heroicon-o-document-text';
 
+    /** An invoice is editable only BEFORE its stock QR is redeemed. */
+    public static function canEdit($record): bool
+    {
+        return ! \App\Models\RedeemableQr::where('invoice_no', $record->invoice_no)
+            ->where('status', 'redeemed')->exists();
+    }
+
+    /** Deleting a sale is a super-admin-only operation. */
+    public static function canDelete($record): bool
+    {
+        return (bool) auth()->user()?->hasRole('super_admin');
+    }
+
+    public static function canDeleteAny(): bool
+    {
+        return (bool) auth()->user()?->hasRole('super_admin');
+    }
+
     public static function form(Form $form): Form
     {
         return $form
@@ -74,6 +92,22 @@ class SalesInvoiceResource extends BaseResource
                     ->required(),
                 Forms\Components\TextInput::make('remarks')
                     ->required(),
+                // Cart items — the sale's actual lines, editable like the Sales screen
+                // until the invoice's stock QR is redeemed (canEdit gate above).
+                Forms\Components\Section::make('Cart items')->schema([
+                    Forms\Components\Repeater::make('lines')
+                        ->relationship()
+                        ->columns(5)
+                        ->schema([
+                            Forms\Components\TextInput::make('description')->columnSpan(2),
+                            Forms\Components\TextInput::make('qty')->label('Qty / weight')->numeric(),
+                            Forms\Components\TextInput::make('making')->numeric(),
+                            Forms\Components\TextInput::make('wastage')->numeric(),
+                            Forms\Components\TextInput::make('line_total')->numeric()->required(),
+                        ])
+                        ->addActionLabel('Add item')
+                        ->defaultItems(0),
+                ])->columnSpanFull(),
             ]);
     }
 
@@ -83,6 +117,14 @@ class SalesInvoiceResource extends BaseResource
             ->columns([
                 Tables\Columns\TextColumn::make('invoice_no')
                     ->searchable(),
+                // Contract-only schemes (is_invoice = false, e.g. P210/P200/P212/P202)
+                // record the billing here for accounting, but issue no tax invoice —
+                // the customer's document is the contract.
+                Tables\Columns\TextColumn::make('document')
+                    ->label('Document')
+                    ->badge()
+                    ->state(fn ($record) => $record->plan?->is_invoice ?? true ? 'Tax invoice' : 'Contract only')
+                    ->color(fn (string $state) => $state === 'Tax invoice' ? 'success' : 'warning'),
                 Tables\Columns\TextColumn::make('date')
                     ->date()
                     ->sortable(),
@@ -131,7 +173,15 @@ class SalesInvoiceResource extends BaseResource
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
-                //
+                Tables\Filters\TernaryFilter::make('is_invoice')
+                    ->label('Document')
+                    ->placeholder('All')
+                    ->trueLabel('Tax invoice')
+                    ->falseLabel('Contract only')
+                    ->queries(
+                        true: fn ($q) => $q->whereHas('plan', fn ($p) => $p->where('is_invoice', true)),
+                        false: fn ($q) => $q->whereHas('plan', fn ($p) => $p->where('is_invoice', false)),
+                    ),
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),

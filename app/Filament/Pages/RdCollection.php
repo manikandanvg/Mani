@@ -69,8 +69,13 @@ class RdCollection extends Page implements HasForms
                         ->options(fn () => $this->bondOptions())
                         ->live()
                         ->afterStateUpdated(function ($state, Set $set) {
-                            $bond = $state ? Bond::find($state) : null;
-                            $set('amount', $bond ? (float) $bond->value : null);
+                            $bond = $state ? Bond::with('plan')->find($state) : null;
+                            // Gold-QR RD plans (PLUS1/PLUS2): the renewal amount is fixed
+                            // at the current 100 mg gold price — prefill it, non-editable.
+                            $fixed = $bond && (float) ($bond->plan?->rd_qr_grams ?? 0) > 0
+                                ? app(\App\Services\Qr\GoldQrPricing::class)->price($bond->plan)
+                                : null;
+                            $set('amount', $fixed ?? ($bond ? (float) $bond->value : null));
                         })
                         ->columnSpanFull(),
                     Placeholder::make('schedule')
@@ -88,7 +93,12 @@ class RdCollection extends Page implements HasForms
                         ->label('Payment received (₹)')
                         ->numeric()
                         ->minValue(1)
-                        ->required(),
+                        ->required()
+                        ->disabled(fn (Get $get) => (float) (Bond::with('plan')->find($get('bond_id'))?->plan?->rd_qr_grams ?? 0) > 0)
+                        ->dehydrated()
+                        ->helperText(fn (Get $get) => (float) (Bond::with('plan')->find($get('bond_id'))?->plan?->rd_qr_grams ?? 0) > 0
+                            ? 'Fixed: current 100 mg gold price (incl. making/wastage/GST) — not editable.'
+                            : null),
                     Textarea::make('remarks')->label('Remarks')->rows(2)->columnSpanFull(),
                     Hidden::make('branch_id'),
                 ]),

@@ -30,40 +30,67 @@ class ContractContentBuilder
         $tds = ($cbc / 2) * 0.20;
         $sav = ($cbc / 2) - $tds;
 
+        // Schema-v2 (2026-07-28) code map: P200 PLUS3 / P208 PLUS2 / P209 PLUS1 savings;
+        // P203 Taluka / P204 District / P207 Zonal / P214 Regional dealerships (min from
+        // the plan row, not hardcoded). Anything else gets the generic body — a contract
+        // must never render empty.
         return match (true) {
-            in_array($code, [200, 209, 210], true) => $this->savings($rec, $start, $code === 200 ? 3 : ($code === 209 ? 2 : 1)),
+            in_array($code, [200, 208, 209], true) => $this->savings($bond, $rec, $start, $code === 200 ? 3 : ($code === 208 ? 2 : 1)),
             $code === 201 => $this->dealership201($rec, $cbc, $sav, $tds),
             $code === 205 => $this->dealership205($rec, $cbc, $sav, $tds),
             $code === 202 => $this->dealership202($rec, $cbc, $sav, $tds),
-            in_array($code, [203, 204, 208], true) => $this->dealershipSplit($rec, match ($code) { 203 => '5,00,000.00', 204 => '25,00,000.00', default => '1,00,00,000.00' }),
-            default => '',   // 206 / 212 etc. — header + signature only
+            in_array($code, [203, 204, 207, 214], true) => $this->dealershipSplit($rec, $this->inr((float) ($plan->min_value ?? 0))),
+            default => $this->generic($bond, $rec),
         };
     }
 
-    // --- 200 / 209 / 210: gold savings + monthly chart ---
-    private function savings(float $rec, Carbon $start, int $bonusMonths): string
+    // --- 200 / 208 / 209: gold savings + monthly chart from the ACTUAL payments ---
+    private function savings(Bond $bond, float $rec, Carbon $start, int $bonusMonths): string
     {
+        $validity = (int) ($bond->plan->validity_months ?: 11);
         $h = $this->rows([
-            ['Savings Amount: ' . $this->m($rec) . '/- x 11 months', $this->m($rec * 11)],
+            ['Savings Amount: ' . $this->m($rec) . '/- x ' . $validity . ' months', $this->m($rec * $validity)],
             [$bonusMonths . ' months Bonus', $this->m($rec * $bonusMonths)],
         ]);
 
         $h .= '<h3 style="text-align:center;color:' . self::C . '">Monthly Chart</h3>'
             . '<table style="width:100%;border-collapse:collapse;font-size:10px">'
-            . '<tr style="background:#faf6ee"><td style="' . $this->cell() . 'font-weight:700">Month</td>'
+            . '<tr style="background:#faf6ee"><td style="' . $this->cell() . 'font-weight:700">Due</td>'
             . '<td style="' . $this->cell() . 'font-weight:700">Date</td>'
-            . '<td style="' . $this->cell() . 'font-weight:700">Status</td></tr>'
-            . '<tr><td style="' . $this->cell() . '">1</td><td style="' . $this->cell() . '">' . $start->format('d/m/Y') . '</td>'
-            . '<td style="' . $this->cell() . 'color:#16a34a">PAID</td></tr>';
+            . '<td style="' . $this->cell() . 'font-weight:700">Amount</td>'
+            . '<td style="' . $this->cell() . 'font-weight:700">Status</td></tr>';
 
-        $d = $start->copy();
-        for ($i = 2; $i <= 12; $i++) {
-            $d = $d->copy()->addMonthNoOverflow()->day(10);
-            $h .= '<tr><td style="' . $this->cell() . '">' . $i . '</td><td style="' . $this->cell() . '">' . $d->format('d/m/Y') . '</td>'
-                . '<td style="' . $this->cell() . '">-</td></tr>';
+        // Due 1 = the joining payment at contract creation.
+        $h .= $this->chartRow(1, $start->format('d/m/Y'), $this->m($rec), 'PAID');
+
+        // Then every renewal as it actually happened: date, amount and the collecting branch.
+        $entries = $bond->rdEntries()->with('branch')->orderBy('paid_on')->orderBy('id')->get();
+        $due = 1;
+        $covered = 1;    // installments consumed so far (joining = 1)
+        foreach ($entries as $e) {
+            $due++;
+            $covered += $rec > 0 ? max(1, (int) round((float) $e->value / $rec)) : 1;
+            $status = 'PAID' . ($e->branch ? ' — ' . e($e->branch->name) : '');
+            $h .= $this->chartRow($due, $e->paid_on?->format('d/m/Y') ?? '-', $this->m((float) $e->value), $status);
+        }
+
+        // Remaining dues stay open on the chart.
+        for ($i = $covered + 1; $i <= $validity; $i++) {
+            $due++;
+            $h .= $this->chartRow($due, '-', $this->m($rec), '-');
         }
 
         return $h . '</table>';
+    }
+
+    private function chartRow(int $no, string $date, string $amount, string $status): string
+    {
+        $paid = str_starts_with($status, 'PAID');
+
+        return '<tr><td style="' . $this->cell() . '">' . $no . '</td>'
+            . '<td style="' . $this->cell() . '">' . $date . '</td>'
+            . '<td style="' . $this->cell() . '">' . $amount . '</td>'
+            . '<td style="' . $this->cell() . ($paid ? 'color:#16a34a' : '') . '">' . $status . '</td></tr>';
     }
 
     // --- 201: SPOT 50% + 24-month 50%, dealership income + break-up ---
@@ -150,7 +177,35 @@ class ContractContentBuilder
         ]);
     }
 
+    // --- fallback for plans without a bespoke template (e.g. P213 Sub Dealer, P212 G36) ---
+    private function generic(Bond $bond, float $rec): string
+    {
+        $plan = $bond->plan;
+        $rows = [
+            ['Scheme', e(\App\Support\Translatable::pick($plan->name ?? null) ?: (string) ($plan->code ?? ''))],
+            ['Contract Amount', $this->m($rec)],
+            ['Validity', (int) ($plan->validity_months ?: 12) . ' months'],
+        ];
+        if (! empty($plan->settlement)) {
+            $rows[] = ['Settlement', e($plan->settlement)];
+        }
+
+        return $this->rows($rows);
+    }
+
     // ---------- presentation helpers ----------
+
+    /** Indian-grouped amount, e.g. 2500000 → 25,00,000.00 (lakh/crore digit groups). */
+    private function inr(float $n): string
+    {
+        [$int, $dec] = explode('.', number_format($n, 2, '.', ''));
+        if (strlen($int) > 3) {
+            $head = preg_replace('/\B(?=(\d{2})+(?!\d))/', ',', substr($int, 0, -3));
+            $int = $head . ',' . substr($int, -3);
+        }
+
+        return $int . '.' . $dec;
+    }
 
     /** Two-column amount rows (label : value). */
     private function rows(array $rows): string

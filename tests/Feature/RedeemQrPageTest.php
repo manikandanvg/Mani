@@ -32,7 +32,7 @@ class RedeemQrPageTest extends TestCase
         $admin->assignRole('super_admin');
         $this->actingAs($admin);
 
-        $plan = Plan::create(['code' => '530', 'name' => ['en' => 'Plan 530'], 'plan_type' => 1, 'type' => 'digital', 'min_value' => 0, 'allocation_bv' => 100, 'is_active' => true]);
+        $plan = Plan::create(['code' => '530', 'name' => ['en' => 'Plan 530'], 'plan_type' => 1, 'type' => 'digital', 'min_value' => 0, 'allocation_bv' => 100, 'useraccess' => true, 'is_active' => true]);
         $rank = Rank::firstOrCreate(['code' => 'MEMBER'], ['name' => ['en' => 'Member'], 'depth' => 0, 'target_bv' => 0]);
         $member = Member::create(['member_code' => 'PG1', 'name' => 'PG1', 'phone' => '9000000000', 'joined_on' => now(), 'placement' => 'level', 'rank_id' => $rank->id, 'status' => 'active']);
         $bond = Bond::create(['member_id' => $member->id, 'plan_id' => $plan->id, 'branch_id' => $branch->id, 'bond_date' => now(), 'value' => 50000, 'invoice_no' => 'INV-PG1', 'status' => 'active']);

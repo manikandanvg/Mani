@@ -197,7 +197,7 @@ class MultiCurrencyTest extends TestCase
             'code' => 'MCRD', 'name' => ['en' => 'MC RD'], 'plan_type' => 2, 'type' => 'rd',
             'min_value' => 0, 'allocation_bv' => 100, 'validity_months' => 12,
             'cbc_value' => 0, 'cbc_count' => 0, 'ic_schedule' => [], 'level_schedule' => [],
-            'level_depth' => 0, 'level_com_duration' => 12, 'billing_margin' => 2,
+            'level_depth' => 0, 'level_com_duration' => 12, 'billing_margin' => 2, 'renewal_margin' => 2,
             'is_active' => true,
         ]);
         $member = $this->member('RDC1', null, $london->id);
@@ -212,8 +212,9 @@ class MultiCurrencyTest extends TestCase
         $this->assertEquals('EUR', $entry->currency_code);
         $this->assertEquals(100.0, (float) $entry->fx_rate);
 
-        // Bill margin 2%: €2 on the branch balance, ₹200 INR base in the ledger.
-        $com = ResellerCommission::where('branch_id', $london->id)->where('com_type_id', 2)->firstOrFail();
+        // Renewal margin 2%: €2 on the branch balance, ₹200 INR base in the ledger.
+        $com = ResellerCommission::where('branch_id', $london->id)
+            ->where('com_type_id', ResellerCommission::COM_RD_RENEWAL_MARGIN)->firstOrFail();
         $this->assertEquals(200.0, (float) $com->com_value);
         $this->assertEquals('EUR', $com->currency_code);
         $this->assertEquals(2.0, (float) $london->fresh()->bill_margin);

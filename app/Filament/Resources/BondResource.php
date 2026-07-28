@@ -125,13 +125,16 @@ class BondResource extends BaseResource
                     ->label('Contract')
                     ->icon('heroicon-o-document-text')
                     ->color('gray')
+                    ->visible(fn (Bond $record) => (bool) $record->plan?->is_contract)
                     ->url(fn (Bond $record) => route('contract.pdf', $record))
                     ->openUrlInNewTab(),
                 // Redeemable Stock QR — click to view (minted on first view, one per bond).
+                // Both QR actions only exist for plans flagged is_redeem (schema v2).
                 Tables\Actions\Action::make('redeemableQr')
                     ->label('Show QR')
                     ->icon('heroicon-o-qr-code')
                     ->color('warning')
+                    ->visible(fn (Bond $record) => (bool) $record->plan?->is_redeem)
                     ->modalHeading('Redeemable Stock QR')
                     ->modalSubmitAction(false)
                     ->modalCancelActionLabel('Close')
@@ -145,6 +148,7 @@ class BondResource extends BaseResource
                     ->label('Send WhatsApp')
                     ->icon('heroicon-o-paper-airplane')
                     ->color('success')
+                    ->visible(fn (Bond $record) => (bool) $record->plan?->is_redeem)
                     ->requiresConfirmation()
                     ->modalDescription(fn (Bond $record) => 'Send the contract PDF and redeemable QR to '
                         . optional($record->member)->name . ' (' . optional($record->member)->phone . ') via WhatsApp?')

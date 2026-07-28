@@ -167,7 +167,7 @@ class CommissionService
             ->get();
 
         foreach ($rows as $row) {
-            DB::transaction(function () use ($row, $period, &$made) {
+            DB::transaction(function () use ($row, $period, $year, $month, &$made) {
                 $net = (float) $row->total;
                 $tds = round($net * self::TDS_PCT / 100, 2);
                 $svc = round($net * self::SERVICE_PCT / 100, 2);
@@ -187,8 +187,12 @@ class CommissionService
                     ]
                 );
 
+                // Scope to the statement's own period — flipping ALL pending rows would
+                // bypass the manual commission-approval gate for later earnings.
                 CommissionLedger::where('member_id', $row->member_id)
                     ->where('status', 'pending')
+                    ->whereYear('earned_on', $year)
+                    ->whereMonth('earned_on', $month)
                     ->update(['status' => 'approved']);
 
                 $made++;

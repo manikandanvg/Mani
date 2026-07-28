@@ -153,11 +153,18 @@ class SalesService
             $this->payBillMargin($plan, $invoice, $branchId, $userId, $crossTotal, $member);
             $this->payGmMargin($cart, $invoice, $branchId, $userId, $member);
             $this->deductStock($cart, $branchId, $billDate, $userId);
-            $this->createContract($bond, $invoice, $plan, $member, $branchId, $billDate, $grandTotal);
 
-            // Mint the redeemable stock QR now; deliver it (with the contract) after commit.
-            $this->pendingQr = app(\App\Services\Qr\RedeemableQrService::class)
-                ->forBond($bond, (float) ($data['gold_rate'] ?? 0))->id;
+            // Schema-v2 flags: only contract-bearing plans get a MemberContract, and only
+            // redeemable plans get a stock QR minted (and delivered after commit).
+            // RD 'first_renewal' plans (G11 PLUS2) mint their one-time QR at the first
+            // renewal in RdCollectionService — never at billing.
+            if ($plan->is_contract) {
+                $this->createContract($bond, $invoice, $plan, $member, $branchId, $billDate, $grandTotal);
+            }
+            if ($plan->is_redeem && $plan->rd_qr_on !== 'first_renewal') {
+                $this->pendingQr = app(\App\Services\Qr\RedeemableQrService::class)
+                    ->forBond($bond, (float) ($data['gold_rate'] ?? 0))->id;
+            }
 
             return $invoice->fresh(['lines', 'customer']);
         });
@@ -470,7 +477,7 @@ class SalesService
         ResellerCommission::create([
             'bill_date' => $invoice->date,
             'invoice_no' => $invoice->invoice_no,
-            'com_type_id' => 1,
+            'com_type_id' => ResellerCommission::COM_BILL_MARGIN,
             'user_id' => $userId,
             'branch_id' => $branchId,
             'com_value' => round($marginLocal * $fx, 2),   // INR base (caps stay coherent)
@@ -516,7 +523,7 @@ class SalesService
 
         // gm_margin is a ₹/gram constant, so the computed margin is already INR base.
         $fx = (float) ($invoice->fx_rate ?: 1);
-        foreach (['gold' => 2, 'silver' => 3] as $material => $comTypeId) {
+        foreach (['gold' => ResellerCommission::COM_GOLD_MARGIN, 'silver' => ResellerCommission::COM_SILVER_MARGIN] as $material => $comTypeId) {
             $marginBase = round($totals[$material], 2);   // INR base
             if ($marginBase <= 0) {
                 continue;

@@ -119,8 +119,10 @@ class OrderForm extends Page implements HasForms
                 ]),
                 Section::make('Payment & summary')->columns(2)->schema([
                     Select::make('payment_type')
-                        ->options(['cash' => 'Cash', 'cheque' => 'Cheque', 'online' => 'Online', 'others' => 'Others'])
-                        ->default('cash')->required(),
+                        ->options(['cash' => 'Cash', 'cheque' => 'Cheque', 'online' => 'Online', 'digi_cash' => 'Digi Cash (wallet)', 'others' => 'Others'])
+                        ->default('cash')->required()
+                        ->helperText(fn () => 'Digi cash available: ₹'
+                            . number_format((float) (auth()->user()?->branch?->digi_cash_balance ?? 0), 2)),
                     Textarea::make('payment_remarks')->label('Payment remarks')->rows(2),
                     Placeholder::make('summary')
                         ->label('')

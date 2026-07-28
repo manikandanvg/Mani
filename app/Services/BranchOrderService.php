@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\Branch;
 use App\Models\BranchOrderLine;
 use App\Models\BranchOrderRequest;
 use App\Models\CatalogProduct;
@@ -174,6 +175,16 @@ class BranchOrderService
 
             $this->assertWithinOrderLimit($userId ? User::find($userId) : null, $branchId, $grand);
 
+            // Digi cash payment: the wallet (credited by approved stock returns) is
+            // charged at submission; a later rejection refunds it.
+            if (($data['payment_type'] ?? null) === 'digi_cash') {
+                $branch = Branch::whereKey($branchId)->lockForUpdate()->first();
+                abort_if(! $branch || (float) $branch->digi_cash_balance + 0.01 < $grand, 422,
+                    'Insufficient Digi cash: wallet holds ₹' . number_format((float) ($branch->digi_cash_balance ?? 0), 2)
+                    . ', order needs ₹' . number_format($grand, 2) . '.');
+                $branch->decrement('digi_cash_balance', $grand);
+            }
+
             $request = BranchOrderRequest::create([
                 'request_no' => $this->nextRequestNo(),
                 'branch_id' => $branchId,
@@ -345,6 +356,11 @@ class BranchOrderService
             'approved_by' => $approverId ?? auth()->id(),
             'approved_at' => Carbon::now(),
         ]);
+
+        // Digi cash was charged at submission — a rejection puts it back.
+        if ($request->payment_type === 'digi_cash') {
+            Branch::where('id', $request->branch_id)->increment('digi_cash_balance', (float) $request->grand_total);
+        }
     }
 
     /** Server-side price of one line from the catalog product + live rate. Cash = rupee value. */

@@ -24,11 +24,16 @@ class Plan extends Model
         'is_invoice' => 'boolean',
         'is_active' => 'boolean',
         'useraccess' => 'boolean',
+        'settlement_qr_pct' => 'decimal:2',
+        'settlement_close' => 'boolean',
+        'settlement_suspend' => 'boolean',
         'counts_for_rank' => 'boolean',
         'rank_factor' => 'decimal:2',
     ];
 
     public function mou() { return $this->belongsTo(Mou::class); }
+
+    public function rdQrProduct() { return $this->belongsTo(CatalogProduct::class, 'rd_qr_product_id'); }
 
     /**
      * Ranking-BV multiplier: rank_factor is the explicit 0-100 percentage of billed
