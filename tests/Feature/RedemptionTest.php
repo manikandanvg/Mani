@@ -42,7 +42,7 @@ class RedemptionTest extends TestCase
 
     protected function plan(string $code, string $type = 'digital'): Plan
     {
-        return Plan::create(['code' => $code, 'name' => ['en' => "Plan {$code}"], 'plan_type' => 1, 'type' => $type, 'min_value' => 0, 'allocation_pct' => 100, 'is_active' => true]);
+        return Plan::create(['code' => $code, 'name' => ['en' => "Plan {$code}"], 'plan_type' => 1, 'type' => $type, 'min_value' => 0, 'allocation_bv' => 100, 'is_active' => true]);
     }
 
     protected function gold(string $code = 'G1'): CatalogProduct

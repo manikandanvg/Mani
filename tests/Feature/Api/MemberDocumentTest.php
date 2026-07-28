@@ -31,7 +31,7 @@ class MemberDocumentTest extends TestCase
 
     protected function bond(): Bond
     {
-        $plan = Plan::create(['code' => 'P206', 'name' => ['en' => 'G10 Gold'], 'plan_type' => 1, 'type' => 'gold', 'min_value' => 0, 'allocation_pct' => 100, 'is_active' => true]);
+        $plan = Plan::create(['code' => 'P206', 'name' => ['en' => 'G10 Gold'], 'plan_type' => 1, 'type' => 'gold', 'min_value' => 0, 'allocation_bv' => 100, 'is_active' => true]);
 
         return Bond::create(['member_id' => $this->member->id, 'plan_id' => $plan->id, 'bond_date' => now(), 'value' => 50000, 'status' => 'active', 'invoice_no' => 'INV-DV1']);
     }

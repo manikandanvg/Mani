@@ -31,7 +31,7 @@ class RdMandateTest extends TestCase
     protected function rdBond(): Bond
     {
         $branch = Branch::create(['name' => 'RD Branch', 'country' => 'IN', 'level' => 'reseller', 'is_active' => true]);
-        $plan = Plan::create(['code' => 'GS', 'name' => ['en' => 'Gold Saving'], 'plan_type' => 1, 'type' => 'rd', 'min_value' => 0, 'allocation_pct' => 100, 'is_active' => true]);
+        $plan = Plan::create(['code' => 'GS', 'name' => ['en' => 'Gold Saving'], 'plan_type' => 1, 'type' => 'rd', 'min_value' => 0, 'allocation_bv' => 100, 'is_active' => true]);
         $member = Member::create([
             'member_code' => 'RDM1', 'name' => 'Saver', 'phone' => '9677676034', 'joined_on' => now(),
             'placement' => 'level', 'rank_id' => Rank::create(['code' => 'MEMBER', 'name' => ['en' => 'Member'], 'depth' => 0, 'target_bv' => 0])->id,

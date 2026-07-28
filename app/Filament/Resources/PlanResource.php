@@ -40,6 +40,9 @@ class PlanResource extends BaseResource
                 Translatable::fieldset('name', 'Name'),
                 Forms\Components\Section::make('Scheme')->columns(3)->schema([
                     Forms\Components\TextInput::make('code')->required()->maxLength(20)->unique(ignoreRecord: true),
+                    Forms\Components\TextInput::make('hid')
+                        ->label('Hierarchy order')->numeric()
+                        ->helperText('Dealership ladder position (1 = Regional); blank for non-hierarchy schemes'),
                     Forms\Components\Select::make('plan_type')
                         ->label('Scheme type')
                         ->options([1 => 'RD', 2 => 'Digital (Cash/Gold/Silver)', 3 => 'Gold', 4 => 'Silver'])
@@ -49,8 +52,24 @@ class PlanResource extends BaseResource
                         ->options(['rd' => 'RD', 'digital' => 'Digital', 'gold' => 'Gold', 'silver' => 'Silver', 'others' => 'Others'])
                         ->default('rd')->required(),
                     Forms\Components\TextInput::make('min_value')->label('Min value')->required()->numeric(),
-                    Forms\Components\TextInput::make('allocation_pct')->label('Allocation %')->required()->numeric()->default(100),
+                    Forms\Components\TextInput::make('max_value')->label('Max value')->numeric()
+                        ->helperText('Per-bill ceiling; blank = no limit'),
+                    Forms\Components\TextInput::make('max_sales_value')->label('Max sales / month')->numeric()
+                        ->helperText('Reseller monthly billing cap; blank = no cap'),
+                    Forms\Components\TextInput::make('allocation_bv')->label('Allocation BV %')->required()->numeric()->default(100),
+                    Forms\Components\TextInput::make('allocation_cont')->label('Allocation contract %')->numeric()->default(0),
                     Forms\Components\TextInput::make('validity_months')->required()->numeric()->default(12),
+                ]),
+                Forms\Components\Section::make('Flags')->columns(4)->schema([
+                    Forms\Components\Toggle::make('is_redeem')->label('Redeemable QR'),
+                    Forms\Components\Toggle::make('is_contract')->label('Has contract'),
+                    Forms\Components\Toggle::make('is_invoice')->label('Has invoice'),
+                    Forms\Components\Toggle::make('useraccess')->label('User-access tick at redeem'),
+                ]),
+                Forms\Components\Section::make('Ranking BV')->columns(2)->schema([
+                    Forms\Components\Toggle::make('counts_for_rank')->label('Counts for reward/rank BV')->default(true),
+                    Forms\Components\TextInput::make('rank_factor')->label('Rank BV %')->numeric()->default(100)
+                        ->helperText('% of billed value counted as pure/ranking BV'),
                 ]),
                 Forms\Components\Section::make('Cashback (CBC)')->columns(2)->schema([
                     Forms\Components\TextInput::make('cbc_value')->label('Cashback %')->numeric()->default(0),
@@ -66,10 +85,9 @@ class PlanResource extends BaseResource
                     Forms\Components\TextInput::make('level_depth')->label('Placement layer depth')->numeric()->default(0),
                     Forms\Components\TextInput::make('level_com_duration')->label('Turnover-based Salary duration (months)')->numeric()->default(0),
                 ]),
-                Forms\Components\Section::make('Branch margins (%)')->columns(3)->schema([
+                Forms\Components\Section::make('Branch margins (%)')->columns(2)->schema([
                     Forms\Components\TextInput::make('billing_margin')->label('Billing margin')->numeric()->default(0),
-                    Forms\Components\TextInput::make('gm_margin')->label('Redemption (GM) margin')->numeric()->default(0),
-                    Forms\Components\TextInput::make('stock_trans_margin')->label('Stock transfer margin')->numeric()->default(0),
+                    Forms\Components\TextInput::make('renewal_margin')->label('RD renewal margin')->numeric()->default(0),
                 ]),
                 Forms\Components\Section::make()->columns(3)->schema([
                     Forms\Components\TextInput::make('epin_count')->label('E-pin count')->numeric()->default(0),
@@ -80,6 +98,9 @@ class PlanResource extends BaseResource
                         ->searchable(),
                     Forms\Components\Toggle::make('is_active')->label('Visible / billable')->default(true),
                 ]),
+                Forms\Components\Section::make()->schema([
+                    Forms\Components\Textarea::make('settlement')->label('Settlement note')->rows(2)->maxLength(255),
+                ]),
             ]);
     }
 
@@ -89,13 +110,17 @@ class PlanResource extends BaseResource
             ->columns([
                 Tables\Columns\TextColumn::make('code')
                     ->searchable(),
+                Tables\Columns\TextColumn::make('hid')
+                    ->label('Hier.')
+                    ->numeric()
+                    ->sortable(),
                 Translatable::column('name', 'Name'),
                 Tables\Columns\TextColumn::make('type')
                     ->badge(),
                 Tables\Columns\TextColumn::make('min_value')
                     ->numeric()
                     ->sortable(),
-                Tables\Columns\TextColumn::make('allocation_pct')
+                Tables\Columns\TextColumn::make('allocation_bv')
                     ->numeric()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('validity_months')

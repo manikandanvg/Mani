@@ -211,7 +211,7 @@ class RetailerScreensTest extends TestCase
         $branch = $this->branch();
         $plan = Plan::create([
             'code' => 'GS', 'name' => ['en' => 'Gold Saving'], 'plan_type' => 1, 'type' => 'rd',
-            'min_value' => 0, 'allocation_pct' => 100, 'billing_margin' => 2, 'is_active' => true,
+            'min_value' => 0, 'allocation_bv' => 100, 'billing_margin' => 2, 'is_active' => true,
         ]);
         $member = Member::create([
             'member_code' => 'RDM1', 'name' => 'Saver', 'phone' => '9000000010',
@@ -265,7 +265,7 @@ class RetailerScreensTest extends TestCase
     public function test_rd_collection_rejects_non_rd_bond(): void
     {
         $branch = $this->branch();
-        $plan = Plan::create(['code' => 'DG', 'name' => ['en' => 'Digital'], 'plan_type' => 2, 'type' => 'digital', 'min_value' => 0, 'allocation_pct' => 100, 'is_active' => true]);
+        $plan = Plan::create(['code' => 'DG', 'name' => ['en' => 'Digital'], 'plan_type' => 2, 'type' => 'digital', 'min_value' => 0, 'allocation_bv' => 100, 'is_active' => true]);
         $member = Member::create(['member_code' => 'X1', 'name' => 'X', 'phone' => '9000000011', 'joined_on' => now(), 'placement' => 'level', 'rank_id' => Rank::where('depth', 0)->value('id'), 'status' => 'active']);
         $bond = Bond::create(['member_id' => $member->id, 'plan_id' => $plan->id, 'branch_id' => $branch->id, 'bond_date' => now(), 'value' => 1000, 'status' => 'active']);
 
@@ -329,7 +329,7 @@ class RetailerScreensTest extends TestCase
     public function test_rd_collection_page_submits_with_session_branch(): void
     {
         $dist = $this->asDistributor();
-        $plan = Plan::create(['code' => 'GS2', 'name' => ['en' => 'GS'], 'plan_type' => 1, 'type' => 'rd', 'min_value' => 0, 'allocation_pct' => 100, 'billing_margin' => 2, 'is_active' => true]);
+        $plan = Plan::create(['code' => 'GS2', 'name' => ['en' => 'GS'], 'plan_type' => 1, 'type' => 'rd', 'min_value' => 0, 'allocation_bv' => 100, 'billing_margin' => 2, 'is_active' => true]);
         $member = Member::create(['member_code' => 'RDP', 'name' => 'P', 'phone' => '9000000020', 'joined_on' => now(), 'placement' => 'level', 'rank_id' => Rank::where('depth', 0)->value('id'), 'status' => 'active', 'branch_id' => $dist->branch_id]);
         $bond = Bond::create(['member_id' => $member->id, 'plan_id' => $plan->id, 'branch_id' => $dist->branch_id, 'bond_date' => now(), 'value' => 1000, 'lvlcom_count' => 11, 'status' => 'active']);
         $cp = $this->catalog('vessel');

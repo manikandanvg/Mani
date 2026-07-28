@@ -56,7 +56,7 @@ class EngineTest extends TestCase
             'name' => ['en' => 'Test Plan'],
             'type' => 'rd',
             'min_value' => 1000,
-            'allocation_pct' => 100,
+            'allocation_bv' => 100,
             'validity_months' => 11,
             'cbc_value' => 0,
             'cbc_count' => 0,
@@ -85,7 +85,7 @@ class EngineTest extends TestCase
 
     public function test_bv_and_gbv_recompute(): void
     {
-        $plan = $this->plan(['allocation_pct' => 100]);
+        $plan = $this->plan(['allocation_bv' => 100]);
         $m1 = $this->member('M1', null);
         $m2 = $this->member('M2', $m1->id);
         $m3 = $this->member('M3', $m2->id);
@@ -105,7 +105,7 @@ class EngineTest extends TestCase
 
     public function test_unpure_bv_uses_allocation_factor(): void
     {
-        $plan = $this->plan(['allocation_pct' => 50]);   // factor (100-50)/100 = 0.5
+        $plan = $this->plan(['allocation_bv' => 50, 'rank_factor' => 50]);   // 50% → factor 0.5
         $m = $this->member('M1', null);
         $this->bond($m, $plan, ['value' => 1000]);
 

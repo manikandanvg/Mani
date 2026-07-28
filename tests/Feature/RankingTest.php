@@ -30,7 +30,7 @@ class RankingTest extends TestCase
 
         return Plan::create(array_merge([
             'code' => 'PL' . $this->seq, 'name' => ['en' => 'Plan ' . $this->seq], 'type' => 'digital',
-            'min_value' => 0, 'allocation_pct' => 100, 'validity_months' => 11, 'level_com_duration' => 11,
+            'min_value' => 0, 'allocation_bv' => 100, 'validity_months' => 11, 'level_com_duration' => 11,
             'is_active' => true,
         ], $attrs));
     }
@@ -67,7 +67,7 @@ class RankingTest extends TestCase
     /** Balanced legs: two ≥5L legs + the 50k entry gate → District Director. */
     public function test_balanced_legs_promote_to_district(): void
     {
-        $plan = $this->plan(['allocation_pct' => 100]);   // factor 1 → unpure_bv = value
+        $plan = $this->plan(['allocation_bv' => 100]);   // factor 1 → unpure_bv = value
         $a = $this->member('A', null);
         $b = $this->member('B', $a->id);
         $c = $this->member('C', $a->id);
@@ -84,7 +84,7 @@ class RankingTest extends TestCase
     /** Entry gate needs BOTH self ≥50k AND a direct downline ≥50k. */
     public function test_entry_gate_requires_self_and_one_direct(): void
     {
-        $plan = $this->plan(['allocation_pct' => 100]);
+        $plan = $this->plan(['allocation_bv' => 100]);
         $x = $this->member('X', null);
         $y = $this->member('Y', $x->id);
         $this->bond($x, $plan, 50000);
@@ -102,10 +102,10 @@ class RankingTest extends TestCase
     /** unpure_bv applies the plan factor and excludes non-counting plans. */
     public function test_unpure_bv_factor_and_exclusion(): void
     {
-        $full = $this->plan(['allocation_pct' => 100]);                       // ×1
-        $dealer = $this->plan(['allocation_pct' => 80]);                      // ×0.2
-        $excluded = $this->plan(['allocation_pct' => 100, 'counts_for_rank' => false]); // ×0
-        $area = $this->plan(['allocation_pct' => 10, 'rank_factor' => 0.10]); // ×0.10 override
+        $full = $this->plan(['allocation_bv' => 100]);                       // ×1
+        $dealer = $this->plan(['allocation_bv' => 80, 'rank_factor' => 20]);           // ×0.2
+        $excluded = $this->plan(['allocation_bv' => 100, 'counts_for_rank' => false]); // ×0
+        $area = $this->plan(['allocation_bv' => 10, 'rank_factor' => 10]);             // ×0.10
 
         $m = $this->member('M', null);
         $this->bond($m, $full, 100000);      // +100000
@@ -124,7 +124,7 @@ class RankingTest extends TestCase
     /** A bond past its plan validity is closed and stops counting toward BV. */
     public function test_expired_bond_is_closed_and_excluded(): void
     {
-        $plan = $this->plan(['allocation_pct' => 100, 'level_com_duration' => 11]);
+        $plan = $this->plan(['allocation_bv' => 100, 'level_com_duration' => 11]);
         $m = $this->member('M', null);
         $old = $this->bond($m, $plan, 70000, now()->subMonthsNoOverflow(12)); // age 12 ≥ 11 → expire
         $this->bond($m, $plan, 30000, now());                                  // active

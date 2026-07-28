@@ -76,7 +76,7 @@ class AdminPanelTest extends TestCase
         // translatable JSON names) actually execute — guards the reset()-on-cast bug.
         $plan = \App\Models\Plan::create([
             'code' => 'PX', 'name' => ['en' => 'Demo Plan'], 'plan_type' => 1, 'type' => 'rd',
-            'min_value' => 0, 'allocation_pct' => 100, 'ic_schedule' => ['10'], 'level_schedule' => [],
+            'min_value' => 0, 'allocation_bv' => 100, 'ic_schedule' => ['10'], 'level_schedule' => [],
             'is_active' => true,
         ]);
         $cp = \App\Models\CatalogProduct::create(['code' => 'CP1', 'name' => ['en' => 'Demo Gold'], 'material' => 'gold', 'is_active' => true]);

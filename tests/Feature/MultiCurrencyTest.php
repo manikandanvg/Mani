@@ -46,9 +46,9 @@ class MultiCurrencyTest extends TestCase
 
         $this->plan = Plan::create([
             'code' => 'MC', 'name' => ['en' => 'MC'], 'plan_type' => 2, 'type' => 'digital',
-            'min_value' => 0, 'allocation_pct' => 100, 'validity_months' => 12,
+            'min_value' => 0, 'allocation_bv' => 100, 'validity_months' => 12,
             'cbc_value' => 0, 'cbc_count' => 0, 'ic_schedule' => ['10'], 'level_schedule' => [],
-            'level_depth' => 0, 'level_com_duration' => 12, 'billing_margin' => 2, 'gm_margin' => 0,
+            'level_depth' => 0, 'level_com_duration' => 12, 'billing_margin' => 2,
             'is_active' => true,
         ]);
     }
@@ -195,9 +195,9 @@ class MultiCurrencyTest extends TestCase
         $london = Branch::create(['name' => 'London RD', 'country' => 'GB', 'currency_code' => 'EUR', 'tax_regime' => 'vat', 'vat_pct' => 20, 'level' => 'reseller', 'is_active' => true]);
         $rdPlan = Plan::create([
             'code' => 'MCRD', 'name' => ['en' => 'MC RD'], 'plan_type' => 2, 'type' => 'rd',
-            'min_value' => 0, 'allocation_pct' => 100, 'validity_months' => 12,
+            'min_value' => 0, 'allocation_bv' => 100, 'validity_months' => 12,
             'cbc_value' => 0, 'cbc_count' => 0, 'ic_schedule' => [], 'level_schedule' => [],
-            'level_depth' => 0, 'level_com_duration' => 12, 'billing_margin' => 2, 'gm_margin' => 0,
+            'level_depth' => 0, 'level_com_duration' => 12, 'billing_margin' => 2,
             'is_active' => true,
         ]);
         $member = $this->member('RDC1', null, $london->id);

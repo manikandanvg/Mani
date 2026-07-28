@@ -52,7 +52,7 @@ class MemberBusinessTest extends TestCase
     {
         $this->actingAsMember();
         $down = Member::create(['member_code' => 'D1', 'name' => 'Down', 'phone' => '9000000002', 'joined_on' => now(), 'upline_id' => $this->member->id, 'placement' => 'level', 'rank_id' => $this->member->rank_id, 'status' => 'active']);
-        $plan = Plan::create(['code' => 'P1', 'name' => ['en' => 'Plan'], 'plan_type' => 1, 'type' => 'digital', 'min_value' => 0, 'allocation_pct' => 100, 'is_active' => true]);
+        $plan = Plan::create(['code' => 'P1', 'name' => ['en' => 'Plan'], 'plan_type' => 1, 'type' => 'digital', 'min_value' => 0, 'allocation_bv' => 100, 'is_active' => true]);
         Bond::create(['member_id' => $this->member->id, 'plan_id' => $plan->id, 'bond_date' => now(), 'value' => 10000, 'status' => 'active', 'invoice_no' => 'INV1']);
         CommissionLedger::create(['type' => 'IC', 'member_id' => $this->member->id, 'from_member_id' => $down->id, 'amount' => 500, 'status' => 'paid', 'earned_on' => now(), 'invoice_no' => 'INV1']);
         CommissionLedger::create(['type' => 'IC', 'member_id' => $this->member->id, 'amount' => 200, 'status' => 'pending', 'earned_on' => now(), 'invoice_no' => 'INV2']);
@@ -91,7 +91,7 @@ class MemberBusinessTest extends TestCase
         $this->actingAsMember();
         CommissionLedger::create(['type' => 'IC', 'member_id' => $this->member->id, 'amount' => 500, 'status' => 'paid', 'earned_on' => now(), 'invoice_no' => 'A']);
         CommissionLedger::create(['type' => 'GAP', 'member_id' => $this->member->id, 'amount' => 300, 'status' => 'paid', 'earned_on' => now(), 'invoice_no' => 'B']);
-        $bond = Bond::create(['member_id' => $this->member->id, 'plan_id' => Plan::create(['code' => 'P2', 'name' => ['en' => 'P2'], 'plan_type' => 1, 'type' => 'digital', 'min_value' => 0, 'allocation_pct' => 100, 'is_active' => true])->id, 'bond_date' => now(), 'value' => 1000, 'status' => 'active', 'invoice_no' => 'C']);
+        $bond = Bond::create(['member_id' => $this->member->id, 'plan_id' => Plan::create(['code' => 'P2', 'name' => ['en' => 'P2'], 'plan_type' => 1, 'type' => 'digital', 'min_value' => 0, 'allocation_bv' => 100, 'is_active' => true])->id, 'bond_date' => now(), 'value' => 1000, 'status' => 'active', 'invoice_no' => 'C']);
         CbcEntry::create(['bond_id' => $bond->id, 'member_id' => $this->member->id, 'cbc_date' => now(), 'code' => 'CB1', 'worth' => 250, 'status' => 'pending']);
 
         $ic = $this->getJson('/api/v1/member/earnings?stream=IC')->assertOk();
@@ -117,7 +117,7 @@ class MemberBusinessTest extends TestCase
     public function test_bonds_list(): void
     {
         $this->actingAsMember();
-        $plan = Plan::create(['code' => 'P206', 'name' => ['en' => 'G10 Gold'], 'plan_type' => 1, 'type' => 'gold', 'min_value' => 0, 'allocation_pct' => 100, 'validity_months' => 12, 'is_active' => true]);
+        $plan = Plan::create(['code' => 'P206', 'name' => ['en' => 'G10 Gold'], 'plan_type' => 1, 'type' => 'gold', 'min_value' => 0, 'allocation_bv' => 100, 'validity_months' => 12, 'is_active' => true]);
         Bond::create(['member_id' => $this->member->id, 'plan_id' => $plan->id, 'bond_date' => now(), 'value' => 50000, 'status' => 'active', 'invoice_no' => 'INV9', 'cbc_count' => 6, 'cbc_issued' => 2]);
 
         $res = $this->getJson('/api/v1/member/bonds')->assertOk()

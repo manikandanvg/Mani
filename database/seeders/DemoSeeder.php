@@ -28,7 +28,7 @@ class DemoSeeder extends Seeder
             'name' => ['en' => 'G11 Gold Savings Plus3'],
             'type' => 'rd',
             'min_value' => 1000,
-            'allocation_pct' => 100,
+            'allocation_bv' => 100,
             'validity_months' => 11,
             'cbc_value' => 0,
             'cbc_count' => 0,

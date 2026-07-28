@@ -738,6 +738,7 @@ class Sales extends Page implements HasForms
 
         return Plan::where('is_active', true)
             ->where('min_value', '<=', $grand)
+            ->where(fn ($q) => $q->whereNull('max_value')->orWhere('max_value', '>=', $grand))
             ->when($types !== null, fn ($q) => $q->whereIn('type', $types))
             ->get()
             ->mapWithKeys(function ($p) {
@@ -776,7 +777,7 @@ class Sales extends Page implements HasForms
         }
 
         $gross = (float) $totals['gross'];
-        $allocation = round($gross * (float) $p->allocation_pct / 100, 2);
+        $allocation = round($gross * (float) $p->allocation_bv / 100, 2);
 
         // CB coupon (cashback)
         $cbTotal = round($allocation * (float) $p->cbc_value / 100, 2);
@@ -819,7 +820,7 @@ class Sales extends Page implements HasForms
 
         $sym = self::sym();
         $head = '<div style="display:flex;gap:1rem;flex-wrap:wrap;margin-bottom:.6rem">'
-            . '<div><div style="font-size:.65rem;color:#9ca3af">ALLOCATION (' . $pctTxt($p->allocation_pct) . '%)</div>'
+            . '<div><div style="font-size:.65rem;color:#9ca3af">ALLOCATION (' . $pctTxt($p->allocation_bv) . '%)</div>'
             . '<div style="font-weight:800;color:#ab222f;font-size:1.05rem">' . $sym . Number::format($allocation, 2) . '</div></div>'
             . '<div><div style="font-size:.65rem;color:#9ca3af">PAID + GST</div>'
             . '<div style="font-weight:800;color:#111827;font-size:1.05rem">' . $sym . Number::format((float) $totals['grand'], 2) . '</div></div></div>';

@@ -74,8 +74,10 @@ class SalesService
                 : ['mode' => 'gst', 'total' => round($cartGrand - $crossTotal, 2), 'cgst' => round(($cartGrand - $crossTotal) / 2, 2), 'sgst' => round(($cartGrand - $crossTotal) / 2, 2)];
             $grandTotal = round($crossTotal + $tax['total'], 2);
 
+            $this->assertPlanCaps($plan, $member, $grandTotal, $fx, $billDate);
+
             // Network/commission maths run in INR base: convert the allocated amount once.
-            $allocation = round($crossTotal * (float) $plan->allocation_pct / 100 * $fx, 2);
+            $allocation = round($crossTotal * (float) $plan->allocation_bv / 100 * $fx, 2);
 
             // --- invoice (amounts stored in the branch currency, stamped with code + rate) ---
             $invoice = SalesInvoice::create([
@@ -392,6 +394,39 @@ class SalesService
      * count for new members), then re-rank the buyer and each ancestor in real time using the
      * same maths as the batch. The scheduled recompute remains an expiry + reconciliation pass.
      */
+    /**
+     * Schema-v2 plan ceilings: max_value caps a single bill; max_sales_value caps the
+     * customer's total billing on the plan per calendar month. Both are INR-base values,
+     * so foreign-branch invoices are converted before comparing.
+     */
+    protected function assertPlanCaps(Plan $plan, Member $member, float $grandTotal, float $fx, string $billDate): void
+    {
+        $grandBase = round($grandTotal * $fx, 2);
+
+        if ($plan->max_value !== null && $grandBase > (float) $plan->max_value) {
+            throw new \RuntimeException(sprintf(
+                'Bill value ₹%s exceeds the %s per-bill limit of ₹%s.',
+                number_format($grandBase, 2), $plan->code, number_format((float) $plan->max_value, 2)
+            ));
+        }
+
+        if ($plan->max_sales_value !== null) {
+            $month = Carbon::parse($billDate);
+            $billed = (float) SalesInvoice::where('customer_member_id', $member->id)
+                ->where('plan_id', $plan->id)
+                ->whereBetween('date', [$month->copy()->startOfMonth()->toDateString(), $month->copy()->endOfMonth()->toDateString()])
+                ->selectRaw('COALESCE(SUM(grand_total * COALESCE(fx_rate, 1)), 0) AS billed')
+                ->value('billed');
+
+            if ($billed + $grandBase > (float) $plan->max_sales_value) {
+                throw new \RuntimeException(sprintf(
+                    'Monthly billing cap reached for %s: ₹%s already billed this month, cap is ₹%s.',
+                    $plan->code, number_format($billed, 2), number_format((float) $plan->max_sales_value, 2)
+                ));
+            }
+        }
+    }
+
     protected function applyNetworkDeltas(Member $member, Plan $plan, float $value, bool $isNew): void
     {
         $unpure = round($value * $plan->rankFactor(), 2);

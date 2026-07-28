@@ -29,11 +29,11 @@ class SalesTest extends TestCase
 
         $this->plan = Plan::create([
             'code' => 'G10', 'name' => ['en' => 'Gold 10'], 'plan_type' => 2, 'type' => 'digital',
-            'min_value' => 500, 'allocation_pct' => 100, 'validity_months' => 11,
+            'min_value' => 500, 'allocation_bv' => 100, 'validity_months' => 11,
             'cbc_value' => 10, 'cbc_count' => 11,
             'ic_schedule' => ['10', '5', '2'], 'level_schedule' => ['2.5', '1'],
             'level_depth' => 2, 'level_com_duration' => 11,
-            'billing_margin' => 2, 'gm_margin' => 0, 'stock_trans_margin' => 0,
+            'billing_margin' => 2,
             'is_active' => true,
         ]);
     }
@@ -173,7 +173,7 @@ class SalesTest extends TestCase
     {
         return Plan::create([
             'code' => 'CBC', 'name' => ['en' => 'Cbc Plan'], 'plan_type' => 2, 'type' => 'digital',
-            'min_value' => 0, 'allocation_pct' => 100, 'validity_months' => 10,
+            'min_value' => 0, 'allocation_bv' => 100, 'validity_months' => 10,
             'cbc_value' => 30, 'cbc_count' => 10,
             'ic_schedule' => [], 'level_schedule' => [], 'level_depth' => 0, 'level_com_duration' => 10,
             'billing_margin' => 0, 'is_active' => true,
@@ -241,7 +241,7 @@ class SalesTest extends TestCase
 
         $plan = Plan::create([
             'code' => 'IC10', 'name' => ['en' => 'IC Ten'], 'plan_type' => 2, 'type' => 'digital',
-            'min_value' => 0, 'allocation_pct' => 100, 'validity_months' => 12,
+            'min_value' => 0, 'allocation_bv' => 100, 'validity_months' => 12,
             'cbc_value' => 0, 'cbc_count' => 0,
             'ic_schedule' => ['10', '3', '2', '1.5', '0.75', '0.75', '0.5', '0.5', '0.5', '0.5'],
             'level_schedule' => [], 'level_depth' => 0, 'level_com_duration' => 12,
@@ -290,7 +290,7 @@ class SalesTest extends TestCase
     {
         return Plan::create([
             'code' => 'IC', 'name' => ['en' => 'IC Plan'], 'plan_type' => 2, 'type' => 'digital',
-            'min_value' => 0, 'allocation_pct' => 100, 'cbc_value' => 0, 'cbc_count' => 0,
+            'min_value' => 0, 'allocation_bv' => 100, 'cbc_value' => 0, 'cbc_count' => 0,
             'ic_schedule' => ['10', '3', '2', '1.5', '0.75', '0.75', '0.5', '0.5', '0.5', '0.5'],
             'level_schedule' => [], 'billing_margin' => 0, 'is_active' => true,
         ]);
@@ -375,7 +375,7 @@ class SalesTest extends TestCase
     {
         $plan = Plan::create([
             'code' => 'RKG', 'name' => ['en' => 'Rank Plan'], 'plan_type' => 2, 'type' => 'digital',
-            'min_value' => 0, 'allocation_pct' => 100, 'cbc_value' => 0, 'cbc_count' => 0,
+            'min_value' => 0, 'allocation_bv' => 100, 'cbc_value' => 0, 'cbc_count' => 0,
             'ic_schedule' => [], 'level_schedule' => [], 'billing_margin' => 0, 'is_active' => true,
         ]);
         $a = $this->member('RA', null);
