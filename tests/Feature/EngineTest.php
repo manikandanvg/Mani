@@ -105,13 +105,14 @@ class EngineTest extends TestCase
 
     public function test_unpure_bv_uses_allocation_factor(): void
     {
-        $plan = $this->plan(['allocation_bv' => 50, 'rank_factor' => 50]);   // 50% → factor 0.5
+        // Bond 1,000 at 50% BV allocation = a ₹2,000 bill; rank 50% of the BILL → 1,000.
+        $plan = $this->plan(['allocation_bv' => 50, 'rank_factor' => 50]);
         $m = $this->member('M1', null);
         $this->bond($m, $plan, ['value' => 1000]);
 
         app(NetworkService::class)->recomputeUnpureBv();
 
-        $this->assertEquals(500, $m->fresh()->unpure_bv);
+        $this->assertEquals(1000, $m->fresh()->unpure_bv);
     }
 
     public function test_instant_commission_pays_uplines(): void

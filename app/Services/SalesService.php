@@ -436,7 +436,8 @@ class SalesService
 
     protected function applyNetworkDeltas(Member $member, Plan $plan, float $value, bool $isNew): void
     {
-        $unpure = round($value * $plan->rankFactor(), 2);
+        // $value is the allocated (BV) amount; the rank % is taken off the ORIGINAL bill.
+        $unpure = $plan->unpureFromBondValue($value);
 
         $member->increment('bv', $value);
         if ($unpure > 0) {

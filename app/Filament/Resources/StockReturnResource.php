@@ -61,17 +61,15 @@ class StockReturnResource extends BaseResource
                     ->columns(3)
                     ->schema([
                         Forms\Components\Select::make('catalog_product_id')
-                            ->label('Item')
-                            ->options(fn () => CatalogProduct::where('is_active', true)->orderBy('code')->get()
-                                ->mapWithKeys(fn (CatalogProduct $p) => [
-                                    $p->id => $p->code . ' — ' . Translatable::pick($p->name) . ' (' . strtoupper((string) $p->material) . ')',
-                                ])->all())
+                            ->label('Item (your branch stock)')
+                            ->options(fn () => static::heldStockOptions())
                             ->searchable()
                             ->required()
                             ->columnSpan(2),
                         Forms\Components\TextInput::make('weight')
                             ->label('Weight (g) / qty')
-                            ->numeric()->required(),
+                            ->numeric()->required()
+                            ->helperText('Cannot exceed what your branch currently holds.'),
                     ])
                     ->addActionLabel('Add item')
                     ->minItems(1)
@@ -137,6 +135,25 @@ class StockReturnResource extends BaseResource
                     }),
             ])
             ->bulkActions([]);
+    }
+
+    /** Only items the current user's branch actually holds (with the held qty in the label). */
+    protected static function heldStockOptions(): array
+    {
+        $branchId = auth()->user()?->branch_id;
+        if (! $branchId) {
+            return [];
+        }
+
+        return \App\Models\Stock::where('branch_id', $branchId)->where('quantity', '>', 0)
+            ->with('catalogProduct')
+            ->get()
+            ->filter(fn ($s) => $s->catalogProduct)
+            ->mapWithKeys(fn ($s) => [
+                $s->catalog_product_id => $s->catalogProduct->code
+                    . ' — ' . Translatable::pick($s->catalogProduct->name)
+                    . ' (holds ' . rtrim(rtrim(number_format((float) $s->quantity, 3), '0'), '.') . ')',
+            ])->all();
     }
 
     protected static function isHq(): bool

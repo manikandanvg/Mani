@@ -36,8 +36,9 @@ class Plan extends Model
     public function rdQrProduct() { return $this->belongsTo(CatalogProduct::class, 'rd_qr_product_id'); }
 
     /**
-     * Ranking-BV multiplier: rank_factor is the explicit 0-100 percentage of billed
-     * value that counts as pure/ranking BV (schema v2); excluded plans contribute 0.
+     * Ranking-BV multiplier: rank_factor is the explicit 0-100 percentage of the
+     * ORIGINAL billed value that counts as pure/ranking BV (schema v2); excluded
+     * plans contribute 0.
      */
     public function rankFactor(): float
     {
@@ -46,5 +47,24 @@ class Plan extends Model
         }
 
         return (float) $this->rank_factor / 100;
+    }
+
+    /**
+     * Ranking (unpure) BV contributed by a bond. rank_factor % applies to the ORIGINAL
+     * billed value, but bonds store the allocation_bv-adjusted amount — so scale back up
+     * first. G5 example: ₹1,00,000 bill × 50% BV → bond 50,000; unpure = 1,00,000 × 50%
+     * = 50,000 (NOT 50% of 50,000).
+     */
+    public function unpureFromBondValue(float $bondValue): float
+    {
+        $factor = $this->rankFactor();
+        if ($factor <= 0 || $bondValue <= 0) {
+            return 0.0;
+        }
+
+        $alloc = (float) $this->allocation_bv;
+        $original = ($alloc > 0 && $alloc < 100) ? $bondValue * 100 / $alloc : $bondValue;
+
+        return round($original * $factor, 2);
     }
 }

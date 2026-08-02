@@ -102,23 +102,24 @@ class RankingTest extends TestCase
     /** unpure_bv applies the plan factor and excludes non-counting plans. */
     public function test_unpure_bv_factor_and_exclusion(): void
     {
-        $full = $this->plan(['allocation_bv' => 100]);                       // ×1
-        $dealer = $this->plan(['allocation_bv' => 80, 'rank_factor' => 20]);           // ×0.2
+        // rank_factor % applies to the ORIGINAL bill; bonds store the allocation_bv share.
+        $full = $this->plan(['allocation_bv' => 100]);                                 // 100% of bill
+        $dealer = $this->plan(['allocation_bv' => 80, 'rank_factor' => 20]);           // 20% of bill
         $excluded = $this->plan(['allocation_bv' => 100, 'counts_for_rank' => false]); // ×0
-        $area = $this->plan(['allocation_bv' => 10, 'rank_factor' => 10]);             // ×0.10
+        $area = $this->plan(['allocation_bv' => 10, 'rank_factor' => 10]);             // 10% of bill
 
         $m = $this->member('M', null);
-        $this->bond($m, $full, 100000);      // +100000
-        $this->bond($m, $dealer, 100000);    // +20000
+        $this->bond($m, $full, 100000);      // ₹1,00,000 bill → +100000
+        $this->bond($m, $dealer, 80000);     // ₹1,00,000 bill × 80% BV → +20000 (20% of the bill)
         $this->bond($m, $excluded, 100000);  // +0
-        $this->bond($m, $area, 100000);      // +10000
+        $this->bond($m, $area, 10000);       // ₹1,00,000 bill × 10% BV → +10000 (10% of the bill)
 
         app(NetworkService::class)->recomputeUnpureBv();
 
         $this->assertEquals(130000, (float) $m->fresh()->unpure_bv);
-        // bv (face) counts every active bond's value
+        // bv (face) counts every active bond's (allocation-adjusted) value
         app(NetworkService::class)->recomputePersonalBv();
-        $this->assertEquals(400000, (float) $m->fresh()->bv);
+        $this->assertEquals(290000, (float) $m->fresh()->bv);
     }
 
     /** A bond past its plan validity is closed and stops counting toward BV. */

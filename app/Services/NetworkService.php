@@ -90,7 +90,11 @@ class NetworkService
         }
     }
 
-    /** unpure_bv = Σ (bond.value × ranking factor) of active bonds — the legacy rabvreset. */
+    /**
+     * unpure_bv = Σ ranking BV of active bonds. rank_factor % applies to the ORIGINAL
+     * billed value (bond values are stored allocation_bv-adjusted, so the Plan helper
+     * scales back up first) — same maths as the instant billing path.
+     */
     public function recomputeUnpureBv(): void
     {
         $plans = Plan::get()->keyBy('id');
@@ -104,22 +108,16 @@ class NetworkService
 
         $totals = [];
         foreach ($rows as $r) {
-            $factor = $this->rankFactor($plans->get($r->plan_id));
-            if ($factor <= 0) {
+            $unpure = $plans->get($r->plan_id)?->unpureFromBondValue((float) $r->value) ?? 0.0;
+            if ($unpure <= 0) {
                 continue;
             }
-            $totals[$r->member_id] = ($totals[$r->member_id] ?? 0) + ((float) $r->value * $factor);
+            $totals[$r->member_id] = ($totals[$r->member_id] ?? 0) + $unpure;
         }
 
         foreach ($totals as $memberId => $total) {
             DB::table('members')->where('id', $memberId)->update(['unpure_bv' => round($total, 2)]);
         }
-    }
-
-    /** Ranking-BV factor for a plan; the rule lives on the Plan model. */
-    protected function rankFactor(?Plan $plan): float
-    {
-        return $plan ? $plan->rankFactor() : 0.0;
     }
 
     public function recomputeGroupBv(): void

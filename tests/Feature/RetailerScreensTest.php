@@ -326,6 +326,31 @@ class RetailerScreensTest extends TestCase
         $this->assertFalse(\App\Filament\Pages\OrderForm::orderingOpen());
     }
 
+    /** Super admin / HQ is exempt from the 9–9 window and can submit an order at any hour. */
+    public function test_super_admin_orders_outside_the_window(): void
+    {
+        $this->travelTo(now()->setTime(23, 30));   // window closed for dealers
+        $admin = User::where('email', 'admin@lordicl.com')->firstOrFail();
+        $this->actingAs($admin);
+        Filament::setCurrentPanel(Filament::getPanel('admin'));
+
+        $this->assertTrue(\App\Filament\Pages\OrderForm::windowExempt());
+
+        $gold = $this->catalog('gold');
+        \App\Models\LiveRate::firstOrCreate(
+            ['country' => 'IN'],
+            ['gold' => 5000, 'silver' => 100, 'diamond' => 0, 'source' => 'manual', 'effective_at' => now()],
+        );
+
+        Livewire::test(\App\Filament\Pages\OrderForm::class)
+            ->set('data.lines', [['catalog_product_id' => $gold->id, 'weight' => 2, 'description' => null]])
+            ->set('data.payment_type', 'cash')
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $this->assertEquals(1, BranchOrderRequest::where('status', 'pending')->count());
+    }
+
     public function test_rd_collection_page_submits_with_session_branch(): void
     {
         $dist = $this->asDistributor();

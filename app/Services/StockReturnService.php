@@ -129,8 +129,11 @@ class StockReturnService
     {
         $held = (float) Stock::where('branch_id', $branchId)
             ->where('catalog_product_id', $cp->id)->value('quantity');
-        abort_if($held + 1e-6 < $weight, 422,
-            'Branch holds only ' . $held . ' of ' . $cp->code . ' — cannot return ' . $weight . '.');
+        $label = trim($cp->code . ' ' . (\App\Support\Translatable::pick($cp->name) ?? ''));
+        abort_if($held + 1e-6 < $weight, 422, sprintf(
+            'Your branch holds only %s of %s — cannot return %s. Order stock from HQ first if needed.',
+            number_format($held, 3), $label, number_format($weight, 3)
+        ));
     }
 
     protected function nextReturnNo(): string

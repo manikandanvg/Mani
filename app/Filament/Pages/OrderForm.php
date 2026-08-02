@@ -61,8 +61,24 @@ class OrderForm extends Page implements HasForms
         return $hour >= self::ORDER_OPEN_HOUR && $hour < self::ORDER_CLOSE_HOUR;
     }
 
+    /**
+     * Super admin / the HQ branch order round the clock — the 9–9 window disciplines
+     * dealer branches only.
+     */
+    public static function windowExempt(): bool
+    {
+        $user = auth()->user();
+
+        return (bool) ($user && ($user->hasRole('super_admin') || $user->branch_id === null
+            || (int) $user->branch_id === \App\Services\SalesService::HQ_BRANCH_ID));
+    }
+
     public function getSubheading(): ?string
     {
+        if (static::windowExempt()) {
+            return 'HQ / super admin — ordering open round the clock.';
+        }
+
         return static::orderingOpen()
             ? 'Ordering window 9:00 AM – 9:00 PM · OPEN now.'
             : 'Ordering window 9:00 AM – 9:00 PM · CLOSED now — orders cannot be submitted.';
@@ -234,7 +250,7 @@ class OrderForm extends Page implements HasForms
 
     public function save(): void
     {
-        if (! static::orderingOpen()) {
+        if (! static::orderingOpen() && ! static::windowExempt()) {
             Notification::make()
                 ->warning()
                 ->title('Ordering window closed')
