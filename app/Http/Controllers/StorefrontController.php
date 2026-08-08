@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Branch;
 use App\Models\Category;
 use App\Models\CmsPage;
+use App\Models\ContactMessage;
 use App\Models\Faq;
 use App\Models\Post;
 use App\Models\Product;
@@ -17,8 +18,8 @@ class StorefrontController extends Controller
     {
         return view('storefront.home', [
             'slides' => $this->heroSlides(),
-            'featured' => Product::where('is_active', true)->where('is_featured', true)->latest()->take(8)->get()
-                ?: Product::where('is_active', true)->latest()->take(8)->get(),
+            'featured' => Product::with('images')->where('is_active', true)->where('is_featured', true)->latest()->take(8)->get()
+                ?: Product::with('images')->where('is_active', true)->latest()->take(8)->get(),
             'categories' => Category::where('domain', 'ecommerce')->whereNull('parent_id')->where('is_active', true)->get(),
             'posts' => Post::published()->latest('published_at')->take(3)->get(),
             'testimonials' => Testimonial::published()->orderBy('sort')->take(6)->get(),
@@ -26,9 +27,9 @@ class StorefrontController extends Controller
     }
 
     /**
-     * Home hero slides. Text is translated on render via tr(); `image` is optional
-     * (falls back to the brand gradient when null). Edit/extend here, or later wire to
-     * a CMS table — the view consumes a plain array of slides.
+     * Home hero slides. Text is translated on render via tr(); `image` is a locally
+     * stored asset (public/images/slides) rendered with a soft golden glow in the view;
+     * `gradient` remains as the fallback wash behind the photo while it loads.
      */
     protected function heroSlides(): array
     {
@@ -39,7 +40,7 @@ class StorefrontController extends Controller
                 'subtitle' => 'Shop chains, bangles, rings and accessories — priced live, delivered worldwide, in your language and currency.',
                 'cta' => 'Explore the collection',
                 'link' => '/shop',
-                'image' => null,
+                'image' => asset('images/slides/slide-gold-heritage.jpg'),
                 'gradient' => 'from-brand-dark via-brand to-brand-dark',
             ],
             [
@@ -48,7 +49,7 @@ class StorefrontController extends Controller
                 'subtitle' => 'Transparent, real-time pricing on every gold and silver piece — no surprises at checkout.',
                 'cta' => 'Shop gold',
                 'link' => '/shop?material=gold',
-                'image' => null,
+                'image' => asset('images/slides/slide-live-rates.jpg'),
                 'gradient' => 'from-brand-dark via-amber-800 to-brand-gold',
             ],
             [
@@ -57,7 +58,7 @@ class StorefrontController extends Controller
                 'subtitle' => 'Discover our latest accessories collection — finely finished, beautifully affordable.',
                 'cta' => 'Browse accessories',
                 'link' => '/shop?material=accessory',
-                'image' => null,
+                'image' => asset('images/slides/slide-accessories.jpg'),
                 'gradient' => 'from-stone-900 via-brand-dark to-brand',
             ],
         ];
@@ -65,7 +66,7 @@ class StorefrontController extends Controller
 
     public function shop(Request $request)
     {
-        $query = Product::where('is_active', true);
+        $query = Product::with('images')->where('is_active', true);
 
         if ($request->filled('category')) {
             $query->where(fn ($q) => $q->where('category_id', $request->category)->orWhere('subcategory_id', $request->category));
@@ -90,7 +91,7 @@ class StorefrontController extends Controller
 
         return view('storefront.product', [
             'product' => $product,
-            'related' => Product::where('is_active', true)->where('category_id', $product->category_id)
+            'related' => Product::with('images')->where('is_active', true)->where('category_id', $product->category_id)
                 ->where('id', '!=', $product->id)->take(4)->get(),
         ]);
     }
@@ -138,13 +139,17 @@ class StorefrontController extends Controller
 
     public function contactSubmit(Request $request)
     {
-        $request->validate([
+        $data = $request->validate([
             'name' => 'required|string|max:150',
-            'email' => 'required|email',
+            'email' => 'required|email|max:150',
+            'phone' => ['required', 'string', 'max:20', 'regex:/^[0-9+\-\s()]{7,20}$/'],
             'message' => 'required|string|max:2000',
+        ], [
+            'phone.regex' => 'Please enter a valid phone number.',
         ]);
 
-        // (demo) a real build would queue a mail/notification here
+        ContactMessage::create($data + ['ip' => $request->ip()]);
+
         return back()->with('success', 'Thank you — your message has been received. We will get back to you shortly.');
     }
 }

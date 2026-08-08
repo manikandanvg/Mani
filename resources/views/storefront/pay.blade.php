@@ -1,6 +1,6 @@
 @extends('storefront.layouts.app')
 @php use App\Support\Money; @endphp
-@section('title', 'Pay for order ' . $order->order_no . ' — Lord ICL')
+@section('title', 'Pay for order ' . $order->order_no . ' — LORD JEWELLER')
 
 @section('content')
     <div class="max-w-xl mx-auto px-4 py-16">
@@ -49,7 +49,8 @@
                             order_id: @json($order->razorpay_order_id),
                             amount: {{ $amountPaise }},
                             currency: 'INR',
-                            name: 'Lord ICL',
+                            name: 'LORD JEWELLER',
+                            image: @json(asset('images/logo.png')),
                             description: 'Order {{ $order->order_no }}',
                             prefill: {
                                 name: @json($order->customer_name),

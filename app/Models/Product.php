@@ -27,7 +27,13 @@ class Product extends Model
 
     public function category() { return $this->belongsTo(Category::class); }
     public function subcategory() { return $this->belongsTo(Category::class, 'subcategory_id'); }
-    public function images() { return $this->hasMany(ProductImage::class); }
+    public function images() { return $this->hasMany(ProductImage::class)->orderBy('sort'); }
+
+    /** URL of the primary (lowest-sort) image, or null when none is assigned. */
+    public function primaryImageUrl(): ?string
+    {
+        return media_url($this->images->first()?->path);
+    }
 
     /** Rate-based pieces (gold/silver/diamond) are priced live from weight × metal rate. */
     public function isRateBased(): bool

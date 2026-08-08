@@ -1,13 +1,32 @@
 @extends('storefront.layouts.app')
 @php use App\Support\Translatable; use App\Support\Money; @endphp
-@section('title', Translatable::pick($product->name).' — Lord ICL')
+@section('title', Translatable::pick($product->name).' — LORD JEWELLER')
 
 @section('content')
     <div class="max-w-7xl mx-auto px-4 py-10">
         <a href="{{ url('/shop') }}" class="text-sm text-stone-500 hover:text-brand">← {{ tr('Back to shop') }}</a>
         <div class="grid md:grid-cols-2 gap-10 mt-4">
-            <div class="rounded-2xl bg-gradient-to-br from-stone-100 to-stone-200 h-96 grid place-items-center text-8xl">
-                {{ $product->material === 'silver' ? '💍' : ($product->material === 'accessory' ? '🎁' : '💛') }}
+            <div class="reveal revealed">
+                @if ($product->primaryImageUrl())
+                    <div class="relative rounded-2xl overflow-hidden shadow-lg h-96 img-zoom">
+                        <img src="{{ $product->primaryImageUrl() }}" alt="{{ Translatable::pick($product->name) }}"
+                             class="absolute inset-0 w-full h-full object-cover">
+                        <div class="absolute inset-0 ring-1 ring-inset ring-black/10 rounded-2xl pointer-events-none"></div>
+                    </div>
+                    @if ($product->images->count() > 1)
+                        <div class="mt-4 grid grid-cols-4 gap-3">
+                            @foreach ($product->images->skip(1)->take(4) as $img)
+                                <div class="rounded-xl overflow-hidden h-20 shadow">
+                                    <img src="{{ media_url($img->path) }}" alt="" loading="lazy" class="w-full h-full object-cover">
+                                </div>
+                            @endforeach
+                        </div>
+                    @endif
+                @else
+                    <div class="rounded-2xl bg-gradient-to-br from-stone-100 to-stone-200 h-96 grid place-items-center text-8xl">
+                        {{ $product->material === 'silver' ? '💍' : ($product->material === 'accessory' ? '🎁' : '💛') }}
+                    </div>
+                @endif
             </div>
             <div>
                 @php $b = $product->priceBreakup(); @endphp

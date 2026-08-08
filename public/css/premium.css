@@ -116,3 +116,21 @@
     font-weight: 600;
     font-size: .95rem;
 }
+
+/* ── Museo as the English font-face (local files; Tamil falls back automatically) ── */
+@font-face {
+    font-family: 'Museo';
+    font-style: normal;
+    font-weight: 300 500;
+    src: url('../fonts/museo/Museo300-Regular.woff') format('woff');
+    font-display: swap;
+}
+@font-face {
+    font-family: 'Museo';
+    font-style: normal;
+    font-weight: 600 900;
+    src: url('../fonts/museo/Museo700-Regular.woff') format('woff');
+    font-display: swap;
+}
+:root { --font-family: 'Museo', ui-sans-serif, system-ui, sans-serif; }
+body { font-family: 'Museo', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif; }

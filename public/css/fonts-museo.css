@@ -1,0 +1,17 @@
+/* Museo (exljbris, free 300/700 weights) — served locally from public/fonts/museo.
+   Latin/English glyphs only: Tamil and other scripts fall through to the next
+   font in the stack automatically, so this changes English type only. */
+@font-face {
+    font-family: 'Museo';
+    font-style: normal;
+    font-weight: 300 500; /* light–medium requests all serve the 300 cut */
+    src: url('../fonts/museo/Museo300-Regular.woff') format('woff');
+    font-display: swap;
+}
+@font-face {
+    font-family: 'Museo';
+    font-style: normal;
+    font-weight: 600 900; /* semibold–black requests all serve the 700 cut */
+    src: url('../fonts/museo/Museo700-Regular.woff') format('woff');
+    font-display: swap;
+}

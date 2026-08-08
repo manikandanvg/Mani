@@ -14,6 +14,11 @@ class Post extends Model
         'is_published' => 'boolean',
     ];
 
+    public function imageUrl(): ?string
+    {
+        return media_url($this->image_path);
+    }
+
     public function scopePublished($q)
     {
         return $q->where('is_published', true)->whereNotNull('published_at')->where('published_at', '<=', now());

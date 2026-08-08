@@ -71,6 +71,25 @@ if (! function_exists('inr_words')) {
     }
 }
 
+if (! function_exists('media_url')) {
+    /**
+     * Public URL for a stored media reference. Handles absolute URLs, bundled
+     * public assets ("images/...") and Filament uploads on the public disk.
+     */
+    function media_url(?string $path): ?string
+    {
+        if (blank($path)) {
+            return null;
+        }
+        if (str_starts_with($path, 'http://') || str_starts_with($path, 'https://')) {
+            return $path;
+        }
+        $path = ltrim($path, '/');
+
+        return str_starts_with($path, 'images/') ? asset($path) : asset('storage/' . $path);
+    }
+}
+
 if (! function_exists('tr')) {
     /**
      * Translate a UI string to the current (or given) locale via the cached translation

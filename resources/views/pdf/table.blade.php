@@ -20,7 +20,7 @@
 <body>
     <div class="head">
         <div class="meta">Generated: {{ $generatedAt }}<br>{{ count($rows) }} record(s)</div>
-        <div class="brand">Lord ICL</div>
+        <div class="brand">LORD JEWELLER</div>
         <div class="title">{{ $title }}</div>
     </div>
 

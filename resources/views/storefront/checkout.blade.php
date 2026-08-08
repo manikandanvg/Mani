@@ -1,6 +1,6 @@
 @extends('storefront.layouts.app')
 @php use App\Support\Money; @endphp
-@section('title', 'Checkout — Lord ICL')
+@section('title', 'Checkout — LORD JEWELLER')
 
 @section('content')
     <div class="max-w-5xl mx-auto px-4 py-12 grid md:grid-cols-2 gap-10">
@@ -24,8 +24,8 @@
                     <input name="pincode" value="{{ old('pincode') }}" placeholder="Pincode" class="border rounded-lg px-4 py-2.5">
                     <input name="country" value="{{ old('country', 'IN') }}" maxlength="2" placeholder="Country" class="border rounded-lg px-4 py-2.5">
                 </div>
-                <button class="bg-brand text-white px-8 py-3 rounded-full hover:bg-brand-dark transition w-full">Place order</button>
-                <p class="text-xs text-stone-400 text-center">Payment gateway integration is a later phase — orders are recorded as “pending”.</p>
+                <button class="bg-brand text-white px-8 py-3 rounded-full hover:bg-brand-dark hover:shadow-lg transition-all duration-300 w-full">{{ tr('Place order & pay') }}</button>
+                <p class="text-xs text-stone-400 text-center">{{ tr('You will be taken to our secure payment page — Cards · UPI · Net Banking · Wallets.') }}</p>
             </form>
         </div>
 

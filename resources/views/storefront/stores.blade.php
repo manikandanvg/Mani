@@ -1,5 +1,5 @@
 @extends('storefront.layouts.app')
-@section('title', 'Store Locator — Lord ICL')
+@section('title', 'Store Locator — LORD JEWELLER')
 
 @php
     $geo = $branches->filter(fn ($b) => $b->latitude && $b->longitude && (float) $b->latitude != 0);

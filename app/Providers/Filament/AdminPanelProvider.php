@@ -27,7 +27,15 @@ class AdminPanelProvider extends PanelProvider
             ->id('admin')
             ->path('admin')
             ->login()
-            ->brandName('Lord ICL')
+            ->brandName('LORD JEWELLER')
+            // Emblem + wordmark (brandLogo alone would replace the name text).
+            ->brandLogo(fn () => new \Illuminate\Support\HtmlString(
+                '<span style="display:flex;align-items:center;gap:.6rem;">'
+                . '<img src="' . asset('images/logo.png') . '" alt="LORD JEWELLER" style="height:2.5rem;width:2.5rem;object-fit:contain;">'
+                . '<span style="font-weight:700;letter-spacing:.06em;font-size:1.05rem;">LORD <span style="color:#e6ad46;">JEWELLER</span></span>'
+                . '</span>'
+            ))
+            ->favicon(asset('images/favicon-32.png'))
             ->colors([
                 // Brand palette from the logo: crimson primary + gold accent.
                 'primary' => Color::hex('#ab222f'),

@@ -1,6 +1,6 @@
 @extends('storefront.layouts.app')
 @php use App\Support\Translatable; @endphp
-@section('title', 'Shop — Lord ICL')
+@section('title', 'Shop — LORD JEWELLER')
 
 @section('content')
     <div class="max-w-7xl mx-auto px-4 py-10">

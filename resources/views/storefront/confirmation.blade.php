@@ -1,6 +1,6 @@
 @extends('storefront.layouts.app')
 @php use App\Support\Money; @endphp
-@section('title', 'Order confirmed — Lord ICL')
+@section('title', 'Order confirmed — LORD JEWELLER')
 
 @section('content')
     <div class="max-w-2xl mx-auto px-4 py-16 text-center">
