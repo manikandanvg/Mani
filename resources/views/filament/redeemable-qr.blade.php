@@ -23,6 +23,6 @@
     </div>
 
     <p style="margin-top:1rem;font-size:.8rem;color:#9ca3af;">
-        Scan to redeem at any Lord Jeweller dealer. An OTP to the registered mobile is required to complete redemption.
+        An OTP to the registered mobile is required to complete redemption. Purchase-plan QRs redeem only at the billing branch; savings QRs at any Lord Jeweller dealer.
     </p>
 </div>

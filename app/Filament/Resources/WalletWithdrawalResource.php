@@ -32,7 +32,7 @@ class WalletWithdrawalResource extends BaseResource
 
     protected static ?string $pluralModelLabel = 'Wallet Withdrawals';
 
-    protected static ?int $navigationSort = 2;
+    protected static ?int $navigationSort = 3;
 
     public static function canCreate(): bool
     {
@@ -55,6 +55,9 @@ class WalletWithdrawalResource extends BaseResource
                 Tables\Columns\TextColumn::make('member.name')->label('Distributor')->searchable()
                     ->description(fn (WalletWithdrawal $w) => $w->member?->member_code),
                 Tables\Columns\TextColumn::make('branch.name')->label('Branch'),
+                Tables\Columns\TextColumn::make('wallet')->label('Wallet')->badge()
+                    ->formatStateUsing(fn (?string $state) => $state === 'branch_digi' ? __('Branch Digi') : __('Commission'))
+                    ->color(fn (?string $state) => $state === 'branch_digi' ? 'warning' : 'info'),
                 Tables\Columns\TextColumn::make('amount')->baseMoney()->sortable(),
                 Tables\Columns\TextColumn::make('status')->badge()
                     ->color(fn ($state) => match ($state) {

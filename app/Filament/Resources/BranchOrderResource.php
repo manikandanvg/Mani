@@ -31,7 +31,7 @@ class BranchOrderResource extends BaseResource
 
     protected static ?string $navigationLabel = 'Order Requests';
 
-    protected static ?int $navigationSort = 2;
+    protected static ?int $navigationSort = 4;
 
     public static function canCreate(): bool
     {

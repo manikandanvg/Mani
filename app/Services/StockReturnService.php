@@ -76,25 +76,29 @@ class StockReturnService
 
             $today = Carbon::now()->toDateString();
             foreach ($return->lines as $line) {
+                // Return lines are priced in grams; stock (and its guard) move in PIECES.
+                $pieces = \App\Models\CatalogProduct::find($line->catalog_product_id)
+                    ?->piecesFromWeight((float) $line->weight) ?? (float) $line->weight;
+
                 $stock = Stock::where('branch_id', $return->branch_id)
                     ->where('catalog_product_id', $line->catalog_product_id)
                     ->lockForUpdate()->first();
-                abort_if(! $stock || (float) $stock->quantity + 1e-6 < (float) $line->weight, 422,
+                abort_if(! $stock || (float) $stock->quantity + 1e-6 < $pieces, 422,
                     'Branch no longer holds enough stock for line #' . $line->id . '.');
 
-                $stock->decrement('quantity', (float) $line->weight);
+                $stock->decrement('quantity', $pieces);
                 $hq = Stock::firstOrCreate(
                     ['branch_id' => self::HQ_BRANCH_ID, 'catalog_product_id' => $line->catalog_product_id],
                     ['quantity' => 0],
                 );
-                $hq->increment('quantity', (float) $line->weight);
+                $hq->increment('quantity', $pieces);
 
                 foreach ([[$return->branch_id, -1, $stock], [self::HQ_BRANCH_ID, 1, $hq]] as [$bid, $sign, $s]) {
                     StockMovement::create([
                         'branch_id' => $bid,
                         'catalog_product_id' => $line->catalog_product_id,
                         'type' => 'transfer',
-                        'qty_change' => $sign * (float) $line->weight,
+                        'qty_change' => $sign * $pieces,
                         'balance_after' => $s->fresh()->quantity,
                         'ref_type' => 'stock_return',
                         'ref_id' => $return->id,

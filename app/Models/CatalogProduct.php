@@ -28,4 +28,29 @@ class CatalogProduct extends Model
 
     public function category() { return $this->belongsTo(Category::class, 'category_id'); }
     public function subcategory() { return $this->belongsTo(Category::class, 'subcategory_id'); }
+
+    /**
+     * Stock unit model (board 2026-08-10): stock.quantity holds PIECES for metal /
+     * vessel products (85 = eighty-five 500 g bars) and RUPEES for cash. These two
+     * converters keep every stock mutation and display on that single definition.
+     */
+    public function piecesFromWeight(float $grams): float
+    {
+        if ($this->material === 'cash') {
+            return $grams;   // "weight" is the rupee amount for cash lines
+        }
+        $unit = (float) $this->default_weight;
+
+        return $unit > 0 ? round($grams / $unit, 4) : $grams;
+    }
+
+    public function gramsFromPieces(float $pieces): float
+    {
+        if ($this->material === 'cash') {
+            return $pieces;
+        }
+        $unit = (float) $this->default_weight;
+
+        return $unit > 0 ? round($pieces * $unit, 4) : $pieces;
+    }
 }

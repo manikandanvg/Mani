@@ -16,7 +16,7 @@ class PaymentResource extends BaseResource
     use HqOnly;
     protected static ?string $model = Payment::class;
 
-    protected static ?string $navigationGroup = 'Orders';
+    protected static ?string $navigationGroup = 'Online Orders';
 
     protected static ?string $navigationIcon = 'heroicon-o-credit-card';
 
@@ -25,6 +25,16 @@ class PaymentResource extends BaseResource
     public static function canCreate(): bool
     {
         return false;   // payments are recorded by the gateway, never hand-entered
+    }
+
+    /**
+     * Board spec 2026-08-09: "Order Management instead of Payments" — the nav slot is
+     * taken by the fulfilment pipeline page; payment rows stay reachable from each
+     * order's view screen and via direct URL for admins.
+     */
+    public static function shouldRegisterNavigation(): bool
+    {
+        return false;
     }
 
     public static function table(Table $table): Table

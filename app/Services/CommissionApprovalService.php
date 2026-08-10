@@ -119,7 +119,7 @@ class CommissionApprovalService
         DB::transaction(function () use ($row, $paidOn) {
             // amount is INR base; pay in the earner's currency at the rate frozen on the row.
             $gross = round((float) $row->amount / (float) ($row->fx_rate ?: 1), 2);
-            ['tds' => $tds, 'service' => $svc, 'net' => $net] = $this->deduct($gross);
+            ['tds' => $tds, 'service' => $svc, 'net' => $net] = $this->deduct($gross, $row->type);
             // earning_total tracks gross earned; cash_balance gets the net payout.
             $this->creditWallet($row->member_id, cash: $net, earning: $gross, currency: $row->currency_code ?: 'INR');
             $row->update([
@@ -163,7 +163,7 @@ class CommissionApprovalService
         DB::transaction(function () use ($row, $paidOn) {
             // com_value is INR base; pay in the earner's currency at the frozen rate.
             $gross = round((float) $row->com_value / (float) ($row->fx_rate ?: 1), 2);
-            ['tds' => $tds, 'service' => $svc, 'net' => $net] = $this->deduct($gross);
+            ['tds' => $tds, 'service' => $svc, 'net' => $net] = $this->deduct($gross, self::resellerTypeKey($row));
             $memberId = $this->distributorMemberId($row);
             if ($memberId) {
                 $this->creditWallet($memberId, cash: $net, earning: $gross, currency: $row->currency_code ?: 'INR');
@@ -178,13 +178,46 @@ class CommissionApprovalService
         return true;
     }
 
-    /** TDS + service charge withheld from a gross cash commission; returns the breakdown. */
-    protected function deduct(float $gross): array
+    /**
+     * TDS + service charge withheld from a gross cash commission; returns the breakdown.
+     * Rates come from Commission Setup (settings group 'commission', per stream key,
+     * value = {"tds": %, "service": %}); the class constants are the fallback when a
+     * stream has never been configured. CBC never reaches here (coupon — exempt).
+     */
+    protected function deduct(float $gross, ?string $type = null): array
     {
-        $tds = round($gross * self::TDS_PCT / 100, 2);
-        $svc = round($gross * self::SERVICE_PCT / 100, 2);
+        [$tdsPct, $svcPct] = self::chargesFor($type);
+
+        $tds = round($gross * $tdsPct / 100, 2);
+        $svc = round($gross * $svcPct / 100, 2);
 
         return ['tds' => $tds, 'service' => $svc, 'net' => round($gross - $tds - $svc, 2)];
+    }
+
+    /** [tds %, service %] for a stream — configured value or the 5/5 default. */
+    public static function chargesFor(?string $type): array
+    {
+        static $cache = null;
+
+        if ($cache === null) {
+            $cache = \App\Models\Setting::where('group', 'commission')
+                ->pluck('value', 'key')
+                ->map(fn ($v) => json_decode((string) $v, true))
+                ->all();
+        }
+
+        $row = $type !== null ? ($cache[$type] ?? null) : null;
+
+        return [
+            is_array($row) && isset($row['tds']) ? (float) $row['tds'] : self::TDS_PCT,
+            is_array($row) && isset($row['service']) ? (float) $row['service'] : self::SERVICE_PCT,
+        ];
+    }
+
+    /** Reverse of RESELLER_COM: a margin row's com_type_id → its stream key. */
+    public static function resellerTypeKey(ResellerCommission $row): ?string
+    {
+        return array_search((int) $row->com_type_id, self::RESELLER_COM, true) ?: null;
     }
 
     /** Resolve a reseller margin's payee: branch → distributor login → mapped member. */

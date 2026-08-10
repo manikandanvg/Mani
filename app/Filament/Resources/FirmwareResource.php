@@ -31,7 +31,7 @@ class FirmwareResource extends BaseResource
 
     protected static ?string $pluralModelLabel = 'Firmware';
 
-    protected static ?int $navigationSort = 1;
+    protected static ?int $navigationSort = 2;
 
     public static function form(Form $form): Form
     {

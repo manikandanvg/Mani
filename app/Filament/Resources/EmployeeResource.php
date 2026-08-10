@@ -90,7 +90,11 @@ class EmployeeResource extends BaseResource
             ->columns([
                 Tables\Columns\TextColumn::make('employee_code')->searchable()->sortable(),
                 Tables\Columns\TextColumn::make('member.name')->label('Distributor')->searchable()
-                    ->description(fn (EmployeeProfile $r) => $r->member?->member_code),
+                    // an em-dash beats a silent blank when the linked member no longer exists
+                    ->placeholder('— member missing —'),
+                Tables\Columns\TextColumn::make('member.member_code')->label('Distributor Code')
+                    ->searchable()
+                    ->placeholder('—'),
                 Tables\Columns\TextColumn::make('designation')->searchable(),
                 Tables\Columns\TextColumn::make('monthly_salary')->baseMoney()->sortable(),
                 Tables\Columns\IconColumn::make('pf_enabled')->label('PF')->boolean(),

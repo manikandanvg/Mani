@@ -70,6 +70,16 @@ class User extends Authenticatable implements FilamentUser
         return $this->hasRole('distributor');
     }
 
+    /**
+     * Support-desk staff — the most restricted back-office persona. Sees ONLY the
+     * Support & Track group (tickets, support chat, track screens); every other
+     * screen is hidden and direct-URL access is rejected.
+     */
+    public function isSupport(): bool
+    {
+        return $this->hasRole('support') && ! $this->hasRole('super_admin');
+    }
+
     /** The member record this distributor login is mapped to (legacy ci_users.mapid). */
     public function memberAccount()
     {

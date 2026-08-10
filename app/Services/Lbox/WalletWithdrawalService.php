@@ -87,6 +87,64 @@ class WalletWithdrawalService
         });
     }
 
+    /**
+     * "Withdraw My Wallet" (board spec 2026-08-09) — a dealer requests a withdrawal
+     * from the admin panel, no L-BOX scan involved. Two pots:
+     *  - member_cash: the dealer's own commission wallet (same debit as request()),
+     *  - branch_digi: the branch Digi cash wallet (SRV credits) on branches.digi_cash_balance.
+     * Either way the row lands in L-BOX → Wallet Withdrawals for HQ disbursal.
+     */
+    public function requestFromPanel(\App\Models\User $user, string $wallet, float $amount, ?string $note = null): WalletWithdrawal
+    {
+        if ($amount <= 0) {
+            throw new \InvalidArgumentException('Enter an amount above zero.');
+        }
+        if (! in_array($wallet, ['member_cash', 'branch_digi'], true)) {
+            throw new \InvalidArgumentException("Unknown wallet [{$wallet}].");
+        }
+        if (! $user->branch_id) {
+            throw new \RuntimeException('Your login has no branch mapped — contact Head Office.');
+        }
+
+        return DB::transaction(function () use ($user, $wallet, $amount, $note) {
+            $member = $user->memberAccount;
+
+            if ($wallet === 'member_cash') {
+                if (! $member) {
+                    throw new \RuntimeException('Your login has no distributor account mapped — commission wallet unavailable.');
+                }
+
+                $memberWallet = MemberWallet::lockForUpdate()->find($member->id);
+                if (! $memberWallet || (float) $memberWallet->cash_balance < $amount) {
+                    throw new \InvalidArgumentException(sprintf(
+                        'Insufficient wallet balance — available ₹%s.',
+                        number_format((float) ($memberWallet->cash_balance ?? 0), 2),
+                    ));
+                }
+                $memberWallet->decrement('cash_balance', $amount);
+                $memberWallet->increment('withdrawn_total', $amount);
+            } else {
+                $branch = \App\Models\Branch::lockForUpdate()->find($user->branch_id);
+                if (! $branch || (float) $branch->digi_cash_balance < $amount) {
+                    throw new \InvalidArgumentException(sprintf(
+                        'Insufficient branch Digi cash — available ₹%s.',
+                        number_format((float) ($branch->digi_cash_balance ?? 0), 2),
+                    ));
+                }
+                $branch->decrement('digi_cash_balance', $amount);
+            }
+
+            return WalletWithdrawal::create([
+                'member_id' => $member?->id,
+                'branch_id' => $user->branch_id,
+                'wallet' => $wallet,
+                'amount' => $amount,
+                'status' => 'pending',
+                'note' => $note,
+            ]);
+        });
+    }
+
     /** Branch incharge handed over gold/cash. */
     public function disburse(WalletWithdrawal $withdrawal, string $mode, ?int $userId = null, ?string $note = null): WalletWithdrawal
     {
@@ -116,9 +174,15 @@ class WalletWithdrawalService
         }
 
         DB::transaction(function () use ($withdrawal, $userId, $note) {
-            $wallet = MemberWallet::lockForUpdate()->find($withdrawal->member_id);
-            $wallet?->increment('cash_balance', (float) $withdrawal->amount);
-            $wallet?->decrement('withdrawn_total', (float) $withdrawal->amount);
+            // Refund whichever pot the request debited (wallet column, 2026-08-09).
+            if ($withdrawal->wallet === 'branch_digi') {
+                \App\Models\Branch::where('id', $withdrawal->branch_id)
+                    ->increment('digi_cash_balance', (float) $withdrawal->amount);
+            } else {
+                $wallet = MemberWallet::lockForUpdate()->find($withdrawal->member_id);
+                $wallet?->increment('cash_balance', (float) $withdrawal->amount);
+                $wallet?->decrement('withdrawn_total', (float) $withdrawal->amount);
+            }
 
             $withdrawal->update([
                 'status' => 'cancelled',

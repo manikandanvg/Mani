@@ -28,7 +28,7 @@ class BranchAttendanceResource extends BaseResource
 
     protected static ?string $pluralModelLabel = 'Branch Attendance';
 
-    protected static ?int $navigationSort = 3;
+    protected static ?int $navigationSort = 4;
 
     public static function canCreate(): bool
     {

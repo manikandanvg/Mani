@@ -27,6 +27,8 @@ class StockReturnResource extends BaseResource
 
     protected static ?string $navigationGroup = 'Trade';
 
+    protected static ?int $navigationSort = 6;
+
     protected static ?string $navigationLabel = 'Stock Returns';
 
     protected static ?string $navigationIcon = 'heroicon-o-arrow-uturn-left';

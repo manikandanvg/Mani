@@ -49,7 +49,11 @@ class CatalogProductResource extends BaseResource
                     ->searchable(),
                 Forms\Components\TextInput::make('default_weight')
                     ->label('Default weight (g)')
-                    ->numeric(),
+                    ->helperText('Per-piece grams — billing & redeem pre-fill this (100 mg = 0.1)')
+                    ->numeric()
+                    // Without it a "100 mg" coin bills as whatever the operator types —
+                    // usually 1 g. Cash products have no weight.
+                    ->requiredUnless('material', 'cash'),
                 Forms\Components\TextInput::make('default_purity')
                     ->placeholder('22K / 916 / 925')
                     ->maxLength(12),

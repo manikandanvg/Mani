@@ -36,6 +36,7 @@ use Illuminate\Support\HtmlString;
 class RedeemQr extends Page implements HasForms
 {
     use \App\Filament\Concerns\TranslatesNavigation;
+    use \App\Filament\Concerns\HiddenFromSupport;
 
     use InteractsWithForms;
 
@@ -157,9 +158,17 @@ class RedeemQr extends Page implements HasForms
                                     })
                                     ->columnSpan(5),
                                 TextInput::make('unit_weight')->label('Weight (g)')
-                                    ->numeric()->default(0)->live(onBlur: true)->columnSpan(3),
-                                TextInput::make('quantity')->label('Qty')
-                                    ->numeric()->default(1)->live(onBlur: true)->columnSpan(2),
+                                    ->numeric()->default(0)->live(onBlur: true)->columnSpan(3)
+                                    // per-piece grams come from the catalog — not hand-edited
+                                    ->readOnly(fn (Get $get) => (float) (CatalogProduct::find($get('catalog_product_id'))?->default_weight ?? 0) > 0),
+                                TextInput::make('quantity')->label('Qty (pcs)')
+                                    // whole pieces only, stepping 1 from 1 — never 0 (board 2026-08-09).
+                                    // Rules alone only fire on submit, so also SNAP the live state:
+                                    // 0.01 / 0 / blank becomes 1 the moment focus leaves the field.
+                                    ->numeric()->integer()->minValue(1)->step(1)->default(1)
+                                    ->live(onBlur: true)
+                                    ->afterStateUpdated(fn ($state, callable $set) => $set('quantity', max(1, (int) $state)))
+                                    ->columnSpan(2),
                                 Placeholder::make('line_total')->label('Line total')
                                     ->content(fn (Get $get) => $this->sym() . number_format($this->priceRow($get('catalog_product_id'), (float) $get('unit_weight'), (float) $get('quantity')), 2))
                                     ->columnSpan(2),
@@ -385,14 +394,37 @@ class RedeemQr extends Page implements HasForms
         return $u && method_exists($u, 'isDistributor') && $u->isDistributor();
     }
 
+    /**
+     * Board fix 2026-08-09: only items the REDEEMING branch actually holds are
+     * offered (branch-stock-only redeem), with the available quantity in the label —
+     * mirrors Sales::stockOptions() instead of listing the whole catalog.
+     */
     protected function catalogOptions(): array
     {
         $default = Translatable::defaultLocale();
+        $branchId = (int) ($this->data['branch_id'] ?? $this->defaultBranchId());
 
-        return CatalogProduct::query()->where('is_active', true)->orderBy('code')->get()
-            ->mapWithKeys(fn (CatalogProduct $p) => [
-                $p->id => trim($p->code . ' — ' . Translatable::pick($p->name, $default) . ' (' . $p->material . ')'),
-            ])->all();
+        return \App\Models\Stock::with('catalogProduct')
+            ->where('branch_id', $branchId)
+            ->where('quantity', '>', 0)
+            ->get()
+            ->filter(fn ($s) => $s->catalogProduct?->is_active)
+            ->sortBy(fn ($s) => $s->catalogProduct->code)
+            ->mapWithKeys(function ($s) use ($default) {
+                $p = $s->catalogProduct;
+                // stock.quantity = PIECES — "85 pcs ≈ 42,500 g in stock"
+                $pcs = rtrim(rtrim(number_format((float) $s->quantity, 4), '0'), '.');
+                $grams = (float) ($p->default_weight ?? 0) > 0
+                    ? ' ≈ ' . number_format($p->gramsFromPieces((float) $s->quantity), 3) . ' g'
+                    : '';
+
+                return [
+                    $p->id => trim(
+                        $p->code . ' — ' . Translatable::pick($p->name, $default)
+                        . ' (' . $p->material . ') · ' . $pcs . ' pcs' . $grams . ' in stock'
+                    ),
+                ];
+            })->all();
     }
 
     /** Live price of one Mode-B row (branch currency, incl. GST) — the SAME regional feed the service bills with. */

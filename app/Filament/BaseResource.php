@@ -19,6 +19,30 @@ abstract class BaseResource extends Resource
 {
     use TranslatesNavigation;
 
+    /**
+     * Support-desk staff see ONLY the Support & Track screens. Blocking here (the
+     * shared base) hides every ordinary resource from the support persona; the few
+     * screens support may use (tickets, support chat) override these methods.
+     * Subclasses using HqOnly define their own copies, which also exclude support.
+     */
+    public static function canViewAny(): bool
+    {
+        if (auth()->user()?->isSupport()) {
+            return false;
+        }
+
+        return parent::canViewAny();
+    }
+
+    public static function shouldRegisterNavigation(): bool
+    {
+        if (auth()->user()?->isSupport()) {
+            return false;
+        }
+
+        return parent::shouldRegisterNavigation();
+    }
+
     public static function getModelLabel(): string
     {
         if (filled(static::$modelLabel)) {

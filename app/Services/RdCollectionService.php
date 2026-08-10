@@ -62,8 +62,10 @@ class RdCollectionService
             $fx = $branch?->fxRateToBase() ?? 1.0;
             $currency = $branch?->currency_code ?: 'INR';
 
-            // due sequence number = installments already collected + 1
-            $dueCount = RdEntry::where('bond_id', $bond->id)->count() + 1;
+            // due sequence number = installments already COVERED + 1. Value-based, not
+            // row-based: one entry of 3 × monthly covers dues N..N+2, so the next entry
+            // starts at N+3 (a row count would wrongly restart at N+1).
+            $dueCount = self::duesCovered($bond) + 1;
 
             $entry = RdEntry::create([
                 'bond_id' => $bond->id,
@@ -91,6 +93,30 @@ class RdCollectionService
         $this->sendRenewalDocs();
 
         return $entry;
+    }
+
+    /**
+     * How many monthly dues this bond's collections actually cover. Fixed-price
+     * (gold-QR) plans: every entry is exactly one due, so count rows. Variable plans:
+     * one entry may pay several months at once, so divide the rupee total by the
+     * monthly baseline — 3 × monthly in one save = 3 dues covered.
+     */
+    public static function duesCovered(Bond $bond): int
+    {
+        $plan = $bond->plan ?? $bond->load('plan')->plan;
+
+        $rows = RdEntry::where('bond_id', $bond->id);
+
+        if ($plan && (float) $plan->rd_qr_grams > 0) {
+            return $rows->count();      // fixed amount varies with the gold rate — count entries
+        }
+
+        $monthly = (float) $bond->value;
+        if ($monthly <= 0) {
+            return $rows->count();
+        }
+
+        return (int) round((float) $rows->sum('value') / $monthly);
     }
 
     /**

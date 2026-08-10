@@ -18,6 +18,7 @@ use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
 use Filament\Forms\Form;
 use Filament\Forms\Get;
+use Filament\Forms\Set;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Illuminate\Support\HtmlString;
@@ -30,6 +31,7 @@ use Illuminate\Support\HtmlString;
 class OrderForm extends Page implements HasForms
 {
     use \App\Filament\Concerns\TranslatesNavigation;
+    use \App\Filament\Concerns\HiddenFromSupport;
 
     use InteractsWithForms;
 
@@ -39,7 +41,7 @@ class OrderForm extends Page implements HasForms
 
     protected static ?string $navigationLabel = 'Order Form';
 
-    protected static ?int $navigationSort = 1;
+    protected static ?int $navigationSort = 3;
 
     protected static ?string $title = 'Order Form — request stock from your supplier';
 
@@ -102,6 +104,24 @@ class OrderForm extends Page implements HasForms
                         ->content(fn () => $this->supplierBanner()),
                 ]),
                 Section::make('Items')->schema([
+                    // Dealer's ceiling up front — don't let them build a cart the
+                    // submit will reject (limit = max(BV, invested); HQ unlimited).
+                    Placeholder::make('order_limit_banner')->label('')
+                        ->visible(fn () => (bool) auth()->user()?->isDistributor() && (float) auth()->user()->orderLimit() > 0)
+                        ->content(function (Get $get) {
+                            $limit = (float) auth()->user()->orderLimit();
+                            $pending = (float) \App\Models\BranchOrderRequest::where('branch_id', $get('branch_id'))
+                                ->where('status', 'pending')->sum('grand_total');
+                            $avail = max(0, $limit - $pending);
+
+                            return new HtmlString(sprintf(
+                                '<span class="text-sm">%s <b>₹%s</b> · %s <b>₹%s</b> · %s <b class="%s">₹%s</b></span>',
+                                e(__('Order limit')), number_format($limit, 2),
+                                e(__('pending approval')), number_format($pending, 2),
+                                e(__('available now')), $avail > 0 ? 'text-green-600' : 'text-red-600',
+                                number_format($avail, 2)
+                            ));
+                        }),
                     Repeater::make('lines')
                         ->label('')
                         ->addActionLabel('Add item')
@@ -114,15 +134,51 @@ class OrderForm extends Page implements HasForms
                                 ->searchable()
                                 ->required()
                                 ->live()
-                                ->columnSpan(6),
+                                // Piece-count model (board 2026-08-09, same as Sales billing):
+                                // picking a product presets Qty 1 × its per-piece grams.
+                                ->afterStateUpdated(function ($state, Set $set) {
+                                    $cp = $state ? CatalogProduct::find($state) : null;
+                                    if (! $cp) {
+                                        return;
+                                    }
+                                    if ($cp->material === 'cash' || (float) $cp->default_weight <= 0) {
+                                        $set('unit_weight', null);
+                                        $set('qty', null);
+                                        $set('weight', null);
+
+                                        return;
+                                    }
+                                    $set('unit_weight', $cp->default_weight);
+                                    $set('qty', 1);
+                                    $set('weight', $cp->default_weight);
+                                })
+                                ->columnSpan(5),
+                            TextInput::make('qty')
+                                ->label('Qty (pcs)')
+                                ->numeric()->integer()->minValue(1)->step(1)->default(1)
+                                ->live(onBlur: true)
+                                ->hidden(fn (Get $get) => (float) $get('unit_weight') <= 0)
+                                ->afterStateUpdated(function ($state, Set $set, Get $get) {
+                                    // snap to whole pieces (rules only fire on submit)
+                                    $pcs = max(1, (int) $state);
+                                    $set('qty', $pcs);
+                                    $unit = (float) $get('unit_weight');
+                                    if ($unit > 0) {
+                                        $set('weight', round($pcs * $unit, 4));
+                                    }
+                                })
+                                ->columnSpan(1),
                             TextInput::make('weight')
-                                ->label('Weight (g) / Cash ₹')
+                                ->label(fn (Get $get) => (float) $get('unit_weight') > 0 ? 'Weight (g)' : 'Weight (g) / Cash ₹')
                                 ->numeric()
                                 ->minValue(0.0001)
                                 ->maxValue(BranchOrderService::MAX_LINE_QTY)
                                 ->required()
                                 ->live(onBlur: true)
+                                // derived from Qty × per-piece grams; typed only for cash/unweighted items
+                                ->readOnly(fn (Get $get) => (float) $get('unit_weight') > 0)
                                 ->columnSpan(3),
+                            TextInput::make('unit_weight')->hidden(),
                             Placeholder::make('line_total')
                                 ->label('Line total')
                                 ->content(fn (Get $get) => new HtmlString(
@@ -174,7 +230,10 @@ class OrderForm extends Page implements HasForms
             ->orderBy('code')
             ->get()
             ->mapWithKeys(fn (CatalogProduct $p) => [
-                $p->id => $p->code . ' — ' . Translatable::pick($p->name, $locale) . ' (' . strtoupper($p->material) . ')',
+                $p->id => $p->code . ' — ' . Translatable::pick($p->name, $locale) . ' (' . strtoupper($p->material) . ')'
+                    . ((float) $p->default_weight > 0
+                        ? ' · ' . rtrim(rtrim(number_format((float) $p->default_weight, 4), '0'), '.') . ' g/pc'
+                        : ''),
             ])
             ->all();
     }
@@ -262,13 +321,33 @@ class OrderForm extends Page implements HasForms
 
         $data = $this->form->getState();
 
-        $request = app(BranchOrderService::class)->submit([
-            'branch_id' => $data['branch_id'],
-            'requested_by' => auth()->id(),
-            'payment_type' => $data['payment_type'] ?? 'cash',
-            'payment_remarks' => $data['payment_remarks'] ?? null,
-            'lines' => $data['lines'] ?? [],
-        ]);
+        try {
+            $request = app(BranchOrderService::class)->submit([
+                'branch_id' => $data['branch_id'],
+                'requested_by' => auth()->id(),
+                'payment_type' => $data['payment_type'] ?? 'cash',
+                'payment_remarks' => $data['payment_remarks'] ?? null,
+                'lines' => $data['lines'] ?? [],
+            ]);
+        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
+            // Business-rule rejections (order limit, digi-cash balance, …) arrive as
+            // abort(422) — show them on the form, not as a Livewire error screen.
+            Notification::make()->danger()
+                ->title('Order not submitted')
+                ->body($e->getMessage())
+                ->persistent()
+                ->send();
+
+            return;
+        } catch (\Throwable $e) {
+            report($e);
+            Notification::make()->danger()
+                ->title('Order not submitted')
+                ->body('Something went wrong while submitting — nothing was saved. Please try again.')
+                ->send();
+
+            return;
+        }
 
         Notification::make()
             ->success()

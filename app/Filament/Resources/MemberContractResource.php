@@ -27,7 +27,7 @@ class MemberContractResource extends BaseResource
 
     protected static ?string $navigationIcon = 'heroicon-o-document-duplicate';
 
-    protected static ?int $navigationSort = 5;
+    protected static ?int $navigationSort = 2;
 
     public static function canCreate(): bool
     {

@@ -22,7 +22,7 @@ class SalesRenewalChart extends ChartWidget
 {
     protected static ?string $heading = 'Sales & RD renewal trend';
 
-    protected static ?int $sort = -2;
+    protected static ?int $sort = 10;   // board 2026-08-09: all stat widgets first, trend chart last
 
     protected int|string|array $columnSpan = 'full';
 

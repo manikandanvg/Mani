@@ -14,6 +14,20 @@ use Illuminate\Support\Number;
 
 class BusinessOverview extends BaseWidget
 {
+    protected static ?int $sort = -2;
+
+    /**
+     * HQ-wide numbers — head-office eyes only. A distributor's dashboard shows the
+     * branch-scoped RetailerStatsOverview instead (board fix 2026-08-09); support
+     * staff get their own SupportOverview.
+     */
+    public static function canView(): bool
+    {
+        $u = auth()->user();
+
+        return $u !== null && ! $u->isDistributor() && ! $u->isSupport();
+    }
+
     protected function getStats(): array
     {
         $members = Member::count();

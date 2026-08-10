@@ -23,6 +23,8 @@ class RdEntryResource extends BaseResource
 
     protected static ?string $navigationGroup = 'Sales & Bonds';
 
+    protected static ?int $navigationSort = 4;
+
     protected static ?string $navigationIcon = 'heroicon-o-calendar-days';
 
     protected static ?string $navigationLabel = 'RD Collections';

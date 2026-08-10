@@ -24,7 +24,29 @@ class BondResource extends BaseResource
 
     protected static ?string $navigationGroup = 'Sales & Bonds';
 
+    protected static ?int $navigationSort = 1;
+
     protected static ?string $navigationIcon = 'heroicon-o-document-check';
+
+    /**
+     * Board fix 2026-08-09: a bond is a financial instrument — dealer logins may view,
+     * print contracts and send QRs, but never edit or delete. Enforced here (not just
+     * hidden buttons) so direct URLs are rejected too.
+     */
+    public static function canEdit($record): bool
+    {
+        return ! (auth()->user()?->isDistributor() ?? true);
+    }
+
+    public static function canDelete($record): bool
+    {
+        return ! (auth()->user()?->isDistributor() ?? true);
+    }
+
+    public static function canDeleteAny(): bool
+    {
+        return ! (auth()->user()?->isDistributor() ?? true);
+    }
 
     public static function form(Form $form): Form
     {
@@ -135,14 +157,43 @@ class BondResource extends BaseResource
                     ->icon('heroicon-o-qr-code')
                     ->color('warning')
                     ->visible(fn (Bond $record) => (bool) $record->plan?->is_redeem)
-                    ->modalHeading('Redeemable Stock QR')
+                    ->modalHeading('Redeemable Stock QRs')
                     ->modalSubmitAction(false)
                     ->modalCancelActionLabel('Close')
                     ->modalContent(function (Bond $record) {
                         $svc = app(\App\Services\Qr\RedeemableQrService::class);
-                        $qr = $svc->forBond($record);
+                        $svc->forBond($record);   // guarantees the billing QR exists
 
-                        return view('filament.redeemable-qr', ['qr' => $qr, 'imageUrl' => $svc->imageUrl($qr)]);
+                        // ALL of the bond's QRs — billing first, then every renewal QR
+                        // (board 2026-08-10: renewal QRs were minted but never shown).
+                        $qrs = \App\Models\RedeemableQr::where('bond_id', $record->id)
+                            ->orderBy('id')
+                            ->get()
+                            ->values()
+                            ->map(fn ($qr, $i) => [
+                                'qr' => $qr,
+                                'imageUrl' => $svc->imageUrl($qr),
+                                // PLUS2-style plans have no billing QR — their one QR
+                                // arrives with the first renewal.
+                                'label' => match (true) {
+                                    $record->plan?->rd_qr_on === 'first_renewal' => 'First-renewal QR — ' . $qr->created_at?->format('d M Y'),
+                                    $i === 0 => 'Billing QR',
+                                    default => "Renewal QR #{$i} — " . $qr->created_at?->format('d M Y'),
+                                },
+                            ]);
+
+                        // Mode-A (gold/silver purchase) QRs redeem ONLY at the billing
+                        // branch; savings (Mode-B) QRs redeem at any dealer.
+                        $branchLocked = app(\App\Services\Redeem\RedemptionService::class)
+                            ->isMetalPurchasePlan($record->plan);
+
+                        return view('filament.redeemable-qr-list', [
+                            'qrs' => $qrs,
+                            'redeemNote' => $branchLocked
+                                ? 'Redeemable ONLY at the billing branch — ' . ($record->branch?->name ?? 'the issuing branch')
+                                    . '. An OTP to the registered mobile is required to complete redemption.'
+                                : 'Scan to redeem at any Lord Jeweller dealer. An OTP to the registered mobile is required to complete redemption.',
+                        ]);
                     }),
                 Tables\Actions\Action::make('whatsapp')
                     ->label('Send WhatsApp')
@@ -159,7 +210,16 @@ class BondResource extends BaseResource
                             return;
                         }
                         $svc = app(\App\Services\Qr\RedeemableQrService::class);
-                        $res = $svc->deliver($svc->forBond($record));
+                        $qr = $svc->forBond($record);
+                        if (! $qr) {
+                            \Filament\Notifications\Notification::make()
+                                ->title('No QR minted yet')
+                                ->body('This plan issues its single gold QR at the FIRST RENEWAL — collect a due first.')
+                                ->warning()->send();
+
+                            return;
+                        }
+                        $res = $svc->deliver($qr);
 
                         \Filament\Notifications\Notification::make()
                             ->title($res['ok'] ? 'Contract & QR sent on WhatsApp' : 'WhatsApp send failed')

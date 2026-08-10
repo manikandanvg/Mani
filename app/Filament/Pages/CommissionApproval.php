@@ -85,31 +85,44 @@ class CommissionApproval extends Page implements HasForms, HasTable
 
     public function table(Table $table): Table
     {
+        // Board 2026-08-10: ACCUMULATED view — one row per beneficiary with the entry
+        // count and summed value; "View entries" drills into the underlying rows.
+        // Approving a beneficiary row settles EVERY one of their entries in the
+        // filtered window (each still individually TDS-stamped by the service).
         return $table
-            ->query(fn (): Builder => $this->approvalQuery())
+            ->query(fn (): Builder => $this->aggregatedQuery())
+            // grouped query: Filament's implicit ORDER BY primary key violates
+            // only_full_group_by — sort by the aggregate instead, biggest first
+            ->defaultSort('total_amount', 'desc')
+            ->defaultKeySort(false)
             ->paginated([25, 50, 100])
             ->columns([
-                TextColumn::make('earned')
-                    ->label('Earned on')
-                    ->getStateUsing(fn (Model $r) => $this->earnedOn($r))
-                    ->date()
-                    ->sortable(false),
                 TextColumn::make('payee')
                     ->label('Beneficiary (User ID)')
                     ->getStateUsing(fn (Model $r) => $this->payeeLabel($r))
                     ->wrap(),
-                TextColumn::make('detail')
-                    ->label('Reference')
-                    ->getStateUsing(fn (Model $r) => $this->detailLabel($r))
-                    ->wrap(),
-                TextColumn::make('amount')
-                    ->label('Amount')
-                    ->getStateUsing(fn (Model $r) => $this->amountOf($r))
-                    ->baseMoney(),
-                TextColumn::make('status')
-                    ->badge()
-                    ->getStateUsing(fn (Model $r) => $r->status)
-                    ->color(fn ($state) => $state === 'paid' ? 'success' : 'warning'),
+                TextColumn::make('entries_count')
+                    ->label('Entries')
+                    ->alignCenter(),
+                TextColumn::make('period')
+                    ->label('Earned between')
+                    ->getStateUsing(fn (Model $r) => $r->first_earned === $r->last_earned
+                        ? \Illuminate\Support\Carbon::parse($r->first_earned)->format('d M Y')
+                        : \Illuminate\Support\Carbon::parse($r->first_earned)->format('d M Y')
+                            . ' – ' . \Illuminate\Support\Carbon::parse($r->last_earned)->format('d M Y')),
+                TextColumn::make('total_amount')
+                    ->label('Total amount')
+                    ->formatStateUsing(fn ($state) => '₹ ' . number_format((float) $state, 2))
+                    ->sortable(),
+            ])
+            ->actions([
+                \Filament\Tables\Actions\Action::make('entries')
+                    ->label('View entries')
+                    ->icon('heroicon-o-eye')
+                    ->modalHeading(fn (Model $r) => $this->payeeLabel($r))
+                    ->modalSubmitAction(false)
+                    ->modalCancelActionLabel('Close')
+                    ->modalContent(fn (Model $r) => new \Illuminate\Support\HtmlString($this->entriesHtml($r))),
             ])
             ->bulkActions([
                 BulkAction::make('approve')
@@ -117,12 +130,32 @@ class CommissionApproval extends Page implements HasForms, HasTable
                     ->icon('heroicon-o-check-circle')
                     ->color('success')
                     ->requiresConfirmation()
-                    ->modalDescription('Mark the selected commissions as paid and credit each beneficiary\'s wallet. This cannot be undone.')
+                    ->modalDescription('Approve ALL listed entries of the selected beneficiaries and credit their wallets. This cannot be undone.')
                     ->action(fn (Collection $records) => $this->approveSelected($records))
                     ->deselectRecordsAfterCompletion(),
             ])
             ->emptyStateHeading('No commissions to approve')
             ->emptyStateDescription('Adjust the type or date range above.');
+    }
+
+    /** Grouping key per stream: members earn IC/GAP/CBC; branches earn the margins. */
+    protected function groupColumn(): string
+    {
+        $type = $this->data['type'] ?? 'IC';
+
+        return in_array($type, ['BILL_MARGIN', 'GOLD_MARGIN', 'SILVER_MARGIN', 'STOCK_TRANSFER_MARGIN', 'RD_RENEWAL_MARGIN'], true)
+            ? 'branch_id'
+            : 'member_id';
+    }
+
+    /** The money column of the selected stream's source table. */
+    protected function amountColumn(): string
+    {
+        return match ($this->data['type'] ?? 'IC') {
+            'CBC' => 'worth',
+            'BILL_MARGIN', 'GOLD_MARGIN', 'SILVER_MARGIN', 'STOCK_TRANSFER_MARGIN', 'RD_RENEWAL_MARGIN' => 'com_value',
+            default => 'amount',
+        };
     }
 
     /** The source query for the currently selected type + date range. */
@@ -137,21 +170,79 @@ class CommissionApproval extends Page implements HasForms, HasTable
         );
     }
 
+    /** One row per beneficiary: entry count, summed value, earned window. */
+    protected function aggregatedQuery(): Builder
+    {
+        $key = $this->groupColumn();
+        $amount = $this->amountColumn();
+        $date = $this->dateColumn();
+
+        return $this->approvalQuery()
+            ->reorder()
+            ->selectRaw("MIN(id) AS id, {$key}, COUNT(*) AS entries_count, SUM({$amount}) AS total_amount, MIN({$date}) AS first_earned, MAX({$date}) AS last_earned")
+            ->groupBy($key);
+    }
+
+    /** The date column of the selected stream's source table. */
+    protected function dateColumn(): string
+    {
+        return match ($this->data['type'] ?? 'IC') {
+            'CBC' => 'cbc_date',
+            'BILL_MARGIN', 'GOLD_MARGIN', 'SILVER_MARGIN', 'STOCK_TRANSFER_MARGIN', 'RD_RENEWAL_MARGIN' => 'bill_date',
+            default => 'earned_on',
+        };
+    }
+
+    /** The drill-down list behind an aggregated row. */
+    protected function underlyingRows(Model $aggregate): Collection
+    {
+        $key = $this->groupColumn();
+
+        return $this->approvalQuery()->where($key, $aggregate->{$key})->get();
+    }
+
+    protected function entriesHtml(Model $aggregate): string
+    {
+        $html = '<table style="width:100%;font-size:.85rem;border-collapse:collapse">'
+            . '<tr style="text-align:left"><th style="padding:.35rem .5rem">Earned on</th>'
+            . '<th style="padding:.35rem .5rem">Reference</th>'
+            . '<th style="padding:.35rem .5rem;text-align:right">Amount</th></tr>';
+        $total = 0.0;
+        foreach ($this->underlyingRows($aggregate) as $row) {
+            $amount = $this->amountOf($row);
+            $total += $amount;
+            $earned = $this->earnedOn($row);
+            $html .= '<tr style="border-top:1px solid #eee">'
+                . '<td style="padding:.35rem .5rem">' . e($earned ? \Illuminate\Support\Carbon::parse($earned)->format('d M Y') : '—') . '</td>'
+                . '<td style="padding:.35rem .5rem">' . e($this->detailLabel($row)) . '</td>'
+                . '<td style="padding:.35rem .5rem;text-align:right">₹ ' . number_format($amount, 2) . '</td></tr>';
+        }
+        $html .= '<tr style="border-top:2px solid #ddd;font-weight:700"><td colspan="2" style="padding:.35rem .5rem">Total</td>'
+            . '<td style="padding:.35rem .5rem;text-align:right">₹ ' . number_format($total, 2) . '</td></tr></table>';
+
+        return $html;
+    }
+
+    /** Approve every underlying entry of each selected beneficiary row. */
     protected function approveSelected(Collection $records): void
     {
         $svc = app(CommissionApprovalService::class);
         $count = 0;
         $sum = 0.0;
-        foreach ($records as $row) {
-            if ($svc->approve($row)) {
-                $count++;
-                $sum += $this->amountOf($row);
+        $beneficiaries = 0;
+        foreach ($records as $aggregate) {
+            $beneficiaries++;
+            foreach ($this->underlyingRows($aggregate) as $row) {
+                if ($svc->approve($row)) {
+                    $count++;
+                    $sum += $this->amountOf($row);
+                }
             }
         }
 
         Notification::make()
             ->success()
-            ->title($count > 0 ? "Approved {$count} commission(s)" : 'Nothing to approve')
+            ->title($count > 0 ? "Approved {$count} commission(s) for {$beneficiaries} beneficiar" . ($beneficiaries === 1 ? 'y' : 'ies') : 'Nothing to approve')
             ->body($count > 0 ? '₹' . number_format($sum, 2) . ' credited to wallets.' : 'Selected rows were already paid.')
             ->send();
     }

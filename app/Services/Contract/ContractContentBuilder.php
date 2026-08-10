@@ -35,7 +35,10 @@ class ContractContentBuilder
         // the plan row, not hardcoded). Anything else gets the generic body — a contract
         // must never render empty.
         return match (true) {
-            in_array($code, [200, 208, 209], true) => $this->savings($bond, $rec, $start, $code === 200 ? 3 : ($code === 208 ? 2 : 1)),
+            // EVERY RD plan gets the savings body + monthly chart (board 2026-08-10 —
+            // the legacy app wrongly keyed this on one plan id; it applies to all RD).
+            ($plan->type ?? null) === 'rd' || in_array($code, [200, 208, 209], true)
+                => $this->savings($bond, $rec, $start, $code === 200 ? 3 : ($code === 208 ? 2 : 1)),
             $code === 201 => $this->dealership201($rec, $cbc, $sav, $tds),
             $code === 205 => $this->dealership205($rec, $cbc, $sav, $tds),
             $code === 202 => $this->dealership202($rec, $cbc, $sav, $tds),
@@ -55,29 +58,48 @@ class ContractContentBuilder
 
         $h .= '<h3 style="text-align:center;color:' . self::C . '">Monthly Chart</h3>'
             . '<table style="width:100%;border-collapse:collapse;font-size:10px">'
-            . '<tr style="background:#faf6ee"><td style="' . $this->cell() . 'font-weight:700">Due</td>'
+            . '<tr style="background:#faf6ee"><td style="' . $this->cell() . 'font-weight:700">Month</td>'
             . '<td style="' . $this->cell() . 'font-weight:700">Date</td>'
-            . '<td style="' . $this->cell() . 'font-weight:700">Amount</td>'
+            . '<td style="' . $this->cell() . 'font-weight:700">Paid</td>'
             . '<td style="' . $this->cell() . 'font-weight:700">Status</td></tr>';
 
-        // Due 1 = the joining payment at contract creation.
-        $h .= $this->chartRow(1, $start->format('d/m/Y'), $this->m($rec), 'PAID');
-
-        // Then every renewal as it actually happened: date, amount and the collecting branch.
+        // Legacy getforcont semantics, generalised to every RD plan: the chart is
+        // exactly `validity` rows — ONE per calendar month. Month 1 = the joining
+        // payment; each later month SUMS whatever collections landed in it (three
+        // renewals in August = one August row for the combined amount), so the chart
+        // can never sprawl into duplicate-month rows.
         $entries = $bond->rdEntries()->with('branch')->orderBy('paid_on')->orderBy('id')->get();
-        $due = 1;
-        $covered = 1;    // installments consumed so far (joining = 1)
-        foreach ($entries as $e) {
-            $due++;
-            $covered += $rec > 0 ? max(1, (int) round((float) $e->value / $rec)) : 1;
-            $status = 'PAID' . ($e->branch ? ' — ' . e($e->branch->name) : '');
-            $h .= $this->chartRow($due, $e->paid_on?->format('d/m/Y') ?? '-', $this->m((float) $e->value), $status);
-        }
 
-        // Remaining dues stay open on the chart.
-        for ($i = $covered + 1; $i <= $validity; $i++) {
-            $due++;
-            $h .= $this->chartRow($due, '-', $this->m($rec), '-');
+        for ($i = 1; $i <= $validity; $i++) {
+            $monthStart = $start->copy()->addMonthsNoOverflow($i - 1)->startOfMonth();
+            $monthEnd = $monthStart->copy()->endOfMonth();
+            // Upcoming dues run on the 10TH of each month (legacy "Y-m-10"), not the
+            // joining day — month 1 alone shows the actual joining date.
+            $scheduled = $monthStart->copy()->day(10);
+
+            $inMonth = $entries->filter(fn ($e) => $e->paid_on
+                && $e->paid_on->betweenIncluded($monthStart, $monthEnd));
+
+            // Month 1 = the joining payment, PLUS any renewals taken in that same
+            // calendar month (a same-day renewal must not disappear off the chart).
+            if ($i === 1) {
+                $sum = $rec + (float) $inMonth->sum('value');
+                $h .= $this->chartRow(1, $start->format('d/m/Y'), $this->m($sum), 'PAID');
+
+                continue;
+            }
+
+            if ($inMonth->isEmpty()) {
+                $h .= $this->chartRow($i, $scheduled->format('d/m/Y'), '-', '-');
+
+                continue;
+            }
+
+            $sum = (float) $inMonth->sum('value');
+            $branches = $inMonth->map(fn ($e) => $e->branch?->name)->filter()->unique()->implode(', ');
+            $status = 'PAID ' . $inMonth->first()->paid_on->format('d/m/Y')
+                . ($branches !== '' ? ' — ' . e($branches) : '');
+            $h .= $this->chartRow($i, $scheduled->format('d/m/Y'), $this->m($sum), $status);
         }
 
         return $h . '</table>';

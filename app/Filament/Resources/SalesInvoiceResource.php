@@ -23,6 +23,8 @@ class SalesInvoiceResource extends BaseResource
 
     protected static ?string $navigationGroup = 'Sales & Bonds';
 
+    protected static ?int $navigationSort = 3;
+
     protected static ?string $navigationIcon = 'heroicon-o-document-text';
 
     /** An invoice is editable only BEFORE its stock QR is redeemed. */

@@ -31,20 +31,33 @@ class RedeemableQrService
      * weight at the live rate incl. making/wastage/GST; contract-split plans are worth
      * the allocation_cont % of the billed value; everything else the full billed value.
      */
-    public function forBond(Bond $bond, float $goldRate = 0.0): RedeemableQr
+    public function forBond(Bond $bond, float $goldRate = 0.0): ?RedeemableQr
     {
         if ($existing = RedeemableQr::where('bond_id', $bond->id)->first()) {
             return $existing;
         }
 
         $plan = $bond->loadMissing('plan')->plan;
+
+        // G11 PLUS2-style plans mint their ONE QR at the first renewal (RdCollectionService).
+        // Never auto-mint here — a "Show QR" click used to create a phantom billing QR,
+        // giving the member two QRs where the scheme promises one.
+        if (($plan->rd_qr_on ?? null) === 'first_renewal') {
+            return null;
+        }
         $grand = (float) ($bond->epin_value ?: $bond->value);
         $cashWorth = match (true) {
             $plan && (float) $plan->rd_qr_grams > 0 => app(GoldQrPricing::class)->price($plan),
             $plan && (float) $plan->allocation_cont > 0 => round($grand * (float) $plan->allocation_cont / 100, 2),
             default => $grand,
         };
-        $gramWorth = $goldRate > 0 ? round($cashWorth / $goldRate, 4) : null;
+        // Plan-defined piece weight wins (100 mg plan ⇒ 0.1000 g exactly); the
+        // rate-division fallback is only for QRs with no predefined gold weight.
+        $gramWorth = match (true) {
+            $plan && (float) $plan->rd_qr_grams > 0 => (float) $plan->rd_qr_grams,
+            $goldRate > 0 => round($cashWorth / $goldRate, 4),
+            default => null,
+        };
 
         return RedeemableQr::create([
             'bond_id' => $bond->id,
@@ -67,6 +80,13 @@ class RedeemableQrService
      */
     public function mintSettlementQr(Bond $bond, float $worth): RedeemableQr
     {
+        // Gram worth = the plan's PREDEFINED piece (100 mg ⇒ 0.1000) — the cash worth
+        // includes charges/GST, so dividing by the rate would overstate the gold
+        // (₹1,380.20 ÷ ₹13,400 = 0.103 g ≠ the 0.100 g coin the QR redeems).
+        $plan = $bond->loadMissing('plan')->plan;
+        $planGrams = (float) ($plan->rd_qr_grams ?? 0);
+        $goldRate = (float) (\App\Models\LiveRate::latestFor('IN')?->gold ?? 0);
+
         return RedeemableQr::create([
             'bond_id' => $bond->id,
             'member_id' => $bond->member_id,
@@ -74,7 +94,9 @@ class RedeemableQrService
             'invoice_no' => $bond->invoice_no,
             'qr_code' => $this->uniqueToken(),
             'qr_mode' => 'gold',
-            'gram_worth' => null,
+            'gram_worth' => $planGrams > 0
+                ? $planGrams
+                : ($goldRate > 0 ? round($worth / $goldRate, 4) : null),
             'cash_worth' => round($worth, 2),
             'status' => 'pending',
             'qr_sent' => false,
@@ -140,13 +162,21 @@ class RedeemableQrService
         $code = $qr->member?->member_code ?? '';
         $gram = $qr->gram_worth !== null ? number_format((float) $qr->gram_worth, 3) . 'gm' : '—';
 
+        // Where can it be redeemed? Mode-A (gold/silver purchase plans) = the billing
+        // branch ONLY; savings QRs = any dealer. Tell the member the truth.
+        $plan = $qr->bond?->plan;
+        $branchLocked = $plan && in_array($plan->type, ['gold', 'silver'], true);
+        $where = $branchLocked
+            ? 'Please redeem at your billing branch: ' . ($qr->branch?->name ?? 'the branch that billed you') . '.'
+            : 'Please contact your nearest Lord Jeweller Dealer.';
+
         return "REDEEMABLE STOCK QR : {$qr->qr_code}"
             . "\nWI : {$gram}"
             . "\nWorth ₹. " . number_format((float) $qr->cash_worth, 2)
             . "\nMode : " . strtoupper($qr->qr_mode)
             . "\nUser : {$name} ({$code})"
             . "\n\nThis QR requires an OTP sent to your mobile number to redeem it."
-            . "\n\nPlease contact your nearest Lord Jeweller Dealer.";
+            . "\n\n" . $where;
     }
 
     /** Unique 8-char uppercase alphanumeric token (legacy random_string('alnum', 8)). */

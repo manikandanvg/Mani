@@ -34,7 +34,7 @@ class DeviceResource extends BaseResource
 
     protected static ?string $pluralModelLabel = 'Devices';
 
-    protected static ?int $navigationSort = 0;
+    protected static ?int $navigationSort = 1;
 
     public static function form(Form $form): Form
     {

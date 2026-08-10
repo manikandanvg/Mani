@@ -21,6 +21,7 @@ use Filament\Pages\Page;
 class Preferences extends Page implements HasForms
 {
     use \App\Filament\Concerns\TranslatesNavigation;
+    use \App\Filament\Concerns\HiddenFromSupport;
 
     use InteractsWithForms;
 

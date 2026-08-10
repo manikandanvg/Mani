@@ -19,7 +19,8 @@ class DatabaseSeeder extends Seeder
     {
         // --- Roles --- (super_admin sees all; staff roles drive menu visibility;
         // distributor = a dealer who logs into the panel as a branch-scoped "semi-admin")
-        foreach (['super_admin', 'admin', 'branch_user', 'manager', 'accounts', 'biller', 'distributor'] as $role) {
+        // 'support' = support-desk staff, restricted to the Support & Track group only
+        foreach (['super_admin', 'admin', 'branch_user', 'manager', 'accounts', 'biller', 'distributor', 'support'] as $role) {
             Role::firstOrCreate(['name' => $role]);
         }
 

@@ -16,7 +16,7 @@ use Filament\Widgets\StatsOverviewWidget\Stat;
  */
 class RetailerStatsOverview extends BaseWidget
 {
-    protected static ?int $sort = -3;
+    protected static ?int $sort = -4;   // dealer's top row: bills, stock, cash, margin
 
     protected int|string|array $columnSpan = 'full';
 
@@ -37,6 +37,12 @@ class RetailerStatsOverview extends BaseWidget
         $salesValue = (float) SalesInvoice::where('branch_id', $branchId)
             ->whereBetween('date', [$start, $end])->sum('grand_total');
 
+        // stock.quantity = PIECES (board 2026-08-10): grams = Σ pieces × per-piece
+        // weight. Cash rows hold rupees directly, so their raw sum stays correct.
+        $stockGrams = fn (string $material) => (float) Stock::where('stock.branch_id', $branchId)
+            ->join('catalog_products', 'catalog_products.id', '=', 'stock.catalog_product_id')
+            ->where('catalog_products.material', $material)
+            ->sum(\Illuminate\Support\Facades\DB::raw('stock.quantity * COALESCE(catalog_products.default_weight, 0)'));
         $stock = fn (string $material) => (float) Stock::where('branch_id', $branchId)
             ->whereHas('catalogProduct', fn ($q) => $q->where('material', $material))
             ->sum('quantity');
@@ -48,9 +54,11 @@ class RetailerStatsOverview extends BaseWidget
                 ->descriptionIcon('heroicon-m-document-text')->color('warning'),
             Stat::make('Sales value (month)', Money::display($salesValue))
                 ->descriptionIcon('heroicon-m-banknotes')->color('warning'),
-            Stat::make('Gold stock', number_format($stock('gold'), 3) . ' g')
+            Stat::make('Gold stock', number_format($stockGrams('gold'), 3) . ' g')
+                ->description(number_format($stock('gold'), 0) . ' pcs')
                 ->descriptionIcon('heroicon-m-cube')->color('warning'),
-            Stat::make('Silver stock', number_format($stock('silver'), 3) . ' g')
+            Stat::make('Silver stock', number_format($stockGrams('silver'), 3) . ' g')
+                ->description(number_format($stock('silver'), 0) . ' pcs')
                 ->descriptionIcon('heroicon-m-cube')->color('gray'),
             Stat::make('Cash stock', Money::display($stock('cash')))
                 ->descriptionIcon('heroicon-m-wallet')->color('success'),

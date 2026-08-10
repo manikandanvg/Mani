@@ -17,7 +17,8 @@ trait HqOnly
         $user = auth()->user();
 
         return $user !== null
-            && (! method_exists($user, 'isDistributor') || ! $user->isDistributor());
+            && (! method_exists($user, 'isDistributor') || ! $user->isDistributor())
+            && (! method_exists($user, 'isSupport') || ! $user->isSupport());
     }
 
     public static function canViewAny(): bool

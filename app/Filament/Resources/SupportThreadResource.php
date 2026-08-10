@@ -3,7 +3,7 @@
 namespace App\Filament\Resources;
 
 use App\Filament\BaseResource;
-use App\Filament\Concerns\HqOnly;
+use App\Filament\Concerns\SupportDesk;
 use App\Filament\Resources\SupportThreadResource\Pages;
 use App\Models\SupportMessage;
 use App\Models\SupportThread;
@@ -22,11 +22,13 @@ use Illuminate\Support\HtmlString;
  */
 class SupportThreadResource extends BaseResource
 {
-    use HqOnly;
+    use SupportDesk;
 
     protected static ?string $model = SupportThread::class;
 
-    protected static ?string $navigationGroup = 'Distributors';
+    protected static ?string $navigationGroup = 'Support & Track';
+
+    protected static ?int $navigationSort = 3;
 
     protected static ?string $navigationLabel = 'Support Chat';
 

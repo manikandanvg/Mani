@@ -77,23 +77,26 @@ class AdminPanelProvider extends PanelProvider
                     );
                 }
             )
-            // One canonical sidebar order for BOTH logins. Daily-ops groups first (these are
-            // exactly what a branch distributor sees — BranchScoped/un-restricted screens),
-            // then head-office-only admin/config groups. Distributors get the same groups in
-            // the same order, just the visible subset.
+            // One canonical sidebar order for ALL THREE logins (board spec 2026-08-09).
+            // Empty groups never render, so each persona simply sees its visible subset:
+            // super-admin = everything; dealer = Trade → Sales & Bonds → L-BOX → Track →
+            // System → Report; support staff = Support & Track only. "Track" is the
+            // dealer-facing twin of "Support & Track" (same screens, different group).
             ->navigationGroups([
+                \Filament\Navigation\NavigationGroup::make('Network')->label(fn () => __('Network')),
                 \Filament\Navigation\NavigationGroup::make('Trade')->label(fn () => __('Trade')),
                 \Filament\Navigation\NavigationGroup::make('Sales & Bonds')->label(fn () => __('Sales & Bonds')),
-                \Filament\Navigation\NavigationGroup::make('Settings')->label(fn () => __('Settings')),
                 \Filament\Navigation\NavigationGroup::make('Commissions')->label(fn () => __('Commissions')),
                 \Filament\Navigation\NavigationGroup::make('Payroll')->label(fn () => __('Payroll')),
                 \Filament\Navigation\NavigationGroup::make('L-BOX')->label(fn () => __('L-BOX')),
-                \Filament\Navigation\NavigationGroup::make('Network')->label(fn () => __('Distributor Network')),
-                \Filament\Navigation\NavigationGroup::make('Orders')->label(fn () => __('Orders')),
+                \Filament\Navigation\NavigationGroup::make('Online Orders')->label(fn () => __('Online Orders')),
                 \Filament\Navigation\NavigationGroup::make('Website')->label(fn () => __('Website')),
                 \Filament\Navigation\NavigationGroup::make('Community')->label(fn () => __('Community')),
                 \Filament\Navigation\NavigationGroup::make('Master')->label(fn () => __('Master')),
+                \Filament\Navigation\NavigationGroup::make('Support & Track')->label(fn () => __('Support & Track')),
+                \Filament\Navigation\NavigationGroup::make('Track')->label(fn () => __('Track')),
                 \Filament\Navigation\NavigationGroup::make('System')->label(fn () => __('System')),
+                \Filament\Navigation\NavigationGroup::make('Report')->label(fn () => __('Report')),
             ])
             ->discoverResources(in: app_path('Filament/Resources'), for: 'App\\Filament\\Resources')
             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\\Filament\\Pages')

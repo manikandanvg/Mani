@@ -13,7 +13,13 @@ use Filament\Widgets\StatsOverviewWidget\Stat;
  */
 class LiveRatesWidget extends BaseWidget
 {
-    protected static ?int $sort = -1; // show near the top
+    protected static ?int $sort = -3; // show near the top
+
+    /** Rates mean nothing to the support desk — their dashboard is tickets only. */
+    public static function canView(): bool
+    {
+        return ! (auth()->user()?->isSupport() ?? true);
+    }
 
     protected function getStats(): array
     {

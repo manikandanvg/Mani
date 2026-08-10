@@ -20,7 +20,9 @@ class OrderResource extends BaseResource
     use HqOnly;
     protected static ?string $model = Order::class;
 
-    protected static ?string $navigationGroup = 'Orders';
+    protected static ?string $navigationGroup = 'Online Orders';
+
+    protected static ?int $navigationSort = 1;
 
     protected static ?string $navigationIcon = 'heroicon-o-shopping-bag';
 
@@ -34,7 +36,7 @@ class OrderResource extends BaseResource
         // only the operational fields are editable from admin
         return $form->schema([
             Forms\Components\Select::make('status')
-                ->options(['pending' => 'Pending', 'paid' => 'Paid', 'shipped' => 'Shipped', 'delivered' => 'Delivered', 'cancelled' => 'Cancelled'])
+                ->options(\App\Filament\Pages\OrderManagement::STAGE_LABELS)
                 ->required(),
             Forms\Components\Select::make('payment_status')
                 ->options(['unpaid' => 'Unpaid', 'paid' => 'Paid', 'refunded' => 'Refunded'])
@@ -56,7 +58,7 @@ class OrderResource extends BaseResource
             Tables\Columns\TextColumn::make('created_at')->dateTime()->sortable(),
         ])->filters([
             Tables\Filters\SelectFilter::make('status')
-                ->options(['pending' => 'Pending', 'paid' => 'Paid', 'shipped' => 'Shipped', 'delivered' => 'Delivered', 'cancelled' => 'Cancelled']),
+                ->options(\App\Filament\Pages\OrderManagement::STAGE_LABELS),
         ])->actions([Tables\Actions\ViewAction::make(), Tables\Actions\EditAction::make()]);
     }
 

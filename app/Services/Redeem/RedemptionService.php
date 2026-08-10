@@ -311,7 +311,9 @@ class RedemptionService
             if (! $l['catalog_product_id']) {
                 continue;
             }
-            $qty = $l['material'] === 'vessel' ? (float) $l['quantity'] : (float) $l['quantity'] * (float) $l['unit_weight'];
+            // stock.quantity = PIECES for every material (board 2026-08-10) — a line of
+            // 2 × 100 mg coins moves 2, not 0.2 grams.
+            $qty = (float) $l['quantity'];
             if ($qty <= 0) {
                 continue;
             }
@@ -416,7 +418,9 @@ class RedemptionService
             if (! $l['catalog_product_id']) {
                 continue;
             }
-            $qty = $l['material'] === 'vessel' ? (float) $l['quantity'] : (float) $l['quantity'] * (float) $l['unit_weight'];
+            // stock.quantity = PIECES for every material (board 2026-08-10) — a line of
+            // 2 × 100 mg coins moves 2, not 0.2 grams.
+            $qty = (float) $l['quantity'];
             $stock = Stock::firstOrCreate(
                 ['branch_id' => $branchId, 'catalog_product_id' => $l['catalog_product_id']],
                 ['quantity' => 0],

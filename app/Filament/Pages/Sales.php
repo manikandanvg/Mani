@@ -42,6 +42,7 @@ use Illuminate\Support\Number;
 class Sales extends Page implements HasForms
 {
     use \App\Filament\Concerns\TranslatesNavigation;
+    use \App\Filament\Concerns\HiddenFromSupport;
 
     use InteractsWithForms;
 
@@ -51,7 +52,7 @@ class Sales extends Page implements HasForms
 
     protected static ?string $navigationLabel = 'Sales (Billing)';
 
-    protected static ?int $navigationSort = 0;
+    protected static ?int $navigationSort = 2;
 
     protected static string $view = 'filament.pages.sales';
 
@@ -131,7 +132,21 @@ class Sales extends Page implements HasForms
                             ->searchable()
                             ->native(false),
                         TextInput::make('customer.phone')->label('Phone')->tel()
-                            ->required(fn (Get $get) => $get('mode') === 'new'),
+                            ->required(fn (Get $get) => $get('mode') === 'new')
+                            // Per-country digit length (India = 10). Only enforced for NEW
+                            // distributors — legacy numbers on existing members must not block a bill.
+                            ->helperText(fn (Get $get) => \App\Support\PhoneLength::hint($get('customer.phone_country_code') ?: '+91'))
+                            ->rules([
+                                fn (Get $get): \Closure => function (string $attribute, $value, \Closure $fail) use ($get) {
+                                    if ($get('mode') !== 'new' || blank($value)) {
+                                        return;
+                                    }
+                                    $err = \App\Support\PhoneLength::check($get('customer.phone_country_code') ?: '+91', (string) $value);
+                                    if ($err) {
+                                        $fail($err);
+                                    }
+                                },
+                            ]),
                         TextInput::make('customer.dob')->label('Date of Birth')->type('date'),
                         TextInput::make('customer.father_name')->label("Father / Husband's Name"),
                         TextInput::make('customer.city')->label('City'),
@@ -199,12 +214,30 @@ class Sales extends Page implements HasForms
                                 })
                                 ->searchable()->required()->live()
                                 ->afterStateUpdated(fn ($state, Set $set, Get $get) => self::onProductPicked($state, $set, $get)),
-                            TextInput::make('weight')->label('Weight/Qty')->numeric()->columnSpan(2)->live(onBlur: true)
+                            // Board 2026-08-09: coins/bars sell by PIECE — operator types a
+                            // count, grams follow from the product's per-piece weight.
+                            TextInput::make('qty')->label('Qty (pcs)')->numeric()->columnSpan(1)
+                                ->default(1)->minValue(1)->integer()->step(1)->live(onBlur: true)
+                                ->hidden(fn (Get $get) => $get('material') === 'cash')
+                                ->afterStateUpdated(function ($state, Set $set, Get $get) {
+                                    // snap the typed value to whole pieces (rules only fire on submit)
+                                    $pcs = max(1, (int) $state);
+                                    $set('qty', $pcs);
+                                    $unit = (float) $get('unit_weight');
+                                    if ($unit > 0) {
+                                        $set('weight', round($pcs * $unit, 4));
+                                    }
+                                }),
+                            TextInput::make('weight')
+                                ->label(fn (Get $get) => $get('material') === 'cash' ? 'Amount' : 'Weight (g)')
+                                ->numeric()->columnSpan(2)->live(onBlur: true)
                                 ->required()
                                 ->rules(['numeric', 'min:0'])
+                                // auto-derived from Qty × per-piece grams; only cash (an amount) is typed
+                                ->readOnly(fn (Get $get) => $get('material') !== 'cash' && (float) $get('unit_weight') > 0)
                                 ->helperText(fn (Get $get) => self::stockLeftHint($get('../../branch_id'), $get('catalog_product_id'))),
                             TextInput::make('rate')->label('Price /g')->numeric()->columnSpan(2)->live(onBlur: true),
-                            TextInput::make('purity')->label('Purity')->columnSpan(2),
+                            TextInput::make('purity')->label('Purity')->columnSpan(1),
                             Placeholder::make('line_total')->label('Grand')->columnSpan(2)
                                 ->content(fn (Get $get) => Number::format(self::lineCalc([
                                     'weight' => $get('weight'), 'rate' => $get('rate'),
@@ -213,6 +246,7 @@ class Sales extends Page implements HasForms
                                     'hallmark_charge' => $get('hallmark_charge'), 'gst_pct' => $get('gst_pct'),
                                 ])['grand'], precision: 2)),
                             // hidden charge carriers (prefilled from product)
+                            TextInput::make('unit_weight')->hidden(),
                             TextInput::make('material')->hidden(),
                             TextInput::make('making_charge_pct')->hidden(),
                             TextInput::make('wastage_charge_pct')->hidden(),
@@ -608,7 +642,17 @@ class Sales extends Page implements HasForms
                 }
                 $name = Translatable::pick($p->name, $default);
 
-                return [$p->id => "{$name} [{$p->code}] · {$s->quantity} in stock"];
+                // stock.quantity = PIECES (cash = ₹). Show pieces plus the gram
+                // equivalent: "85 pcs ≈ 42,500 g".
+                $qty = (float) $s->quantity;
+                $pcs = rtrim(rtrim(number_format($qty, 4), '0'), '.');
+                $avail = $p->material === 'cash'
+                    ? '₹' . number_format($qty, 2) . ' balance'
+                    : $pcs . ' pcs' . ((float) $p->default_weight > 0
+                        ? ' ≈ ' . number_format($p->gramsFromPieces($qty), 3) . ' g'
+                        : '') . ' in stock';
+
+                return [$p->id => "{$name} [{$p->code}] · {$avail}"];
             })->all();
     }
 
@@ -618,8 +662,21 @@ class Sales extends Page implements HasForms
             return null;
         }
         $q = Stock::where('branch_id', $branchId)->where('catalog_product_id', $productId)->value('quantity');
+        if ($q === null) {
+            return null;
+        }
 
-        return $q !== null ? "Available: {$q}" : null;
+        // stock.quantity = PIECES (cash = ₹); show grams as the derived figure.
+        $cp = CatalogProduct::find($productId);
+        if ($cp?->material === 'cash') {
+            return 'Available: ₹' . number_format((float) $q, 2);
+        }
+        $pcs = rtrim(rtrim(number_format((float) $q, 4), '0'), '.');
+        $grams = (float) ($cp?->default_weight ?? 0) > 0
+            ? ' (≈ ' . number_format($cp->gramsFromPieces((float) $q), 3) . ' g)'
+            : '';
+
+        return "Available: {$pcs} pcs{$grams}";
     }
 
     protected static function onProductPicked($id, Set $set, Get $get): void
@@ -640,11 +697,16 @@ class Sales extends Page implements HasForms
         // Weight (= the cash/contract amount) is entered by the operator, so leave blank.
         if ($p->material === 'cash') {
             $set('rate', 1);
+            $set('unit_weight', null);
+            $set('qty', null);
             $set('weight', null);
 
             return;
         }
 
+        // Piece-count model: qty resets to 1, grams = qty × the product's per-piece weight.
+        $set('unit_weight', $p->default_weight);
+        $set('qty', 1);
         $set('weight', $p->default_weight);
         $set('rate', $p->material === 'silver' ? ($rate?->silver ?? 0) : ($rate?->gold ?? 0));
     }

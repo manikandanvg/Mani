@@ -163,7 +163,7 @@ class SalesService
             }
             if ($plan->is_redeem && $plan->rd_qr_on !== 'first_renewal') {
                 $this->pendingQr = app(\App\Services\Qr\RedeemableQrService::class)
-                    ->forBond($bond, (float) ($data['gold_rate'] ?? 0))->id;
+                    ->forBond($bond, (float) ($data['gold_rate'] ?? 0))?->id;
             }
 
             return $invoice->fresh(['lines', 'customer']);
@@ -546,14 +546,20 @@ class SalesService
         }
     }
 
-    /** Deduct sold weight/qty from branch stock and log -movements. */
+    /**
+     * Deduct sold PIECES from branch stock and log -movements. stock.quantity is a
+     * piece count (cash = ₹), so a sale of 2 × 100 mg coins deducts 2 — never 0.2.
+     */
     protected function deductStock(array $cart, int $branchId, string $billDate, ?int $userId): void
     {
         foreach ($cart as $line) {
             if (empty($line['catalog_product_id'])) {
                 continue;
             }
-            $qty = (float) ($line['weight'] ?? 0);
+            $cp = CatalogProduct::find($line['catalog_product_id']);
+            $qty = isset($line['qty']) && $line['qty'] !== null && ($line['material'] ?? $cp?->material) !== 'cash'
+                ? (float) $line['qty']                                             // pieces straight from the bill
+                : (float) ($cp?->piecesFromWeight((float) ($line['weight'] ?? 0)) ?? ($line['weight'] ?? 0));
             $stock = Stock::where('branch_id', $branchId)
                 ->where('catalog_product_id', $line['catalog_product_id'])->first();
             if (! $stock) {

@@ -272,13 +272,15 @@ class BranchOrderService
                     continue;
                 }
                 $weight = (float) $line->weight;
+                // Order lines are priced in grams (cash = ₹); STOCK moves in pieces.
+                $pieces = CatalogProduct::find($line->catalog_product_id)?->piecesFromWeight($weight) ?? $weight;
 
                 // Buyer receives the goods.
                 $stock = Stock::firstOrCreate(
                     ['branch_id' => $buyerId, 'catalog_product_id' => $line->catalog_product_id],
                     ['quantity' => 0]
                 );
-                $stock->increment('quantity', $weight);
+                $stock->increment('quantity', $pieces);
                 if ((float) $line->rate > 0) {
                     $stock->update(['last_rate' => $line->rate]);
                 }
@@ -286,7 +288,7 @@ class BranchOrderService
                     'branch_id' => $buyerId,
                     'catalog_product_id' => $line->catalog_product_id,
                     'type' => 'purchase',
-                    'qty_change' => $weight,
+                    'qty_change' => $pieces,
                     'balance_after' => $stock->fresh()->quantity,
                     'ref_type' => 'branch_order',
                     'ref_id' => $request->id,
@@ -297,7 +299,7 @@ class BranchOrderService
                 // Seller (source branch) ships the goods + earns the stock-transfer commission.
                 // Cash is money, not transferable goods — skip it.
                 if ($seller && $line->material !== 'cash') {
-                    $this->shipFromSeller($seller, $buyerId, $line, $weight, $request->id, $today, $approverId);
+                    $this->shipFromSeller($seller, $buyerId, $line, $weight, $pieces, $request->id, $today, $approverId);
                 }
             }
 
@@ -316,18 +318,19 @@ class BranchOrderService
     }
 
     /** Deduct the line from the seller's stock, log the move, and book the transfer + commission. */
-    protected function shipFromSeller($seller, int $buyerId, BranchOrderLine $line, float $weight, int $orderId, string $today, ?int $approverId): void
+    protected function shipFromSeller($seller, int $buyerId, BranchOrderLine $line, float $weight, float $pieces, int $orderId, string $today, ?int $approverId): void
     {
         $sellerStock = Stock::firstOrCreate(
             ['branch_id' => $seller->id, 'catalog_product_id' => $line->catalog_product_id],
             ['quantity' => 0]
         );
-        $sellerStock->decrement('quantity', $weight);
+        // stock ledger moves PIECES; the money/transfer maths below stay gram-based
+        $sellerStock->decrement('quantity', $pieces);
         StockMovement::create([
             'branch_id' => $seller->id,
             'catalog_product_id' => $line->catalog_product_id,
             'type' => 'transfer',
-            'qty_change' => -$weight,
+            'qty_change' => -$pieces,
             'balance_after' => $sellerStock->fresh()->quantity,
             'ref_type' => 'branch_order',
             'ref_id' => $orderId,

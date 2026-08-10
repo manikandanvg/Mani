@@ -31,6 +31,7 @@ use Illuminate\Support\HtmlString;
 class RdCollection extends Page implements HasForms
 {
     use \App\Filament\Concerns\TranslatesNavigation;
+    use \App\Filament\Concerns\HiddenFromSupport;
 
     use InteractsWithForms;
 
@@ -40,7 +41,7 @@ class RdCollection extends Page implements HasForms
 
     protected static ?string $navigationLabel = 'RD Collection Entry';
 
-    protected static ?int $navigationSort = 5;
+    protected static ?int $navigationSort = 7;
 
     protected static ?string $title = 'RD / Gold-Saving Collection';
 
@@ -155,7 +156,8 @@ class RdCollection extends Page implements HasForms
         if (! $bondId || ! ($bond = Bond::with('plan')->find($bondId))) {
             return new HtmlString('<span class="text-sm text-gray-500">Select a saver to see their schedule.</span>');
         }
-        $paid = RdEntry::where('bond_id', $bond->id)->count();
+        // Value-based: a single 3×monthly collection counts as 3 dues (board fix 2026-08-09).
+        $paid = RdCollectionService::duesCovered($bond);
         $total = (int) ($bond->lvlcom_count ?: 0);
         $pending = $total > 0 ? max(0, $total - $paid) : null;
         $next = $paid + 1;
@@ -187,10 +189,18 @@ class RdCollection extends Page implements HasForms
             'created_by' => auth()->id(),
         ]);
 
+        // A multi-month payment covers a run of dues — say so ("Due #2–4"), not just the first.
+        $bond = Bond::find($data['bond_id']);
+        $monthly = (float) ($bond?->value ?: 0);
+        $units = $monthly > 0 ? max(1, (int) round((float) $entry->value / $monthly)) : 1;
+        $label = $units > 1
+            ? 'Dues #' . $entry->due_count . '–' . ($entry->due_count + $units - 1)
+            : 'Due #' . $entry->due_count;
+
         Notification::make()
             ->success()
             ->title('Collection saved')
-            ->body('Due #' . $entry->due_count . ' for ₹' . number_format((float) $entry->value, 2) . ' recorded.')
+            ->body($label . ' for ₹' . number_format((float) $entry->value, 2) . ' recorded.')
             ->send();
 
         $this->form->fill([
