@@ -60,6 +60,29 @@ class ProductResource extends BaseResource
                     Forms\Components\TextInput::make('stock_qty')->numeric()->default(0),
                 ]),
                 Translatable::fieldset('description', 'Description', textarea: true, requiredDefault: false),
+                // Product gallery (board 2026-08-11): stored on the public disk under
+                // products/, served through /storage. First image (lowest sort) is the
+                // storefront's primary; drag to reorder.
+                Forms\Components\Section::make('Images')->schema([
+                    Forms\Components\Repeater::make('images')
+                        ->relationship()
+                        ->hiddenLabel()
+                        ->orderColumn('sort')
+                        ->reorderable()
+                        ->addActionLabel('Add image')
+                        ->grid(3)
+                        ->defaultItems(0)
+                        ->schema([
+                            Forms\Components\FileUpload::make('path')
+                                ->hiddenLabel()
+                                ->image()
+                                ->imageEditor()
+                                ->disk('public')
+                                ->directory('products')
+                                ->maxSize(4096)
+                                ->required(),
+                        ]),
+                ]),
                 Forms\Components\Section::make()->columns(2)->schema([
                     Forms\Components\Toggle::make('is_featured')->label('Featured on homepage')->default(false),
                     Forms\Components\Toggle::make('is_active')->default(true),
@@ -84,6 +107,11 @@ class ProductResource extends BaseResource
     {
         return $table
             ->columns([
+                Tables\Columns\ImageColumn::make('primary_image')
+                    ->label('Image')
+                    ->getStateUsing(fn ($record) => media_url($record->images->first()?->path))
+                    ->circular()
+                    ->defaultImageUrl(asset('images/logo.png')),
                 Tables\Columns\TextColumn::make('code')
                     ->searchable(),
                 Translatable::column('name', 'Name'),
