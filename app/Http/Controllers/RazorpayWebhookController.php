@@ -43,8 +43,10 @@ class RazorpayWebhookController extends Controller
             'subscription.charged' => $this->recordCharge($mandate, $sub, $request->input('payload.payment.entity', [])),
             'subscription.activated', 'subscription.authenticated' => $mandate->update(['status' => 'active']),
             'subscription.pending' => $mandate->update(['status' => 'pending']),
-            'subscription.halted' => $mandate->update(['status' => 'halted']),
-            'subscription.cancelled' => $mandate->update(['status' => 'cancelled']),
+            'subscription.halted' => $this->markAndNotify($mandate, 'halted',
+                'Auto-debit halted', 'Your RD auto-debit could not be charged and has been halted. Please pay this month\'s instalment at your branch and contact them to resume auto-debit.'),
+            'subscription.cancelled' => $this->markAndNotify($mandate, 'cancelled',
+                'Auto-debit cancelled', 'Your RD auto-debit mandate was cancelled. Monthly instalments continue at your branch as usual.'),
             'subscription.completed' => $mandate->update(['status' => 'completed']),
             default => null,
         };
@@ -60,6 +62,7 @@ class RazorpayWebhookController extends Controller
     {
         $paymentId = $payment['id'] ?? null;
         $processed = (array) ($mandate->meta['charged_payment_ids'] ?? []);
+        // (see markAndNotify below for the halted/cancelled notification path)
         if ($paymentId && in_array($paymentId, $processed, true)) {
             return;   // already recorded this charge
         }
@@ -89,5 +92,28 @@ class RazorpayWebhookController extends Controller
                 'meta' => array_merge((array) $mandate->meta, ['charged_payment_ids' => $processed]),
             ]);
         });
+
+        // Auto-debit receipt (board 2026-08-11) — the manual RD path notifies via
+        // RdCollectionService; the e-mandate path must acknowledge equally.
+        \App\Services\Push\Notifier::to(
+            \App\Models\Member::find($mandate->member_id),
+            'rd',
+            'Auto-debit received — RD instalment recorded',
+            '₹' . number_format((float) $mandate->amount, 2) . ' was auto-debited and your RD instalment is recorded. Your contract passbook is updated.',
+            route: '/contracts/' . $mandate->bond_id,
+        );
+    }
+
+    /** Update mandate status + tell the member what changed and what to do next. */
+    protected function markAndNotify($mandate, string $status, string $title, string $body): void
+    {
+        $mandate->update(['status' => $status]);
+        \App\Services\Push\Notifier::to(
+            \App\Models\Member::find($mandate->member_id),
+            'rd',
+            $title,
+            $body,
+            route: '/contracts/' . $mandate->bond_id,
+        );
     }
 }

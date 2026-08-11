@@ -50,6 +50,7 @@ class RdEntryResource extends BaseResource
                 Tables\Columns\TextColumn::make('created_at')->dateTime()->since()->label('Recorded')->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
+                \App\Filament\Support\CommonFilters::branch(),
                 Tables\Filters\Filter::make('paid_on')
                     ->form([
                         \Filament\Forms\Components\DatePicker::make('from'),

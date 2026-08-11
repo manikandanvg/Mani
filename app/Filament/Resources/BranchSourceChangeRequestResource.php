@@ -128,6 +128,17 @@ class BranchSourceChangeRequestResource extends BaseResource
                 'decided_at' => now(),
             ]);
         });
+
+        // Decision acknowledgement to the requesting dealer (board 2026-08-11).
+        \App\Services\Push\Notifier::to(
+            $request->branch?->distributorUser?->memberAccount,
+            'order',
+            'Supplier change ' . $status,
+            $status === 'approved'
+                ? 'Your stock-source change was approved — future orders route to the new supplier.'
+                : 'Your stock-source change request was rejected. Your current supplier stays unchanged.',
+            route: '/stock-orders',
+        );
     }
 
     public static function getPages(): array

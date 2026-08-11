@@ -16,6 +16,7 @@ use League\Csv\Writer;
  */
 abstract class ReportPage extends Page implements HasForms
 {
+    use \App\Filament\Concerns\ExportsSections;
     use \App\Filament\Concerns\TranslatesNavigation;
     use \App\Filament\Concerns\HiddenFromSupport;
     use InteractsWithForms;
@@ -82,31 +83,5 @@ abstract class ReportPage extends Page implements HasForms
         return $date ? \Illuminate\Support\Carbon::parse($date)->format('d M Y') : '—';
     }
 
-    /** Streams the on-screen sections as one CSV file. */
-    public function downloadCsv()
-    {
-        if (empty($this->sections)) {
-            $this->run();
-        }
-        $sections = $this->sections;
-        $slug = str(static::class)->classBasename()->kebab();
-
-        return response()->streamDownload(function () use ($sections) {
-            $csv = Writer::createFromString();
-            foreach ($sections as $section) {
-                if (! empty($section['heading'])) {
-                    $csv->insertOne([$section['heading']]);
-                }
-                foreach ($section['kv'] ?? [] as $label => $value) {
-                    $csv->insertOne([$label, (string) $value]);
-                }
-                if (! empty($section['columns'])) {
-                    $csv->insertOne($section['columns']);
-                    $csv->insertAll($section['rows'] ?? []);
-                }
-                $csv->insertOne([]);
-            }
-            echo $csv->toString();
-        }, $slug . '-' . now()->format('Ymd-His') . '.csv', ['Content-Type' => 'text/csv']);
-    }
+    // CSV / Excel / PDF / Print come from the shared ExportsSections trait.
 }

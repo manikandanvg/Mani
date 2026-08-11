@@ -21,9 +21,41 @@ use Filament\Tables\Table;
  */
 class SupportTicketResource extends BaseResource
 {
-    use SupportDesk;
-
     protected static ?string $model = SupportTicket::class;
+
+    /**
+     * Board 2026-08-11: tickets serve DEALERS too — a distributor raises and follows
+     * tickets for their own branch; HQ and support staff see everything. Dealer
+     * queries are branch-scoped below; closing stays an HQ/support action.
+     */
+    public static function canViewAny(): bool
+    {
+        return auth()->check();
+    }
+
+    public static function canAccess(): bool
+    {
+        return auth()->check();
+    }
+
+    public static function shouldRegisterNavigation(): bool
+    {
+        return auth()->check();
+    }
+
+    public static function getEloquentQuery(): \Illuminate\Database\Eloquent\Builder
+    {
+        $query = parent::getEloquentQuery();
+        $u = auth()->user();
+
+        if ($u && method_exists($u, 'isDistributor') && $u->isDistributor() && $u->branch_id) {
+            $query->where(fn ($w) => $w
+                ->where('branch_id', $u->branch_id)
+                ->orWhere('opened_by', $u->id));
+        }
+
+        return $query;
+    }
 
     protected static ?string $navigationGroup = 'Support & Track';
 
@@ -65,15 +97,22 @@ class SupportTicketResource extends BaseResource
                     ->default('medium')->required()->native(false),
                 Forms\Components\Select::make('member_id')->label('Distributor')
                     ->getSearchResultsUsing(fn (string $search) => Member::query()
-                        ->where('member_code', 'like', "%{$search}%")
-                        ->orWhere('name', 'like', "%{$search}%")
-                        ->orWhere('phone', 'like', "%{$search}%")
+                        // a dealer raises tickets for their own branch's members only
+                        ->when(auth()->user()?->isDistributor() && auth()->user()->branch_id,
+                            fn ($q) => $q->where('branch_id', auth()->user()->branch_id))
+                        ->where(fn ($w) => $w->where('member_code', 'like', "%{$search}%")
+                            ->orWhere('name', 'like', "%{$search}%")
+                            ->orWhere('phone', 'like', "%{$search}%"))
                         ->limit(25)->pluck('name', 'id')
                         ->map(fn ($name, $id) => Member::find($id)?->member_code . ' — ' . $name))
                     ->getOptionLabelUsing(fn ($value) => ($m = Member::find($value)) ? "{$m->member_code} — {$m->name}" : null)
                     ->searchable()->preload(false),
-                Forms\Components\Select::make('branch_id')->relationship('branch', 'name')->native(false),
+                Forms\Components\Select::make('branch_id')->relationship('branch', 'name')->native(false)
+                    ->default(fn () => auth()->user()?->isDistributor() ? auth()->user()->branch_id : null)
+                    ->disabled(fn () => (bool) auth()->user()?->isDistributor())
+                    ->dehydrated(),
                 Forms\Components\Select::make('assigned_to')->label('Assigned to')
+                    ->visible(fn () => ! auth()->user()?->isDistributor())
                     ->relationship(
                         'assignee',
                         'name',
@@ -116,14 +155,14 @@ class SupportTicketResource extends BaseResource
                 Tables\Actions\EditAction::make(),
                 Tables\Actions\Action::make('close')
                     ->icon('heroicon-o-check-circle')->color('success')
-                    ->visible(fn (SupportTicket $r) => $r->status === 'open')
+                    ->visible(fn (SupportTicket $r) => $r->status === 'open' && ! auth()->user()?->isDistributor())
                     ->requiresConfirmation()
                     ->action(fn (SupportTicket $r) => $r->update([
                         'status' => 'closed', 'closed_by' => auth()->id(), 'closed_at' => now(),
                     ])),
                 Tables\Actions\Action::make('reopen')
                     ->icon('heroicon-o-arrow-path')->color('warning')
-                    ->visible(fn (SupportTicket $r) => $r->status === 'closed')
+                    ->visible(fn (SupportTicket $r) => $r->status === 'closed' && ! auth()->user()?->isDistributor())
                     ->requiresConfirmation()
                     ->action(fn (SupportTicket $r) => $r->update([
                         'status' => 'open', 'closed_by' => null, 'closed_at' => null,

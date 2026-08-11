@@ -150,6 +150,13 @@ class StorefrontController extends Controller
 
         ContactMessage::create($data + ['ip' => $request->ip()]);
 
+        // HQ bell: a new website inquiry awaits reply (board 2026-08-11).
+        \App\Services\Push\Notifier::admins(
+            'New contact inquiry — ' . ($data['name'] ?? 'website visitor'),
+            (string) str((string) ($data['message'] ?? ''))->limit(120),
+            url: '/admin/contact-messages',
+        );
+
         return back()->with('success', 'Thank you — your message has been received. We will get back to you shortly.');
     }
 }

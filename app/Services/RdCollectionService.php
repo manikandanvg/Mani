@@ -92,6 +92,21 @@ class RdCollectionService
         // Post-commit: WhatsApp the updated contract (+ any renewal QR). Never inside the tx.
         $this->sendRenewalDocs();
 
+        // Final-due acknowledgement (board 2026-08-11): month 1 was the joining payment,
+        // so a scheme is fully paid once renewals cover validity − 1 dues.
+        $bond = Bond::with('plan', 'member')->find($entry->bond_id);
+        if ($bond && ! app()->runningUnitTests()) {
+            $validity = (int) ($bond->plan?->validity_months ?: 11);
+            if (self::duesCovered($bond) >= $validity - 1) {
+                \App\Services\Push\Notifier::to($bond->member, 'rd',
+                    'Scheme fully paid — congratulations!',
+                    'All ' . $validity . ' months of your ' . ($bond->plan?->code ?? 'savings scheme')
+                        . ' are complete. Your settlement benefits will follow as per your contract.',
+                    route: '/contracts/' . $bond->id,
+                );
+            }
+        }
+
         return $entry;
     }
 
@@ -205,12 +220,17 @@ class RdCollectionService
 
                 return;
             }
+            // Board 2026-08-11: acknowledgements go push+inbox (WhatsApp = OTP only).
             $bond = Bond::with('member', 'plan')->find($bondId);
-            if ($bond?->member?->phone && $bond->plan?->is_contract) {
-                app(\App\Services\Whatsapp\WhatsappSender::class)->sendMedia(
-                    $bond->member->phone,
-                    app(\App\Services\Contract\ContractService::class)->store($bond),
-                    'Dear ' . $bond->member->name . ', your updated Lord Jeweller contract ' . $bond->invoice_no . ' is attached.'
+            if ($bond?->member && $bond->plan?->is_contract) {
+                \App\Services\Push\Notifier::to($bond->member, 'rd',
+                    'RD payment received — contract updated',
+                    'Dear ' . $bond->member->name . ', your renewal was recorded and your contract ' . $bond->invoice_no . ' has been updated. Tap to view.',
+                    route: '/contracts/' . $bond->id,
+                    data: [
+                        'bond_id' => (string) $bond->id,
+                        'contract_url' => app(\App\Services\Contract\ContractService::class)->store($bond),
+                    ],
                 );
             }
         } catch (\Throwable $e) {
@@ -255,13 +275,23 @@ class RdCollectionService
         if ($marginLocal <= 0) {
             return;
         }
+
+        // EP filter (board 2026-08-11): capped at the branch distributor's headroom.
+        $beneficiary = Branch::find($branchId)?->distributorUser?->memberAccount;
+        $marginBase = app(\App\Services\CommissionService::class)
+            ->capByEp($beneficiary, round($marginLocal * $fx, 2), $paidOn);
+        if ($marginBase <= 0) {
+            return;
+        }
+        $marginLocal = round($marginBase / $fx, 2);
+
         ResellerCommission::create([
             'bill_date' => $paidOn,
             'invoice_no' => 'RD-' . $bond->id . '-' . $bond->rdEntries()->count(),
             'com_type_id' => ResellerCommission::COM_RD_RENEWAL_MARGIN,
             'user_id' => $userId,
             'branch_id' => $branchId,
-            'com_value' => round($marginLocal * $fx, 2),
+            'com_value' => $marginBase,
             'currency_code' => $currency,
             'fx_rate' => $fx,
             'reference_member_id' => $bond->member_id,

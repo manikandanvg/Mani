@@ -27,6 +27,10 @@ class AdminPanelProvider extends PanelProvider
             ->id('admin')
             ->path('admin')
             ->login()
+            // HQ bell (board 2026-08-11): new orders / inquiries / tickets / branch
+            // events land in the panel's notification bell for admins.
+            ->databaseNotifications()
+            ->databaseNotificationsPolling('60s')
             ->brandName('LORD JEWELLER')
             // Emblem + wordmark (brandLogo alone would replace the name text).
             ->brandLogo(fn () => new \Illuminate\Support\HtmlString(
@@ -47,7 +51,8 @@ class AdminPanelProvider extends PanelProvider
             ->renderHook(
                 'panels::head.end',
                 fn (): \Illuminate\Support\HtmlString => new \Illuminate\Support\HtmlString(
-                    '<link rel="stylesheet" href="' . asset('css/premium.css') . '">'
+                    '<link rel="stylesheet" href="' . asset('css/premium.css') . '?v='
+                    . @filemtime(public_path('css/premium.css')) . '">'
                 )
             )
             // Enter moves to the next field instead of submitting (prevents accidental saves).
@@ -94,7 +99,6 @@ class AdminPanelProvider extends PanelProvider
                 \Filament\Navigation\NavigationGroup::make('Community')->label(fn () => __('Community')),
                 \Filament\Navigation\NavigationGroup::make('Master')->label(fn () => __('Master')),
                 \Filament\Navigation\NavigationGroup::make('Support & Track')->label(fn () => __('Support & Track')),
-                \Filament\Navigation\NavigationGroup::make('Track')->label(fn () => __('Track')),
                 \Filament\Navigation\NavigationGroup::make('System')->label(fn () => __('System')),
                 \Filament\Navigation\NavigationGroup::make('Report')->label(fn () => __('Report')),
             ])

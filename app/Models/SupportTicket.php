@@ -42,6 +42,26 @@ class SupportTicket extends Model
             $ticket->ticket_no ??= self::nextTicketNo();
             $ticket->opened_by ??= auth()->id();
         });
+
+        // HQ bell: a new ticket needs an owner (board 2026-08-11).
+        static::created(function (self $ticket) {
+            \App\Services\Push\Notifier::admins(
+                'New ticket ' . $ticket->ticket_no . ($ticket->priority === 'urgent' ? ' — URGENT' : ''),
+                $ticket->subject . ($ticket->member ? ' (' . $ticket->member->member_code . ')' : ''),
+                url: '/admin/support-tickets?activeTab=open',
+            );
+        });
+
+        // Ticket-closed acknowledgement (board 2026-08-11).
+        static::updated(function (self $ticket) {
+            if ($ticket->wasChanged('status') && $ticket->status === 'closed' && $ticket->member) {
+                \App\Services\Push\Notifier::to($ticket->member, 'system',
+                    'Ticket ' . $ticket->ticket_no . ' resolved',
+                    'Your support ticket "' . $ticket->subject . '" has been closed. Reply in the app if you need anything further.',
+                    route: '/tickets/' . $ticket->id,
+                );
+            }
+        });
     }
 
     /** TKT-000001 … — same running-serial style as stock returns (SRV-). */

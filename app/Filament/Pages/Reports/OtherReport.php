@@ -35,6 +35,7 @@ class OtherReport extends ReportPage
         'rd_collections' => 'RD collections',
         'redemption_register' => 'Redemption register',
         'deductions' => 'Deductions (TDS + service charge)',
+        'statutory' => 'Statutory register (PF / ESI / salary TDS)',
     ];
 
     public function form(Form $form): Form
@@ -75,8 +76,50 @@ class OtherReport extends ReportPage
             'rd_collections' => $this->rdCollections($from, $to, $branch, $bn),
             'redemption_register' => $this->redemptions($from, $to, $branch, $bn),
             'deductions' => $this->deductions($from, $to, $branch),
+            'statutory' => $this->statutory($from, $to),
             default => null,
         };
+    }
+
+    /**
+     * PF / ESI / salary-TDS register (board 2026-08-11) — employee-wise per payroll
+     * period, with employer contributions, ready for EPFO/ESIC/IT filing. The date
+     * range selects payroll PERIODS (month of the from/to dates inclusive).
+     */
+    private function statutory($from, $to): void
+    {
+        $start = \Illuminate\Support\Carbon::parse($from)->startOfMonth();
+        $end = \Illuminate\Support\Carbon::parse($to)->endOfMonth();
+
+        $slips = \App\Models\Payslip::with(['employee.member', 'run'])
+            ->whereHas('run', function ($q) use ($start, $end) {
+                $q->whereRaw("STR_TO_DATE(CONCAT(period_year, '-', period_month, '-01'), '%Y-%m-%d') BETWEEN ? AND ?",
+                    [$start->toDateString(), $end->toDateString()]);
+            })
+            ->limit(self::LIMIT)->get();
+
+        $this->sections[] = ['heading' => self::REPORTS['statutory'],
+            'kv' => [
+                __('Payslips') => (string) $slips->count(),
+                __('Gross') => $this->money($slips->sum('gross')),
+                __('PF (employee)') => $this->money($slips->sum('pf_employee')),
+                __('PF (employer)') => $this->money($slips->sum('pf_employer')),
+                __('ESI (employee)') => $this->money($slips->sum('esi_employee')),
+                __('ESI (employer)') => $this->money($slips->sum('esi_employer')),
+                __('Salary TDS') => $this->money($slips->sum('tds')),
+                __('Net paid') => $this->money($slips->sum('net')),
+            ],
+            'columns' => [__('Period'), __('Employee'), __('Name'), __('Gross'), __('Basic'), __('PF emp.'), __('PF empr.'), __('ESI emp.'), __('ESI empr.'), __('TDS'), __('Net'), __('Status')],
+            'rows' => $slips->map(fn ($s) => [
+                $s->run?->periodLabel() ?? ($s->run?->period_year . '-' . $s->run?->period_month),
+                $s->employee?->employee_code,
+                $s->employee?->member?->name,
+                $this->money($s->gross), $this->money($s->basic),
+                $this->money($s->pf_employee), $this->money($s->pf_employer),
+                $this->money($s->esi_employee), $this->money($s->esi_employer),
+                $this->money($s->tds), $this->money($s->net),
+                ucfirst((string) $s->status),
+            ])->all()];
     }
 
     private function stockMovements($from, $to, ?int $branch, callable $bn): void

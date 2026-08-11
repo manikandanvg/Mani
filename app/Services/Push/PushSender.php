@@ -23,10 +23,19 @@ class PushSender
     private const SCOPE = 'https://www.googleapis.com/auth/firebase.messaging';
     private const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 
+    /**
+     * Effective FCM service account: the Push Notification Settings row first,
+     * .env/config as the fallback (board 2026-08-11 — admin-editable like WhatsApp).
+     */
+    protected function creds(): array
+    {
+        return \App\Models\PushSetting::fcm();
+    }
+
     /** Whether a usable service account is configured. */
     public function enabled(): bool
     {
-        $c = config('services.fcm');
+        $c = $this->creds();
 
         return (bool) ($c['enabled'] ?? false)
             && filled($c['project_id'] ?? null)
@@ -56,7 +65,7 @@ class PushSender
             return ['ok' => false, 'skipped' => true, 'sent' => 0, 'failed' => 0, 'stale' => []];
         }
 
-        $project = config('services.fcm.project_id');
+        $project = $this->creds()['project_id'];
         $endpoint = "https://fcm.googleapis.com/v1/projects/{$project}/messages:send";
         $stringData = array_map(fn ($v) => is_scalar($v) ? (string) $v : json_encode($v), $data);
 
@@ -103,7 +112,7 @@ class PushSender
     {
         return Cache::remember('fcm.access_token', 3300, function () {
             $now = time();
-            $email = config('services.fcm.client_email');
+            $email = $this->creds()['client_email'];
 
             $jwt = $this->signJwt([
                 'iss' => $email,
@@ -134,7 +143,7 @@ class PushSender
     /** Sign a service-account JWT (RS256). Null if the private key is unusable. */
     protected function signJwt(array $claims): ?string
     {
-        $key = str_replace('\n', "\n", (string) config('services.fcm.private_key'));
+        $key = str_replace('\n', "\n", (string) $this->creds()['private_key']);
         $segments = [
             $this->b64(json_encode(['alg' => 'RS256', 'typ' => 'JWT'])),
             $this->b64(json_encode($claims)),

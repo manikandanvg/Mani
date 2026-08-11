@@ -183,7 +183,7 @@ class RedemptionService
      */
     public function redeem(array $data): RedemptionInvoice
     {
-        return DB::transaction(function () use ($data) {
+        $invoice = DB::transaction(function () use ($data) {
             $branchId = (int) $data['branch_id'];
             $ctx = $this->lookup($data['qr_code'], $branchId);
             /** @var RedeemableQr $qr */
@@ -238,7 +238,7 @@ class RedemptionService
             }
 
             $invoice = RedemptionInvoice::create([
-                'invoice_no' => $this->nextInvoiceNo(),
+                'invoice_no' => $this->nextInvoiceNo($branchId),
                 'invoice_date' => Carbon::now()->toDateString(),
                 'redeemable_qr_id' => $qr->id,
                 'bond_id' => $qr->bond_id,
@@ -302,6 +302,19 @@ class RedemptionService
 
             return $invoice->fresh('lines');
         });
+
+        // Redemption acknowledgement (board 2026-08-11: push + inbox) — post-commit.
+        if (! app()->runningUnitTests()) {
+            \App\Services\Push\Notifier::to($invoice->member, 'redeem',
+                'Gold redeemed — ' . $invoice->invoice_no,
+                'Your QR was redeemed at ' . ($invoice->branch?->name ?? 'the branch')
+                    . ' for ₹' . number_format((float) $invoice->grand_total, 2) . '. Tax invoice attached in the app.',
+                route: '/redemptions/' . $invoice->id,
+                data: ['invoice_no' => (string) $invoice->invoice_no],
+            );
+        }
+
+        return $invoice;
     }
 
     /** Deduct each line's total weight/qty from the redeeming branch's stock. */
@@ -355,8 +368,11 @@ class RedemptionService
         // gm_margin is a ₹/gram constant → the margin is INR base (same as SalesService);
         // com_value stays INR base for coherent caps, the branch balance shows its own currency.
         $fx = (float) ($invoice->fx_rate ?: 1);
+        $beneficiary = Branch::find($branchId)?->distributorUser?->memberAccount;
         foreach (['gold' => ResellerCommission::COM_GOLD_MARGIN, 'silver' => ResellerCommission::COM_SILVER_MARGIN] as $material => $comType) {
-            $margin = round($totals[$material], 2);
+            // EP filter (board 2026-08-11) — capped at the branch distributor's headroom
+            $margin = app(\App\Services\CommissionService::class)
+                ->capByEp($beneficiary, round($totals[$material], 2), (string) $invoice->invoice_date);
             if ($margin <= 0) {
                 continue;
             }
@@ -460,10 +476,18 @@ class RedemptionService
             ?? new LiveRate(['gold' => 0, 'silver' => 0]);
     }
 
-    protected function nextInvoiceNo(): string
+    /** Per-branch redemption serial (board 2026-08-11) — same scheme as billing. */
+    protected function nextInvoiceNo(?int $branchId = null): string
     {
-        $n = (int) RedemptionInvoice::max('id') + 1;
+        $branch = $branchId ? Branch::find($branchId) : null;
+        $prefix = $branch?->invoice_prefix ?: ($branchId ? 'B' . $branchId : 'X');
 
-        return 'RDM-' . str_pad((string) $n, 6, '0', STR_PAD_LEFT);
+        $n = (int) RedemptionInvoice::where('branch_id', $branchId)->count() + 1;
+        do {
+            $no = 'RDM-' . strtoupper($prefix) . '-' . str_pad((string) $n, 4, '0', STR_PAD_LEFT);
+            $n++;
+        } while (RedemptionInvoice::where('invoice_no', $no)->exists());
+
+        return $no;
     }
 }

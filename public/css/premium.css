@@ -32,10 +32,14 @@
     border-radius: 14px !important;
     box-shadow: var(--lord-shadow);
 }
-.fi-section:hover,
+/* NB: no transform on section hover — a transform creates a stacking context that
+   traps open dropdown panels beneath later content (buttons overlaying selects). */
+.fi-section:hover {
+    box-shadow: var(--lord-shadow-lg);
+}
 .fi-wi-stats-overview-stat:hover {
     box-shadow: var(--lord-shadow-lg);
-    transform: translateY(-2px);
+    transform: translateY(-2px);   /* widgets contain no dropdowns — safe to lift */
 }
 
 /* Stat widgets: a thin brand accent bar on top */
@@ -59,8 +63,8 @@
     background-image: linear-gradient(135deg, var(--lord-crimson), #c33342);
 }
 
-/* Tables: rounded container, crisp header, row hover highlight */
-.fi-ta-ctn { overflow: hidden; }
+/* Tables: rounded container, crisp header, row hover highlight.
+   (No overflow:hidden — it clipped filter/action dropdowns inside the container.) */
 .fi-ta-header-cell { letter-spacing: .02em; }
 .fi-ta-row:hover {
     background-color: rgba(230, 173, 70, .10) !important;

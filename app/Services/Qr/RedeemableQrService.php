@@ -118,36 +118,42 @@ class RedeemableQrService
     {
         try {
             $qr->loadMissing('member', 'bond.plan');
-            $phone = (string) ($qr->member?->phone ?? '');
-            if ($phone === '') {
-                return ['ok' => false, 'message' => 'Distributor has no phone number.'];
+            $member = $qr->member;
+            if (! $member) {
+                return ['ok' => false, 'message' => 'QR has no distributor attached.'];
             }
 
-            $results = [];
+            // Board 2026-08-11: WhatsApp is OTP-only — documents go out as app push +
+            // inbox entries carrying the download URLs (the app renders/downloads them).
 
             // 1) Contract PDF — only for contract-bearing plans (schema-v2 is_contract);
             //    settlement QRs pass withContract=false (the contract went out at sale).
             if ($withContract && $qr->bond && $qr->bond->plan?->is_contract) {
-                $results['contract'] = $this->whatsapp->sendMedia(
-                    $phone,
-                    $this->contracts->store($qr->bond),
-                    'Dear ' . ($qr->member?->name ?? 'Distributor') . ', your Lord Jeweller contract '
-                        . $qr->invoice_no . ' is attached.'
+                \App\Services\Push\Notifier::to($member, 'contract',
+                    'Your contract ' . $qr->invoice_no,
+                    'Dear ' . ($member->name ?? 'Distributor') . ', your Lord Jeweller contract is ready. Tap to view.',
+                    route: '/contracts/' . $qr->bond_id,
+                    data: ['bond_id' => (string) $qr->bond_id, 'contract_url' => $this->contracts->store($qr->bond)],
                 );
             }
 
             // 2) Redeemable Stock QR
-            $results['qr'] = $this->whatsapp->sendMedia($phone, $this->imageUrl($qr), $this->caption($qr));
+            \App\Services\Push\Notifier::to($member, 'qr',
+                'Redeemable Gold QR ' . $qr->qr_code,
+                $this->caption($qr),
+                route: '/qrs/' . $qr->id,
+                data: [
+                    'qr_id' => (string) $qr->id,
+                    'qr_code' => (string) $qr->qr_code,
+                    'image_url' => $this->imageUrl($qr),
+                    'gram_worth' => (string) $qr->gram_worth,
+                    'cash_worth' => (string) $qr->cash_worth,
+                ],
+            );
 
-            $ok = ($results['qr']['ok'] ?? false);
-            if ($ok) {
-                $qr->forceFill(['qr_sent' => true, 'sent_at' => Carbon::now()])->save();
-            }
+            $qr->forceFill(['qr_sent' => true, 'sent_at' => Carbon::now()])->save();
 
-            // Surface the gateway's reason (e.g. "Instance ID Invalidated") to the caller/UI.
-            $message = $results['qr']['message'] ?? $results['contract']['message'] ?? ($ok ? 'sent' : 'failed');
-
-            return ['ok' => $ok, 'message' => $message, 'results' => $results];
+            return ['ok' => true, 'message' => 'sent to app inbox + push', 'results' => []];
         } catch (\Throwable $e) {
             Log::warning('Redeemable QR delivery failed: ' . $e->getMessage());
 

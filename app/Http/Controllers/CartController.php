@@ -200,6 +200,27 @@ class CartController extends Controller
             $payment->save();
 
             $order->update(['payment_status' => 'paid', 'status' => 'confirmed', 'paid_at' => now()]);
+
+            // Payment-successful acknowledgement (board 2026-08-11) — only members have
+            // an app inbox; guest checkouts see the on-screen confirmation instead.
+            if ($order->member_id) {
+                \App\Services\Push\Notifier::to(
+                    \App\Models\Member::find($order->member_id),
+                    'order',
+                    'Payment successful — ' . $order->order_no,
+                    '₹' . number_format((float) $order->total, 2) . ' received. Your order is confirmed and will be processed shortly.',
+                    route: '/orders/' . $order->id,
+                );
+            }
+            // HQ bell: a paid order is ready for fulfilment.
+            \App\Services\Push\Notifier::admins(
+                'Online order paid — ' . $order->order_no,
+                ($order->customer_name ?: 'A customer') . ' paid ₹' . number_format((float) $order->total, 2)
+                    . '. Process it under Online Orders → Order Management.',
+                url: '/admin/order-management',
+                category: 'order',
+            );
+
             session()->forget('cart');
 
             return redirect()->route('order.confirmation', $order->order_no);
@@ -207,6 +228,17 @@ class CartController extends Controller
 
         $payment->status = 'failed';
         $payment->save();
+
+        // Payment-failed acknowledgement for member orders (board 2026-08-11).
+        if ($order->member_id) {
+            \App\Services\Push\Notifier::to(
+                \App\Models\Member::find($order->member_id),
+                'order',
+                'Payment failed — ' . $order->order_no,
+                'Your payment could not be verified and was not captured. Please try again; no amount will be charged twice.',
+                route: '/orders/' . $order->id,
+            );
+        }
 
         return redirect()->route('order.pay', $order->order_no)
             ->with('error', 'Payment could not be verified. Please try again.');

@@ -144,7 +144,7 @@ class BranchOrderService
     /** Submit a distributor's order to HQ as a PENDING request. */
     public function submit(array $data): BranchOrderRequest
     {
-        return DB::transaction(function () use ($data) {
+        $request = DB::transaction(function () use ($data) {
             $branchId = (int) $data['branch_id'];
             $userId = $data['requested_by'] ?? auth()->id();
             $rate = LiveRate::latestFor('IN') ?? LiveRate::query()->latest('id')->first();
@@ -216,6 +216,17 @@ class BranchOrderService
 
             return $request->fresh('lines');
         });
+
+        // HQ bell: a dealer order awaits approval (board 2026-08-11).
+        \App\Services\Push\Notifier::admins(
+            'Stock order ' . $request->request_no . ' awaiting approval',
+            ($request->branch?->name ?? 'A branch') . ' ordered ₹' . number_format((float) $request->grand_total, 2)
+                . ' (' . $request->no_of_items . ' item(s), ' . strtoupper((string) $request->payment_type) . ').',
+            url: '/admin/branch-orders',
+            category: 'order',
+        );
+
+        return $request;
     }
 
     /**
@@ -315,6 +326,16 @@ class BranchOrderService
                 RedemptionInvoice::whereKey($request->source_ref)->update(['payment_mode' => 'passed']);
             }
         });
+
+        // Order-approved acknowledgement to the ordering dealer (board 2026-08-11).
+        \App\Services\Push\Notifier::to(
+            Branch::find($request->branch_id)?->distributorUser?->memberAccount,
+            'order',
+            'Stock order approved — ' . $request->request_no,
+            'Head Office approved your order of ₹' . number_format((float) $request->grand_total, 2)
+                . '. The stock has been added to your branch.',
+            route: '/stock-orders/' . $request->id,
+        );
     }
 
     /** Deduct the line from the seller's stock, log the move, and book the transfer + commission. */
@@ -364,6 +385,15 @@ class BranchOrderService
         if ($request->payment_type === 'digi_cash') {
             Branch::where('id', $request->branch_id)->increment('digi_cash_balance', (float) $request->grand_total);
         }
+
+        \App\Services\Push\Notifier::to(
+            Branch::find($request->branch_id)?->distributorUser?->memberAccount,
+            'order',
+            'Stock order rejected — ' . $request->request_no,
+            'Head Office rejected your stock order of ₹' . number_format((float) $request->grand_total, 2)
+                . ($request->payment_type === 'digi_cash' ? '. Your Digi cash has been refunded.' : '.'),
+            route: '/stock-orders/' . $request->id,
+        );
     }
 
     /** Server-side price of one line from the catalog product + live rate. Cash = rupee value. */

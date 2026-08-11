@@ -54,6 +54,10 @@ class BranchResource extends BaseResource
                         ->searchable(),
                     Forms\Components\TextInput::make('phone')->tel()->maxLength(20),
                     Forms\Components\TextInput::make('gst_no')->label('GST No')->maxLength(25),
+                    Forms\Components\TextInput::make('invoice_prefix')->label('Invoice prefix')
+                        ->helperText('This branch\'s billing series, e.g. HQ → INV-HQ-0001. Keep short & unique.')
+                        ->maxLength(10)->alphaNum()
+                        ->unique(ignoreRecord: true),
                     Forms\Components\TextInput::make('address')->maxLength(255)->columnSpanFull(),
                     Forms\Components\TextInput::make('city')->maxLength(120),
                     Forms\Components\TextInput::make('pincode')->maxLength(12),

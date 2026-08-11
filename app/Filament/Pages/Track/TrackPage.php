@@ -18,6 +18,7 @@ use Filament\Pages\Page;
  */
 abstract class TrackPage extends Page implements HasForms
 {
+    use \App\Filament\Concerns\ExportsSections;
     use \App\Filament\Concerns\TranslatesNavigation;
     use InteractsWithForms;
 
@@ -32,11 +33,9 @@ abstract class TrackPage extends Page implements HasForms
 
     public static function getNavigationGroup(): ?string
     {
-        $u = auth()->user();
-
-        return ($u && method_exists($u, 'isDistributor') && $u->isDistributor())
-            ? __('Track')
-            : __('Support & Track');
+        // Board 2026-08-11: ONE group name for every persona — dealers see the same
+        // "Support & Track" group (tickets + track screens) as HQ and support staff.
+        return __('Support & Track');
     }
 
     public function mount(): void

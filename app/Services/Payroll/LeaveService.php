@@ -73,6 +73,14 @@ class LeaveService
             'admin_note' => $note,
         ]);
 
+        \App\Services\Push\Notifier::to($request->employee?->member, 'system',
+            'Leave approved',
+            'Your leave ' . $request->start_date?->format('d M') . ' – ' . $request->end_date?->format('d M Y')
+                . ' is approved as ' . ($type === 'paid_leave' ? 'PAID leave' : 'unpaid leave')
+                . ($note ? '. ' . $note : '.'),
+            route: '/leave',
+        );
+
         $existing = AttendanceRecord::where('employee_profile_id', $request->employee_profile_id)
             ->whereDate('date', '>=', $request->start_date->toDateString())
             ->whereDate('date', '<=', $request->end_date->toDateString())
@@ -112,6 +120,13 @@ class LeaveService
             'decided_at' => Carbon::now(),
             'admin_note' => $note,
         ]);
+
+        \App\Services\Push\Notifier::to($request->employee?->member, 'system',
+            'Leave request declined',
+            'Your leave ' . $request->start_date?->format('d M') . ' – ' . $request->end_date?->format('d M Y')
+                . ' was not approved' . ($note ? ': ' . $note : '.'),
+            route: '/leave',
+        );
 
         return $request;
     }

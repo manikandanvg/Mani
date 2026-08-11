@@ -115,7 +115,11 @@ class RedemptionInvoicePdf
 
     protected function filename(RedemptionInvoice $invoice): string
     {
-        return 'tax-invoice-' . str_replace(['/', '\\', ' '], '-', (string) $invoice->invoice_no) . '.pdf';
+        // Unguessable public URL (board 2026-08-11) — same HMAC scheme as contracts,
+        // so serial invoice numbers can't be enumerated to download others' invoices.
+        $token = substr(hash_hmac('sha256', 'redemption-' . $invoice->id, (string) config('app.key')), 0, 16);
+
+        return 'tax-invoice-' . str_replace(['/', '\\', ' '], '-', (string) $invoice->invoice_no) . '-' . $token . '.pdf';
     }
 
     /** Code-39 barcode of the invoice number as a base64 PNG data URI (top-right of the invoice). */

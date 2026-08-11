@@ -67,6 +67,16 @@ class NetworkService
                 }
                 if ($close) {
                     DB::table('bonds')->whereIn('id', $close)->update(['status' => 'closed']);
+
+                    // Bond-expiry notice (board 2026-08-11): tell each member their
+                    // scheme's commission window has ended.
+                    foreach (\App\Models\Bond::with('member', 'plan')->whereIn('id', $close)->get() as $bond) {
+                        \App\Services\Push\Notifier::to($bond->member, 'contract',
+                            'Scheme period completed — ' . ($bond->plan?->code ?? 'bond #' . $bond->id),
+                            'Your scheme (invoice ' . $bond->invoice_no . ') has completed its term. Visit your branch to discuss settlement or a new plan.',
+                            route: '/contracts/' . $bond->id,
+                        );
+                    }
                 }
                 if ($open) {
                     DB::table('bonds')->whereIn('id', $open)->update(['status' => 'active']);
@@ -254,11 +264,29 @@ class NetworkService
 
         $depth = $this->computeDepth((float) $m->unpure_bv, $legs, $directQualified);
         $rankId = $cfg['byDepth']->get($depth)?->id ?? $cfg['memberRankId'];
+
+        $oldRankId = (int) DB::table('members')->where('id', $memberId)->value('rank_id');
+        $oldDepth = (int) (DB::table('ranks')->where('id', $oldRankId)->value('depth') ?? 0);
+
         DB::table('members')->where('id', $memberId)->update(['rank_id' => $rankId]);
 
         // Payroll mandate: promotion onto a TBP stage auto-enrols the member as an employee.
         if ($depth >= 1) {
             app(EmployeeService::class)->autoEnroll($memberId);
+        }
+
+        // Promotion congratulation (board 2026-08-11) — only on the incremental
+        // billing-time path so the nightly bulk recompute never mass-notifies.
+        if ($depth > $oldDepth) {
+            $rank = \App\Models\Rank::find($rankId);
+            \App\Services\Push\Notifier::to(
+                \App\Models\Member::find($memberId),
+                'network',
+                'Congratulations — you reached ' . (\App\Support\Translatable::pick($rank?->name) ?: 'a new TBP stage') . '!',
+                'Your network qualified you for the next TBP stage. New earning levels'
+                    . ($depth >= 1 ? ' and payroll enrolment' : '') . ' now apply.',
+                route: '/profile',
+            );
         }
     }
 

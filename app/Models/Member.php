@@ -31,6 +31,43 @@ class Member extends Model implements AuthenticatableContract
         'aadhaar_verified_at' => 'datetime',
     ];
 
+    protected static function booted(): void
+    {
+        // Welcome notification for app-era joins (board 2026-08-11). Console paths
+        // (legacy import, seeders) are excluded so bulk inserts never mass-welcome.
+        static::created(function (self $member) {
+            if (app()->runningInConsole()) {
+                return;
+            }
+            \Illuminate\Support\Facades\DB::afterCommit(function () use ($member) {
+                \App\Services\Push\Notifier::to($member, 'system',
+                    'Welcome to the Lord Jeweller family!',
+                    'Your distributor ID is ' . $member->member_code
+                        . '. Log into the app with your registered mobile to track your schemes, gold QRs and earnings.',
+                    route: '/profile',
+                );
+            });
+        });
+
+        // KYC-verified acknowledgements (board 2026-08-11).
+        static::updated(function (self $member) {
+            if ($member->wasChanged('pan_verified') && $member->pan_verified) {
+                \App\Services\Push\Notifier::to($member, 'system',
+                    'PAN verified ✓',
+                    'Your PAN has been verified successfully' . ($member->pan_verified_name ? ' as ' . $member->pan_verified_name : '') . '.',
+                    route: '/profile',
+                );
+            }
+            if ($member->wasChanged('aadhaar_verified') && $member->aadhaar_verified) {
+                \App\Services\Push\Notifier::to($member, 'system',
+                    'Aadhaar verified ✓',
+                    'Your Aadhaar has been verified successfully. Your KYC is up to date.',
+                    route: '/profile',
+                );
+            }
+        });
+    }
+
     public function upline() { return $this->belongsTo(Member::class, 'upline_id'); }
     public function referrer() { return $this->belongsTo(Member::class, 'referrer_id'); }
     public function downlines() { return $this->hasMany(Member::class, 'upline_id'); }

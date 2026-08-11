@@ -77,16 +77,26 @@ class StockTransferService
             ]);
 
             if ($marginAmount > 0) {
-                ResellerCommission::create([
-                    'bill_date' => $transfer->transfer_date,
-                    'invoice_no' => $transfer->transfer_no,
-                    'com_type_id' => self::COM_TYPE_ID,
-                    'user_id' => $transfer->created_by,
-                    'branch_id' => $source->id,
-                    'com_value' => $marginAmount,
-                    'status' => 'passed',
-                ]);
-                Branch::where('id', $source->id)->increment('stock_trans_margin', $marginAmount);
+                // EP filter (board 2026-08-11): the seller branch's distributor is the
+                // beneficiary — cap at their headroom; the transfer record keeps the
+                // rate-card margin, only the payable commission is capped.
+                $payable = app(CommissionService::class)->capByEp(
+                    $source->distributorUser?->memberAccount,
+                    (float) $marginAmount,
+                    (string) $transfer->transfer_date,
+                );
+                if ($payable > 0) {
+                    ResellerCommission::create([
+                        'bill_date' => $transfer->transfer_date,
+                        'invoice_no' => $transfer->transfer_no,
+                        'com_type_id' => self::COM_TYPE_ID,
+                        'user_id' => $transfer->created_by,
+                        'branch_id' => $source->id,
+                        'com_value' => $payable,
+                        'status' => 'passed',
+                    ]);
+                    Branch::where('id', $source->id)->increment('stock_trans_margin', $payable);
+                }
             }
 
             return $transfer;

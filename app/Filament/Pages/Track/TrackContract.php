@@ -104,13 +104,25 @@ class TrackContract extends TrackPage
                     $r->qr_sent ? __('Yes') : __('No'), $r->redeemed_at?->format('d M Y H:i'),
                 ])->all()];
 
-            $inv = RedemptionInvoice::where('bond_id', $contract->bond_id)->latest('invoice_date')->limit(15)->get();
+            $inv = RedemptionInvoice::with('restockOrder')->where('bond_id', $contract->bond_id)->latest('invoice_date')->limit(15)->get();
             $this->sections[] = ['heading' => __('Redemption invoices'),
                 'columns' => [__('Invoice #'), __('Date'), __('Taxable'), __('CGST'), __('SGST'), __('Grand total'), __('Branch')],
                 'rows' => $inv->map(fn ($i) => [
                     $i->invoice_no, $this->dmy($i->invoice_date), $this->money($i->taxable_total),
                     $this->money($i->cgst), $this->money($i->sgst), $this->money($i->grand_total), $i->branch?->name,
                 ])->all()];
+
+            // Closes the loop (board 2026-08-11): the restock orders each redemption
+            // raised — the full chain invoice → contract → QRs → redeem → re-stock
+            // now reads on this ONE page.
+            $restocks = $inv->map(fn ($i) => ['inv' => $i, 'order' => $i->restockOrder])->filter(fn ($r) => $r['order']);
+            $this->sections[] = ['heading' => __('Redemption-sourced restock orders'),
+                'columns' => [__('Order #'), __('From redemption'), __('Amount'), __('Status'), __('Requested'), __('Approved at')],
+                'rows' => $restocks->map(fn ($r) => [
+                    $r['order']->request_no, $r['inv']->invoice_no,
+                    $this->money($r['order']->grand_total), ucfirst((string) $r['order']->status),
+                    $this->dmy($r['order']->created_at), $r['order']->approved_at?->format('d M Y H:i') ?? '—',
+                ])->values()->all()];
         }
     }
 }

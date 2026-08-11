@@ -25,7 +25,7 @@ class StockReturnService
     /** @param array $data keys: branch_id, created_by?, notes?, lines[[catalog_product_id, weight]] */
     public function submit(array $data): StockReturn
     {
-        return DB::transaction(function () use ($data) {
+        $return = DB::transaction(function () use ($data) {
             $branchId = (int) $data['branch_id'];
             abort_if($branchId === self::HQ_BRANCH_ID, 422, 'Head Office cannot return stock to itself.');
 
@@ -65,6 +65,17 @@ class StockReturnService
 
             return $return->fresh('lines');
         });
+
+        // HQ bell: a stock return awaits approval (board 2026-08-11).
+        \App\Services\Push\Notifier::admins(
+            'Stock return ' . $return->return_no . ' awaiting approval',
+            ($return->branch?->name ?? 'A branch') . ' returned stock worth ₹'
+                . number_format((float) $return->total_amount, 2) . '.',
+            url: '/admin/stock-returns',
+            category: 'order',
+        );
+
+        return $return;
     }
 
     /** HQ approval: move the stock branch → HQ and credit the branch Digi cash wallet. */
@@ -117,6 +128,16 @@ class StockReturnService
                 'approved_at' => Carbon::now(),
             ]);
         });
+
+        // Return-approved acknowledgement: Digi cash credited (board 2026-08-11).
+        \App\Services\Push\Notifier::to(
+            Branch::find($return->branch_id)?->distributorUser?->memberAccount,
+            'wallet',
+            'Stock return approved — ' . $return->return_no,
+            '₹' . number_format((float) $return->total_amount, 2)
+                . ' has been credited to your branch Digi cash wallet.',
+            route: '/wallet',
+        );
     }
 
     public function reject(StockReturn $return, ?int $approverId = null): void
@@ -127,6 +148,15 @@ class StockReturnService
             'approved_by' => $approverId ?? auth()->id(),
             'approved_at' => Carbon::now(),
         ]);
+
+        \App\Services\Push\Notifier::to(
+            \App\Models\Branch::find($return->branch_id)?->distributorUser?->memberAccount,
+            'order',
+            'Stock return rejected — ' . $return->return_no,
+            'Head Office rejected your stock return of ₹' . number_format((float) $return->total_amount, 2)
+                . '. The stock stays at your branch.',
+            route: '/stock-returns/' . $return->id,
+        );
     }
 
     protected function assertBranchHolds(int $branchId, CatalogProduct $cp, float $weight): void

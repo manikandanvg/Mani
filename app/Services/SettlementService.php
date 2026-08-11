@@ -158,6 +158,14 @@ class SettlementService
             try {
                 if ($qr = RedeemableQr::find($id)) {
                     $this->qrService->deliver($qr, withContract: false);
+                    // Settlement acknowledgement (board 2026-08-11: push + inbox).
+                    \App\Services\Push\Notifier::to($qr->member, 'settlement',
+                        'Scheme settled — your gold QR is ready',
+                        'Your contract ' . $qr->invoice_no . ' matured and settled. A gold QR worth ₹'
+                            . number_format((float) $qr->cash_worth, 2) . ' has been issued to you.',
+                        route: '/qrs/' . $qr->id,
+                        data: ['qr_code' => (string) $qr->qr_code],
+                    );
                 }
             } catch (\Throwable $e) {
                 Log::warning('Settlement QR delivery failed: ' . $e->getMessage());

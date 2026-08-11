@@ -51,7 +51,7 @@ class WalletWithdrawalService
 
         $device = $this->resolveQr($deviceUuid);
 
-        return DB::transaction(function () use ($member, $device, $amount) {
+        $withdrawal = DB::transaction(function () use ($member, $device, $amount) {
             // Lock the wallet row so two simultaneous scans cannot overdraw.
             $wallet = MemberWallet::lockForUpdate()->find($member->id);
 
@@ -85,6 +85,36 @@ class WalletWithdrawalService
 
             return $withdrawal;
         });
+
+        // L-BOX scan → amount acknowledgement to the member (board 2026-08-11).
+        \App\Services\Push\Notifier::to($member, 'wallet',
+            'Withdrawal request received',
+            '₹' . number_format($amount, 2) . ' withdrawal requested at '
+                . ($withdrawal->branch?->name ?? 'the branch') . '. Collect at the counter once disbursed.',
+            route: '/wallet',
+            data: ['withdrawal_id' => (string) $withdrawal->id],
+        );
+
+        // …and alert HQ admins + the branch's own dealer that cash is being asked for.
+        $branchName = $withdrawal->branch?->name ?? 'branch #' . $withdrawal->branch_id;
+        \App\Services\Push\Notifier::admins(
+            'Withdrawal request — ' . $branchName,
+            $member->member_code . ' requested ₹' . number_format($amount, 2)
+                . ' at ' . $branchName . '. Approve or cancel under L-BOX → Wallet Withdrawals.',
+            url: '/admin/wallet-withdrawals',
+            category: 'wallet',
+        );
+        $dealer = $withdrawal->branch?->distributorUser?->memberAccount;
+        if ($dealer && $dealer->id !== $member->id) {
+            \App\Services\Push\Notifier::to($dealer, 'wallet',
+                'Withdrawal at your branch',
+                $member->member_code . ' requested ₹' . number_format($amount, 2)
+                    . '. Prepare cash/gold for the counter once HQ disburses.',
+                route: '/wallet',
+            );
+        }
+
+        return $withdrawal;
     }
 
     /**
@@ -106,7 +136,7 @@ class WalletWithdrawalService
             throw new \RuntimeException('Your login has no branch mapped — contact Head Office.');
         }
 
-        return DB::transaction(function () use ($user, $wallet, $amount, $note) {
+        $withdrawal = DB::transaction(function () use ($user, $wallet, $amount, $note) {
             $member = $user->memberAccount;
 
             if ($wallet === 'member_cash') {
@@ -143,6 +173,18 @@ class WalletWithdrawalService
                 'note' => $note,
             ]);
         });
+
+        // HQ bell + admin mobile: a dealer asked for money from the panel.
+        \App\Services\Push\Notifier::admins(
+            'Withdrawal request — ' . ($withdrawal->branch?->name ?? 'branch #' . $withdrawal->branch_id),
+            ($user->name ?: 'A dealer') . ' requested ₹' . number_format($amount, 2)
+                . ' from the ' . ($wallet === 'branch_digi' ? 'branch Digi cash wallet' : 'commission wallet')
+                . '. Approve or cancel under L-BOX → Wallet Withdrawals.',
+            url: '/admin/wallet-withdrawals',
+            category: 'wallet',
+        );
+
+        return $withdrawal;
     }
 
     /** Branch incharge handed over gold/cash. */
@@ -162,6 +204,13 @@ class WalletWithdrawalService
             'disbursed_at' => Carbon::now(),
             'note' => $note,
         ]);
+
+        \App\Services\Push\Notifier::to($withdrawal->member, 'wallet',
+            'Withdrawal disbursed',
+            '₹' . number_format((float) $withdrawal->amount, 2) . ' handed over as ' . strtoupper($mode)
+                . ' at ' . ($withdrawal->branch?->name ?? 'the branch') . '.',
+            route: '/wallet',
+        );
 
         return $withdrawal;
     }
@@ -190,6 +239,14 @@ class WalletWithdrawalService
                 'note' => $note,
             ]);
         });
+
+        \App\Services\Push\Notifier::to($withdrawal->member, 'wallet',
+            'Withdrawal cancelled — amount refunded',
+            '₹' . number_format((float) $withdrawal->amount, 2) . ' was returned to your '
+                . ($withdrawal->wallet === 'branch_digi' ? 'branch Digi cash wallet' : 'commission wallet')
+                . ($note ? '. Reason: ' . $note : '.'),
+            route: '/wallet',
+        );
 
         return $withdrawal;
     }

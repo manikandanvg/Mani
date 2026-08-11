@@ -21,6 +21,45 @@ class BranchAttendance extends Model
         'closed_at' => 'datetime',
     ];
 
+    protected static function booted(): void
+    {
+        // Branch open / close alerts (board 2026-08-11): model-level so BOTH tap
+        // paths (employee card + branch card) notify HQ admins and the branch's own
+        // dealer. Close taps refresh closed_at all day — only the FIRST stamp
+        // notifies (original was null); later refreshes stay silent.
+        static::updated(function (self $day) {
+            $branch = $day->branch;
+            if (! $branch) {
+                return;
+            }
+            $dealer = $branch->distributorUser?->memberAccount;
+
+            if ($day->wasChanged('opened_at') && $day->opened_at && $day->getOriginal('opened_at') === null) {
+                $when = $day->opened_at->format('h:i A');
+                \App\Services\Push\Notifier::admins(
+                    'Branch OPEN — ' . $branch->name,
+                    'Opened at ' . $when . ' via RFID tap. The branch is online for the day.',
+                );
+                \App\Services\Push\Notifier::to($dealer, 'system',
+                    'Your branch is open',
+                    $branch->name . ' opened at ' . $when . '. Business systems are live for the day.',
+                );
+            }
+
+            if ($day->wasChanged('closed_at') && $day->closed_at && $day->getOriginal('closed_at') === null) {
+                $when = $day->closed_at->format('h:i A');
+                \App\Services\Push\Notifier::admins(
+                    'Branch CLOSED — ' . $branch->name,
+                    'Closing stamped at ' . $when . ' via RFID tap.',
+                );
+                \App\Services\Push\Notifier::to($dealer, 'system',
+                    'Your branch is closed',
+                    $branch->name . ' closed at ' . $when . '. See you tomorrow!',
+                );
+            }
+        });
+    }
+
     public function branch(): BelongsTo
     {
         return $this->belongsTo(Branch::class);

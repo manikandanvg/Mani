@@ -130,7 +130,9 @@ class Sales extends Page implements HasForms
                             ->options(self::dialCodes())
                             ->default('+91')
                             ->searchable()
-                            ->native(false),
+                            ->native(false)
+                            // live so the phone hint + validation follow the chosen country
+                            ->live(),
                         TextInput::make('customer.phone')->label('Phone')->tel()
                             ->required(fn (Get $get) => $get('mode') === 'new')
                             // Per-country digit length (India = 10). Only enforced for NEW
@@ -151,6 +153,12 @@ class Sales extends Page implements HasForms
                         TextInput::make('customer.father_name')->label("Father / Husband's Name"),
                         TextInput::make('customer.city')->label('City'),
                         TextInput::make('customer.pincode')->label('Pincode'),
+                        // B2B: a GSTIN here classifies the invoice as B2B in the GSTR-1
+                        // export; blank = B2C consumer sale (board 2026-08-11).
+                        TextInput::make('buyer_gst')->label('Buyer GSTIN (B2B only)')
+                            ->placeholder('33ABCDE1234F1Z5')->maxLength(15)
+                            ->rule('regex:/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][0-9A-Z]{3}$/i')
+                            ->validationMessages(['regex' => 'That does not look like a valid 15-character GSTIN.']),
                         TextInput::make('customer.address')->label('Address')->columnSpan(2),
                         TextInput::make('customer.email')->label('Email ID')->email(),
                         TextInput::make('customer.pan')->label('PAN Number')

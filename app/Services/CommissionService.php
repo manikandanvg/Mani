@@ -30,14 +30,25 @@ class CommissionService
         }
 
         $issued = 0;
-        DB::transaction(function () use ($bond, $schedule, &$issued) {
+        $credited = [];
+        DB::transaction(function () use ($bond, $schedule, &$issued, &$credited) {
             $uplines = $this->uplineChain($bond->member, self::MAX_LEVELS);
             foreach ($uplines as $i => $upline) {
                 $pct = (float) ($schedule[$i] ?? 0);
                 if ($pct <= 0) {
                     continue;
                 }
-                $amount = round((float) $bond->value * $pct / 100, 2);
+
+                // EP — Earning Potential gate (legacy Trade::checkmemberactive, restored
+                // 2026-08-11): an upline earns IC only while ACTIVE with ≥1 active bond,
+                // and never more per day than their invested bond value. The scheduled
+                // amount is capped to the remaining headroom.
+                $ep = $this->earningPotential($upline, (string) $bond->bond_date);
+                if ($ep <= 0) {
+                    continue;
+                }
+
+                $amount = min(round((float) $bond->value * $pct / 100, 2), round($ep, 2));
                 $this->credit($upline, $amount, [
                     'type' => 'IC',
                     'from_member_id' => $bond->member_id,
@@ -49,9 +60,24 @@ class CommissionService
                     'pay_via' => 'digi_transfer',
                     'earned_on' => $bond->bond_date,
                 ]);
+                $credited[] = ['upline' => $upline, 'amount' => $amount, 'level' => $i + 1];
                 $issued++;
             }
         });
+
+        // Downline-billing acknowledgement (board 2026-08-11) — after commit, never inside.
+        if (! app()->runningUnitTests()) {
+            $buyer = $bond->member?->member_code ?? 'your downline';
+            foreach ($credited as $c) {
+                \App\Services\Push\Notifier::to($c['upline'], 'network',
+                    'New billing in your downline',
+                    "{$buyer} billed ₹" . number_format((float) $bond->value, 2)
+                        . ' — you earned ₹' . number_format($c['amount'], 2) . " (Level {$c['level']}, pending approval).",
+                    route: '/earnings',
+                    data: ['bond_id' => (string) $bond->id, 'level' => (string) $c['level']],
+                );
+            }
+        }
 
         return $issued;
     }
@@ -74,6 +100,16 @@ class CommissionService
                     if (empty($schedule)) {
                         continue;
                     }
+                    // ONE installment per calendar month per bond (legacy Ascript ran
+                    // monthly). Makes re-runs — or an over-eager scheduler — harmless.
+                    $alreadyThisMonth = CommissionLedger::where('bond_id', $bond->id)
+                        ->where('type', 'GAP')
+                        ->whereYear('earned_on', $period->year)
+                        ->whereMonth('earned_on', $period->month)
+                        ->exists();
+                    if ($alreadyThisMonth) {
+                        continue;
+                    }
                     DB::transaction(function () use ($bond, $schedule, $period, &$issued) {
                         $uplines = $this->uplineChain($bond->member, self::MAX_LEVELS);
                         foreach ($uplines as $i => $upline) {
@@ -87,7 +123,15 @@ class CommissionService
                             if ($depth < $level) {
                                 continue;
                             }
-                            $amount = round((float) $bond->value * $pct / 100, 2);
+                            // EP gate + cap (board 2026-08-11) — same rule as IC
+                            $amount = $this->capByEp(
+                                $upline,
+                                round((float) $bond->value * $pct / 100, 2),
+                                $period->toDateString(),
+                            );
+                            if ($amount <= 0) {
+                                continue;
+                            }
                             $this->credit($upline, $amount, [
                                 'type' => 'GAP',
                                 'from_member_id' => $bond->member_id,
@@ -124,6 +168,14 @@ class CommissionService
             ->whereColumn('cbc_issued', '<', 'cbc_count')
             ->chunkById(200, function ($bonds) use (&$issued, $period) {
                 foreach ($bonds as $bond) {
+                    // ONE CBC per calendar month per bond — same idempotency rule as GAP.
+                    $alreadyThisMonth = \App\Models\CbcEntry::where('bond_id', $bond->id)
+                        ->whereYear('cbc_date', $period->year)
+                        ->whereMonth('cbc_date', $period->month)
+                        ->exists();
+                    if ($alreadyThisMonth) {
+                        continue;
+                    }
                     DB::transaction(function () use ($bond, $period, &$issued) {
                         // worth is INR base; freeze the earner's currency + rate at issue
                         // (approval converts at THIS rate, never a later one).
@@ -229,6 +281,54 @@ class CommissionService
      * at earn time — approval converts at exactly this rate (same policy as the
      * billing-path IC in SalesService). India = INR/1.0, byte-identical behaviour.
      */
+    /**
+     * EP — Earning Potential (legacy Trade::checkmemberactive): the member's remaining
+     * same-day earning headroom in rupees.
+     *
+     *   EP = Σ(active bond values) − (today's IC + GAP + reseller margins already booked)
+     *
+     * Returns 0 when the member is inactive, holds no active bond, or has exhausted
+     * the headroom — a 0 means "earns nothing further today".
+     */
+    public function earningPotential(Member $member, ?string $onDate = null): float
+    {
+        if ($member->status !== 'active') {
+            return 0.0;
+        }
+
+        $bonds = Bond::where('member_id', $member->id)->where('status', 'active');
+        $activeBonds = (int) $bonds->count();
+        if ($activeBonds < 1) {
+            return 0.0;
+        }
+        $boundedValue = (float) $bonds->sum('value');
+
+        $date = $onDate ?: Carbon::now()->toDateString();
+        $earned = (float) CommissionLedger::where('member_id', $member->id)
+            ->whereDate('earned_on', '>=', $date)->sum('amount')
+            + (float) \App\Models\ResellerCommission::where(fn ($w) => $w
+                ->where('reference_member_id', $member->id)
+                ->orWhere('mapped_uid', $member->member_code))
+                ->whereDate('bill_date', '>=', $date)->sum('com_value');
+
+        return $boundedValue > $earned ? round($boundedValue - $earned, 2) : 0.0;
+    }
+
+    /**
+     * EP applied to a payable amount (board 2026-08-11: EVERY cash stream is EP-
+     * filtered; CBC coupons are exempt). No mapped beneficiary (e.g. a branch with
+     * no dealer login) → uncapped, the branch balance simply holds the margin.
+     */
+    public function capByEp(?Member $beneficiary, float $amount, ?string $onDate = null): float
+    {
+        if (! $beneficiary || $amount <= 0) {
+            return $amount;
+        }
+        $ep = $this->earningPotential($beneficiary, $onDate);
+
+        return $ep <= 0 ? 0.0 : min($amount, round($ep, 2));
+    }
+
     protected function credit(Member $member, float $amount, array $ledger): void
     {
         $branch = $member->branch_id ? \App\Models\Branch::find($member->branch_id) : null;

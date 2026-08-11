@@ -81,10 +81,11 @@ class SalesService
 
             // --- invoice (amounts stored in the branch currency, stamped with code + rate) ---
             $invoice = SalesInvoice::create([
-                'invoice_no' => $this->nextInvoiceNo(),
+                'invoice_no' => $this->nextInvoiceNo($branchId),
                 'date' => $billDate,
                 'customer_member_id' => $member->id,
                 'customer_name' => $member->name,
+                'buyer_gst' => filled($data['buyer_gst'] ?? null) ? strtoupper(trim($data['buyer_gst'])) : null,
                 'branch_id' => $branchId,
                 'plan_id' => $plan->id,
                 'cross_total' => $crossTotal,
@@ -170,8 +171,48 @@ class SalesService
         });
 
         $this->deliverPendingQr();
+        $this->notifyBillingDocs($invoice);
 
         return $invoice;
+    }
+
+    /**
+     * Post-commit billing acknowledgements (board 2026-08-11: push + inbox, WhatsApp
+     * is OTP-only): the tax invoice always; the contract for contract-bearing plans
+     * that did NOT already deliver it alongside a billing QR.
+     */
+    protected function notifyBillingDocs(SalesInvoice $invoice): void
+    {
+        if (app()->runningUnitTests()) {
+            return;
+        }
+
+        try {
+            $member = $invoice->customer;
+            if (! $member) {
+                return;
+            }
+
+            \App\Services\Push\Notifier::to($member, 'invoice',
+                'Invoice ' . $invoice->invoice_no,
+                'Your purchase of ₹' . number_format((float) $invoice->grand_total, 2) . ' is billed. Thank you for shopping with Lord Jeweller.',
+                route: '/invoices/' . $invoice->id,
+                data: ['invoice_no' => (string) $invoice->invoice_no],
+            );
+
+            $bond = \App\Models\Bond::with('plan')->where('invoice_no', $invoice->invoice_no)->latest('id')->first();
+            $qrWentOut = (bool) ($bond && \App\Models\RedeemableQr::where('bond_id', $bond->id)->where('qr_sent', true)->exists());
+            if ($bond && $bond->plan?->is_contract && ! $qrWentOut) {
+                \App\Services\Push\Notifier::to($member, 'contract',
+                    'Your contract ' . $invoice->invoice_no,
+                    'Your Lord Jeweller scheme contract is ready. Tap to view.',
+                    route: '/contracts/' . $bond->id,
+                    data: ['bond_id' => (string) $bond->id, 'contract_url' => app(\App\Services\Contract\ContractService::class)->store($bond)],
+                );
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Billing notification failed: ' . $e->getMessage());
+        }
     }
 
     /**
@@ -219,12 +260,19 @@ class SalesService
         ]);
     }
 
-    /** Random, unique contract number, e.g. LJC-7F3A9KQ2. */
+    /**
+     * Serial contract number, e.g. LJC-000010 — matches the invoice-number style
+     * (board 2026-08-11: the old random suffix read like a QR code and confused
+     * the counter; existing random numbers stay valid, new ones are serial).
+     */
     protected function nextContractNo(): string
     {
-        do {
-            $no = 'LJC-' . strtoupper(Str::random(8));
-        } while (MemberContract::where('contract_no', $no)->exists());
+        $no = 'LJC-' . str_pad((string) ((int) MemberContract::max('id') + 1), 6, '0', STR_PAD_LEFT);
+
+        // Guard against any collision with legacy/random numbers.
+        while (MemberContract::where('contract_no', $no)->exists()) {
+            $no .= 'A';
+        }
 
         return $no;
     }
@@ -475,13 +523,24 @@ class SalesService
         }
         $fx = (float) ($invoice->fx_rate ?: 1);
         $marginLocal = round($crossTotal * (float) $plan->billing_margin / 100, 2);   // branch currency
+
+        // EP filter (board 2026-08-11): the margin's beneficiary is the BRANCH's
+        // distributor — cap at their remaining earning potential, skip when exhausted.
+        $beneficiary = \App\Models\Branch::find($branchId)?->distributorUser?->memberAccount;
+        $marginBase = app(CommissionService::class)
+            ->capByEp($beneficiary, round($marginLocal * $fx, 2), (string) $invoice->date);
+        if ($marginBase <= 0) {
+            return;
+        }
+        $marginLocal = round($marginBase / $fx, 2);
+
         ResellerCommission::create([
             'bill_date' => $invoice->date,
             'invoice_no' => $invoice->invoice_no,
             'com_type_id' => ResellerCommission::COM_BILL_MARGIN,
             'user_id' => $userId,
             'branch_id' => $branchId,
-            'com_value' => round($marginLocal * $fx, 2),   // INR base (caps stay coherent)
+            'com_value' => $marginBase,   // INR base (caps stay coherent)
             'currency_code' => $invoice->currency_code ?: 'INR',
             'fx_rate' => $fx,
             'reference_member_id' => $member->id,
@@ -524,8 +583,11 @@ class SalesService
 
         // gm_margin is a ₹/gram constant, so the computed margin is already INR base.
         $fx = (float) ($invoice->fx_rate ?: 1);
+        $beneficiary = \App\Models\Branch::find($branchId)?->distributorUser?->memberAccount;
         foreach (['gold' => ResellerCommission::COM_GOLD_MARGIN, 'silver' => ResellerCommission::COM_SILVER_MARGIN] as $material => $comTypeId) {
-            $marginBase = round($totals[$material], 2);   // INR base
+            // EP filter (board 2026-08-11) — capped at the branch distributor's headroom
+            $marginBase = app(CommissionService::class)
+                ->capByEp($beneficiary, round($totals[$material], 2), (string) $invoice->date);
             if ($marginBase <= 0) {
                 continue;
             }
@@ -584,11 +646,23 @@ class SalesService
         return $code ? Member::where('member_code', strtoupper(trim($code)))->first() : null;
     }
 
-    protected function nextInvoiceNo(): string
+    /**
+     * Per-branch billing serial (board 2026-08-11, legacy parity): every branch —
+     * HQ included — runs its own series, e.g. INV-HQ-0001 / INV-B210-0004. The
+     * prefix comes from branches.invoice_prefix (editable in Master → Branches).
+     */
+    protected function nextInvoiceNo(?int $branchId = null): string
     {
-        $n = (int) SalesInvoice::max('id') + 1;
+        $branch = $branchId ? \App\Models\Branch::find($branchId) : null;
+        $prefix = $branch?->invoice_prefix ?: ($branchId ? 'B' . $branchId : 'X');
 
-        return 'INV-' . str_pad((string) $n, 6, '0', STR_PAD_LEFT);
+        $n = (int) SalesInvoice::where('branch_id', $branchId)->count() + 1;
+        do {
+            $no = 'INV-' . strtoupper($prefix) . '-' . str_pad((string) $n, 4, '0', STR_PAD_LEFT);
+            $n++;
+        } while (SalesInvoice::where('invoice_no', $no)->exists());
+
+        return $no;
     }
 
     protected function nextMemberCode(): string

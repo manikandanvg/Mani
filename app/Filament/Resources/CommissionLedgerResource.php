@@ -171,7 +171,34 @@ class CommissionLedgerResource extends BaseResource
                     ])),
             ])
             ->actions([
-                // read-only: crediting happens ONLY through Commission Approval
+                // read-only for money: crediting happens ONLY through Commission Approval.
+                // "Dispute notice" (board 2026-08-11) tells the member an entry is under
+                // review — it changes nothing financially, it only notifies.
+                Tables\Actions\Action::make('dispute')
+                    ->label('Dispute notice')
+                    ->icon('heroicon-o-exclamation-triangle')
+                    ->color('warning')
+                    ->visible(fn (\App\Models\CommissionEntry $r) => $r->member_id !== null)
+                    ->form([
+                        \Filament\Forms\Components\Textarea::make('note')
+                            ->label('Message to the distributor')
+                            ->placeholder('This commission entry is under review because…')
+                            ->required()->rows(3),
+                    ])
+                    ->requiresConfirmation()
+                    ->modalHeading('Send a commission-dispute notification')
+                    ->action(function (\App\Models\CommissionEntry $r, array $data) {
+                        \App\Services\Push\Notifier::to(
+                            \App\Models\Member::find($r->member_id),
+                            'commission',
+                            'Commission entry under dispute',
+                            'Your ' . $r->type . ' entry of ₹' . number_format((float) $r->amount, 2)
+                                . ' dated ' . $r->earned_on?->format('d M Y') . ' is under review. ' . $data['note'],
+                            route: '/earnings',
+                        );
+                        \Filament\Notifications\Notification::make()->success()
+                            ->title('Dispute notification sent')->send();
+                    }),
             ])
             // no bulk actions — rows live in a SQL view; deletes must target the
             // underlying source tables

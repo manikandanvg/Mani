@@ -51,6 +51,38 @@ class DeviceAttendanceService
         }
 
         $name = $employee->member?->name ?? $employee->employee_code;
+
+        // Board 2026-08-11: a tap AWAY from the employee's home branch is a VISIT —
+        // logged separately, never touching the one-per-day payroll attendance.
+        // Covers taps at other dealer branches AND the branch-less meeting-arena box.
+        $homeBranchId = $employee->member?->branch_id;
+        if ($device->branch_id === null || ($homeBranchId && (int) $device->branch_id !== (int) $homeBranchId)) {
+            $recent = \App\Models\EmployeeVisit::where('employee_profile_id', $employee->id)
+                ->where('device_id', $device->id)
+                ->where('visited_at', '>', Carbon::now()->subSeconds(self::DUPLICATE_WINDOW_S))
+                ->exists();
+            if ($recent) {
+                return ['result' => 'duplicate', 'message' => $this->say($lang, 'duplicate', $name), 'employee' => $name];
+            }
+
+            \App\Models\EmployeeVisit::create([
+                'employee_profile_id' => $employee->id,
+                'device_id' => $device->id,
+                'branch_id' => $device->branch_id,
+                'visited_at' => Carbon::now(),
+            ]);
+
+            $where = $device->branch?->name ?? ($lang === 'ta' ? 'கூட்ட அரங்கம்' : 'the meeting arena');
+
+            return [
+                'result' => 'visit_recorded',
+                'message' => $lang === 'ta'
+                    ? "வருகை பதிவானது {$name} — {$where}"
+                    : "Visit recorded, {$name} — welcome to {$where}",
+                'employee' => $name,
+            ];
+        }
+
         $today = AttendanceRecord::where('employee_profile_id', $employee->id)
             ->whereDate('date', Carbon::today()->toDateString())
             ->first();
@@ -147,9 +179,11 @@ class DeviceAttendanceService
             return;
         }
 
+        // Model update (not a bulk query) so the branch-close notification event fires.
         BranchAttendance::where('branch_id', $device->branch_id)
             ->whereDate('date', Carbon::today()->toDateString())
-            ->update(['closed_at' => Carbon::now(), 'closed_by' => $employee->id]);
+            ->first()
+            ?->update(['closed_at' => Carbon::now(), 'closed_by' => $employee->id]);
     }
 
     protected function say(string $lang, string $key, string $name = ''): string

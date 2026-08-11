@@ -232,11 +232,28 @@ class CommissionApproval extends Page implements HasForms, HasTable
         $beneficiaries = 0;
         foreach ($records as $aggregate) {
             $beneficiaries++;
+            $memberSum = 0.0;
+            $memberCount = 0;
             foreach ($this->underlyingRows($aggregate) as $row) {
                 if ($svc->approve($row)) {
                     $count++;
+                    $memberCount++;
                     $sum += $this->amountOf($row);
+                    $memberSum += $this->amountOf($row);
                 }
+            }
+
+            // Commission-distribution acknowledgement (board 2026-08-11: push + inbox).
+            if ($memberCount > 0) {
+                $member = $this->groupColumn() === 'member_id'
+                    ? \App\Models\Member::find($aggregate->member_id)
+                    : \App\Models\Branch::find($aggregate->branch_id)?->distributorUser?->memberAccount;
+                \App\Services\Push\Notifier::to($member, 'commission',
+                    'Commission credited to your wallet',
+                    "{$memberCount} " . ($this->data['type'] ?? 'commission') . ' entr' . ($memberCount === 1 ? 'y' : 'ies')
+                        . ' approved — gross ₹' . number_format($memberSum, 2) . '; the net after TDS & service charge is now in your wallet.',
+                    route: '/wallet',
+                );
             }
         }
 

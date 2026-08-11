@@ -74,34 +74,67 @@ class DeviceResource extends BaseResource
 
     public static function table(Table $table): Table
     {
+        // Iconic card view (board 2026-08-11): one responsive card per box — identity,
+        // live state, vitals — instead of a flat data-table row.
         return $table
+            ->contentGrid(['md' => 2, 'xl' => 3])
             ->columns([
-                Tables\Columns\TextColumn::make('name')->searchable()
-                    ->description(fn (Device $d) => $d->serial_no),
-                Tables\Columns\TextColumn::make('board_type')->label('Board')->badge()
-                    ->color(fn ($state) => $state === 'pro' ? 'info' : 'gray'),
-                Tables\Columns\TextColumn::make('branch.name')->label('Branch'),
-                Tables\Columns\TextColumn::make('online')->label('Box')->badge()
-                    ->getStateUsing(fn (Device $d) => $d->is_displaced ? 'MOVED!' : ($d->isOnline() ? 'online' : 'offline'))
-                    ->color(fn ($state) => match ($state) {
-                        'online' => 'success', 'MOVED!' => 'danger', default => 'gray',
-                    }),
-                Tables\Columns\TextColumn::make('branch_open')->label('Branch today')->badge()
-                    ->getStateUsing(fn (Device $d) => $d->branch_id && \App\Models\BranchAttendance::isOpenToday($d->branch_id)
-                        ? 'open' : 'not opened')
-                    ->color(fn ($state) => $state === 'open' ? 'success' : 'warning'),
-                Tables\Columns\TextColumn::make('battery_pct')->label('Battery')
-                    ->formatStateUsing(fn ($state) => $state !== null ? "{$state}%" : '—'),
-                Tables\Columns\TextColumn::make('rssi')->label('Signal')
-                    ->formatStateUsing(fn ($state) => $state !== null ? "{$state} dBm" : '—'),
-                Tables\Columns\TextColumn::make('firmware_version')->label('Firmware'),
-                Tables\Columns\TextColumn::make('last_seen_at')->label('Last seen')->since(),
-                Tables\Columns\TextColumn::make('status')->badge()
-                    ->color(fn ($state) => match ($state) {
-                        'active' => 'success', 'provisioned' => 'warning', default => 'danger',
-                    }),
+                Tables\Columns\Layout\Stack::make([
+                    // Row 1: identity | live badge
+                    Tables\Columns\Layout\Split::make([
+                        Tables\Columns\TextColumn::make('name')->searchable()
+                            ->weight('bold')->size(Tables\Columns\TextColumn\TextColumnSize::Large)
+                            ->icon('heroicon-m-cube')->iconColor('warning')
+                            ->description(fn (Device $d) => 'S/N ' . $d->serial_no . ' · ' . strtoupper((string) $d->board_type)),
+                        Tables\Columns\TextColumn::make('online')->badge()->grow(false)
+                            ->getStateUsing(fn (Device $d) => $d->is_displaced ? 'MOVED!' : ($d->isOnline() ? 'online' : 'offline'))
+                            ->color(fn ($state) => match ($state) {
+                                'online' => 'success', 'MOVED!' => 'danger', default => 'gray',
+                            }),
+                    ]),
+                    // Row 2: branch (truncated, full name on hover) | today badge
+                    Tables\Columns\Layout\Split::make([
+                        Tables\Columns\TextColumn::make('branch.name')
+                            ->icon('heroicon-m-building-storefront')->iconColor('primary')
+                            ->limit(24)
+                            ->tooltip(fn (Device $d) => $d->branch?->name)
+                            ->placeholder('Meeting arena / unassigned'),
+                        Tables\Columns\TextColumn::make('branch_open')->badge()->grow(false)
+                            ->getStateUsing(fn (Device $d) => $d->branch_id
+                                ? (\App\Models\BranchAttendance::isOpenToday($d->branch_id) ? 'open today' : 'not opened')
+                                : 'no branch')
+                            ->color(fn ($state) => match ($state) {
+                                'open today' => 'success', 'not opened' => 'warning', default => 'gray',
+                            }),
+                    ]),
+                    // Row 3: vitals in a fixed 2×2 grid — no wrap surprises
+                    Tables\Columns\Layout\Grid::make(['default' => 2])->schema([
+                        Tables\Columns\TextColumn::make('battery_pct')
+                            ->icon('heroicon-m-battery-50')
+                            ->formatStateUsing(fn ($state) => $state !== null ? "{$state}%" : '—')
+                            ->color(fn ($state) => $state !== null && $state < 20 ? 'danger' : 'gray'),
+                        Tables\Columns\TextColumn::make('rssi')
+                            ->icon('heroicon-m-signal')
+                            ->formatStateUsing(fn ($state) => $state !== null ? "{$state} dBm" : '—'),
+                        Tables\Columns\TextColumn::make('firmware_version')
+                            ->icon('heroicon-m-cpu-chip')
+                            ->placeholder('—'),
+                        Tables\Columns\TextColumn::make('last_seen_at')
+                            ->icon('heroicon-m-clock')
+                            ->since()
+                            ->placeholder('never'),
+                    ]),
+                    // Row 4: lifecycle status
+                    Tables\Columns\TextColumn::make('status')->badge()
+                        ->color(fn ($state) => match ($state) {
+                            'active' => 'success', 'provisioned' => 'warning', default => 'danger',
+                        }),
+                ])->space(3),
             ])
             ->actions([
+                // One kebab menu per card — six inline buttons blew the card width
+                // and forced a horizontal scrollbar (board fix 2026-08-11).
+                Tables\Actions\ActionGroup::make([
                 Tables\Actions\EditAction::make(),
                 Tables\Actions\Action::make('pairingCode')
                     ->label('Pairing code')
@@ -183,6 +216,7 @@ class DeviceResource extends BaseResource
                         app(AnnouncementService::class)->queue($record, 'test', $data['message']);
                         Notification::make()->title('Queued — the box speaks it on its next poll')->success()->send();
                     }),
+                ])->icon('heroicon-m-ellipsis-vertical')->tooltip('Device actions'),
             ]);
     }
 

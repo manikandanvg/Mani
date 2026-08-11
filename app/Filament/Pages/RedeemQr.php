@@ -194,10 +194,13 @@ class RedeemQr extends Page implements HasForms
                             ->label('OTP')
                             ->placeholder('5-digit code sent to the distributor'),
                         TextInput::make('buyer_gst')
-                            ->label('Distributor GST (optional)')
+                            ->label('Buyer GSTIN (B2B only)')
                             ->placeholder('e.g. 33ABCDE1234F1Z5 — prints in "Invoice To"')
-                            ->helperText('Shown on the tax invoice. If a dealer account is opened, this GSTIN is also set on the dealer branch.')
-                            ->maxLength(25),
+                            ->helperText('Optional. A GSTIN makes this a B2B invoice (GSTR-1). Registered dealers are detected automatically; leave blank for consumer (B2C) redemption.')
+                            ->maxLength(15)
+                            ->rule('nullable')
+                            ->rule('regex:/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][0-9A-Z]{3}$/i')
+                            ->validationMessages(['regex' => 'That does not look like a valid 15-character GSTIN.']),
 
                         // Opt-in dealer account — eligible plans only, default OFF.
                         Section::make()
@@ -289,8 +292,16 @@ class RedeemQr extends Page implements HasForms
             return;
         }
 
-        $msg = "LORD ICL: Your stock-QR redemption OTP is {$otp}. Share it with the counter to complete the redemption.";
-        $res = app(WhatsappSender::class)->sendText($phone, $msg);
+        $msg = "LORD JEWELLER: Your stock-QR redemption OTP is {$otp}. Share it with the counter to complete the redemption.";
+        $res = app(WhatsappSender::class)->sendText($phone, $msg);   // OTP stays on WhatsApp (board 2026-08-11)
+
+        // Push acknowledgement so the attempt also lands in the app inbox.
+        \App\Services\Push\Notifier::to(
+            $qr->member,
+            'redeem',
+            'Redemption OTP sent',
+            'An OTP was sent to your WhatsApp for redeeming QR ' . $qr->qr_code . '. If this was not you, contact your branch immediately.',
+        );
 
         ($res['ok'] ?? false)
             ? Notification::make()->success()->title('OTP sent on WhatsApp')->body('Sent to the distributor\'s number.')->send()

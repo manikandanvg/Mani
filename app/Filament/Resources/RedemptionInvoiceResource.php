@@ -75,6 +75,8 @@ class RedemptionInvoiceResource extends BaseResource
                     ->tooltip(fn (RedemptionInvoice $r) => $r->restockOrder?->request_no),
             ])
             ->filters([
+                \App\Filament\Support\CommonFilters::branch(),
+                \App\Filament\Support\CommonFilters::dateRange('invoice_date', 'Invoiced'),
                 Tables\Filters\SelectFilter::make('payment_mode')
                     ->options(['pending' => 'Pending', 'passed' => 'Passed', 'paid' => 'Paid', 'cash' => 'Cash']),
             ])

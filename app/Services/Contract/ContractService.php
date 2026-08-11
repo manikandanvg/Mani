@@ -74,6 +74,13 @@ class ContractService
 
     protected function filename(Bond $bond): string
     {
-        return 'contract-' . str_replace(['/', '\\', ' '], '-', (string) $bond->invoice_no) . '.pdf';
+        // Public-disk URLs must be UNGUESSABLE (board 2026-08-11): serial invoice
+        // numbers alone would let anyone enumerate /storage/contracts/… and download
+        // every customer's contract. A per-bond HMAC (keyed on APP_KEY) makes the
+        // link shareable-but-unenumerable, while staying deterministic so re-sends
+        // and renewals overwrite the same file.
+        $token = substr(hash_hmac('sha256', 'contract-' . $bond->id, (string) config('app.key')), 0, 16);
+
+        return 'contract-' . str_replace(['/', '\\', ' '], '-', (string) $bond->invoice_no) . '-' . $token . '.pdf';
     }
 }

@@ -93,6 +93,16 @@ class PayrollService
 
         $run->fill(['status' => 'approved', 'approved_by' => $userId, 'approved_at' => Carbon::now()])->save();
 
+        // Payslip-ready acknowledgement (board 2026-08-11: push + inbox).
+        foreach ($run->payslips()->with('employee.member')->get() as $slip) {
+            \App\Services\Push\Notifier::to($slip->employee?->member, 'wallet',
+                'Payslip ready — ' . $run->periodLabel(),
+                'Your salary slip for ' . $run->periodLabel() . ' is ready: net ₹'
+                    . number_format((float) $slip->net, 2) . '. Tap to view.',
+                route: '/payslips/' . $slip->id,
+            );
+        }
+
         return $run;
     }
 
@@ -111,6 +121,16 @@ class PayrollService
             ]);
             $run->fill(['status' => 'paid', 'paid_at' => Carbon::now()])->save();
         });
+
+        // Salary-paid acknowledgement.
+        foreach ($run->payslips()->with('employee.member')->get() as $slip) {
+            \App\Services\Push\Notifier::to($slip->employee?->member, 'wallet',
+                'Salary paid — ' . $run->periodLabel(),
+                '₹' . number_format((float) $slip->net, 2) . ' disbursed'
+                    . ($reference ? " (ref {$reference})" : '') . '. Thank you for your service.',
+                route: '/payslips/' . $slip->id,
+            );
+        }
 
         return $run;
     }

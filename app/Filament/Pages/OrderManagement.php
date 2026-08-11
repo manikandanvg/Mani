@@ -119,6 +119,21 @@ class OrderManagement extends Page implements HasTable
                             return;
                         }
                         $r->update(['status' => $next]);
+
+                        // Shipped / delivered acknowledgements (board 2026-08-11) —
+                        // member orders only; guest checkouts have no app inbox.
+                        if ($r->member_id && in_array($next, ['shipped', 'delivered'], true)) {
+                            \App\Services\Push\Notifier::to(
+                                \App\Models\Member::find($r->member_id),
+                                'order',
+                                'Order ' . $r->order_no . ' ' . $next,
+                                $next === 'shipped'
+                                    ? 'Your order is on its way — track it in the app.'
+                                    : 'Your order has been delivered. Thank you for shopping with Lord Jeweller!',
+                                route: '/orders/' . $r->id,
+                            );
+                        }
+
                         Notification::make()->success()
                             ->title(__(':order → :stage', ['order' => $r->order_no, 'stage' => __(self::STAGE_LABELS[$next])]))
                             ->send();
@@ -132,6 +147,15 @@ class OrderManagement extends Page implements HasTable
                         : null)
                     ->action(function (Order $r) {
                         $r->update(['status' => 'cancelled']);
+                        if ($r->member_id) {
+                            \App\Services\Push\Notifier::to(
+                                \App\Models\Member::find($r->member_id),
+                                'order',
+                                'Order ' . $r->order_no . ' cancelled',
+                                'Your order was cancelled.' . ($r->payment_status === 'paid' ? ' Our team will contact you regarding the refund.' : ''),
+                                route: '/orders/' . $r->id,
+                            );
+                        }
                         Notification::make()->warning()->title(__(':order cancelled', ['order' => $r->order_no]))->send();
                     }),
                 Tables\Actions\Action::make('view')

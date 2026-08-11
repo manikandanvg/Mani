@@ -134,6 +134,11 @@ class SalesInvoiceResource extends BaseResource
                     ->label('Distributor ID')
                     ->numeric()
                     ->sortable(),
+                Tables\Columns\TextColumn::make('buyer_gst')->label('B2B / B2C')->badge()
+                    ->getStateUsing(fn ($record) => $record->buyer_gst ? 'B2B' : 'B2C')
+                    ->color(fn ($state) => $state === 'B2B' ? 'info' : 'gray')
+                    ->tooltip(fn ($record) => $record->buyer_gst)
+                    ->toggleable(),
                 Tables\Columns\TextColumn::make('customer_name')
                     ->label('Distributor name')
                     ->searchable(),
@@ -175,6 +180,17 @@ class SalesInvoiceResource extends BaseResource
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
+                \App\Filament\Support\CommonFilters::branch(),
+                \App\Filament\Support\CommonFilters::dateRange('date', 'Billed'),
+                Tables\Filters\TernaryFilter::make('b2b')
+                    ->label('B2B / B2C')
+                    ->placeholder('All')
+                    ->trueLabel('B2B (buyer GSTIN)')
+                    ->falseLabel('B2C (consumer)')
+                    ->queries(
+                        true: fn ($q) => $q->whereNotNull('buyer_gst'),
+                        false: fn ($q) => $q->whereNull('buyer_gst'),
+                    ),
                 Tables\Filters\TernaryFilter::make('is_invoice')
                     ->label('Document')
                     ->placeholder('All')
