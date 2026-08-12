@@ -11,11 +11,17 @@ return new class extends Migration
 {
     public function up(): void
     {
+        // CONCAT() is MySQL; sqlite (tests) concatenates with ||.
+        $mysql = DB::getDriverName() === 'mysql';
+        $uidL = $mysql ? "CONCAT('L', id)" : "'L' || id";
+        $uidC = $mysql ? "CONCAT('C', id)" : "'C' || id";
+        $uidR = $mysql ? "CONCAT('R', id)" : "'R' || id";
+
         DB::statement('DROP VIEW IF EXISTS commission_entries');
-        DB::statement(<<<'SQL'
+        DB::statement(<<<SQL
 CREATE VIEW commission_entries AS
 SELECT
-    CONCAT('L', id)             AS uid,
+    {$uidL}             AS uid,
     'ledger'                    AS source,
     id                          AS source_id,
     type                        AS type,
@@ -37,7 +43,7 @@ SELECT
 FROM commission_ledger
 UNION ALL
 SELECT
-    CONCAT('C', id),
+    {$uidC},
     'cbc',
     id,
     'CBC',
@@ -59,7 +65,7 @@ SELECT
 FROM cbc_entries
 UNION ALL
 SELECT
-    CONCAT('R', id),
+    {$uidR},
     'reseller',
     id,
     CASE com_type_id

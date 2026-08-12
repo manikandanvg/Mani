@@ -51,6 +51,7 @@ class CommissionSetup extends Page implements HasForms
             [$tds, $svc] = CommissionApprovalService::chargesFor($type);
             $fill[$type] = ['tds' => $tds, 'service' => $svc];
         }
+        $fill['digi_market_fee'] = \App\Services\Wallet\DigiMarketService::platformFeePct();
         $this->form->fill($fill);
     }
 
@@ -85,6 +86,17 @@ class CommissionSetup extends Page implements HasForms
                     ->content(__('Exempt — CBC pays out as 40% E-pin + 60% coupon with no TDS or service charge.')),
             ]);
 
+        // Board 2026-08-11: fee withheld when a distributor transfers Digi
+        // Gold/Silver back to the cash wallet (both metals, % of live value).
+        $sections[] = Forms\Components\Section::make(__('Digi Market'))
+            ->compact()
+            ->description(__('Platform fee charged when Digi Gold/Silver is transferred back into the cash wallet.'))
+            ->schema([
+                Forms\Components\TextInput::make('digi_market_fee')
+                    ->label('Platform fee %')
+                    ->numeric()->minValue(0)->maxValue(30)->required()->suffix('%'),
+            ]);
+
         return $form->schema([
             Forms\Components\Grid::make(2)->schema($sections),
         ])->statePath('data');
@@ -103,6 +115,11 @@ class CommissionSetup extends Page implements HasForms
                 ]), 'type' => 'json'],
             );
         }
+
+        Setting::updateOrCreate(
+            ['group' => 'digi_market', 'key' => 'platform_fee_pct'],
+            ['value' => (string) (float) $d['digi_market_fee'], 'type' => 'float'],
+        );
 
         Notification::make()->success()
             ->title(__('Commission charges saved'))

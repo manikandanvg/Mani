@@ -57,7 +57,10 @@ class ProductResource extends BaseResource
                     Forms\Components\TextInput::make('wastage_charge_pct')->label('Wastage %')->numeric(),
                     Forms\Components\TextInput::make('hallmark_charge')->label('Hallmark charge')->numeric(),
                     Forms\Components\TextInput::make('gst_pct')->label('GST %')->numeric(),
-                    Forms\Components\TextInput::make('stock_qty')->numeric()->default(0),
+                    Forms\Components\TextInput::make('stock_qty')->numeric()
+                        ->label('Stock qty')
+                        ->placeholder('Not tracked')
+                        ->helperText('Leave empty = always available (made to order). Set 0 to show "Out of stock" in the app.'),
                 ]),
                 Translatable::fieldset('description', 'Description', textarea: true, requiredDefault: false),
                 // Product gallery (board 2026-08-11): stored on the public disk under
@@ -133,6 +136,7 @@ class ProductResource extends BaseResource
                     ->sortable(),
                 Tables\Columns\TextColumn::make('stock_qty')
                     ->numeric()
+                    ->placeholder('Not tracked')
                     ->sortable(),
                 Tables\Columns\IconColumn::make('is_active')
                     ->boolean(),

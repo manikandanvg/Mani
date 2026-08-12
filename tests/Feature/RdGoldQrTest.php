@@ -157,15 +157,20 @@ class RdGoldQrTest extends TestCase
             'end_date' => now()->addMonthsNoOverflow(12)->toDateString(), 'content' => '', 'status' => 'active',
         ]);
 
+        // Chart semantics (board 2026-08-10): ONE row per calendar month from the bond
+        // start — pay the renewal in month 2 so it lands on the chart.
+        $paidOn = now()->addMonthsNoOverflow(1)->day(4);
         app(RdCollectionService::class)->collect([
             'bond_id' => $bond->id, 'branch_id' => $this->branch->id, 'amount' => 3000,
-            'paid_on' => '2026-06-04',
+            'paid_on' => $paidOn->toDateString(),
         ]);
 
         $content = $contract->fresh()->content;
-        $this->assertStringContainsString('04/06/2026', $content);          // renewal date printed
+        $this->assertStringContainsString('PAID ' . $paidOn->format('d/m/Y'), $content);  // renewal date printed
         $this->assertStringContainsString('3,000.00', $content);            // renewal amount printed
         $this->assertStringContainsString('RD Branch', $content);           // collecting branch printed
+        // joining row prints the real amount — guards the epin_value "0.00"-is-truthy bug
+        $this->assertStringContainsString('1,500.00', $content);
     }
 
     /** Item 10: the sale QR is worth the allocation_cont % of the billed value. */

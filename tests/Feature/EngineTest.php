@@ -123,6 +123,12 @@ class EngineTest extends TestCase
         $m3 = $this->member('M3', $m2->id);
         $m4 = $this->member('M4', $m3->id);
 
+        // EP gate (board 2026-08-11, legacy checkmemberactive): an upline earns IC
+        // only while holding ≥1 active bond — give each one earning headroom.
+        $this->bond($m1, $plan, ['lvlcom_count' => 0]);
+        $this->bond($m2, $plan, ['lvlcom_count' => 0]);
+        $this->bond($m3, $plan, ['lvlcom_count' => 0]);
+
         $bond = $this->bond($m4, $plan, ['value' => 1000]);
         $count = app(CommissionService::class)->issueInstantCommission($bond);
 
@@ -136,6 +142,25 @@ class EngineTest extends TestCase
         $this->assertEquals('pending', CommissionLedger::where('member_id', $m3->id)->where('type', 'IC')->value('status'));
     }
 
+    public function test_instant_commission_respects_earning_potential(): void
+    {
+        $plan = $this->plan(['ic_schedule' => ['10', '5', '2']]);
+        $m1 = $this->member('M1', null);                       // NO bond → EP 0, earns nothing
+        $m2 = $this->member('M2', $m1->id);                    // bond of 30 → 5% (50) capped to 30
+        $m3 = $this->member('M3', $m2->id);                    // bond of 1000 → full 10%
+        $m4 = $this->member('M4', $m3->id);
+        $this->bond($m2, $plan, ['value' => 30, 'lvlcom_count' => 0]);
+        $this->bond($m3, $plan, ['value' => 1000, 'lvlcom_count' => 0]);
+
+        $bond = $this->bond($m4, $plan, ['value' => 1000]);
+        $count = app(CommissionService::class)->issueInstantCommission($bond);
+
+        $this->assertEquals(2, $count);   // bond-less M1 is skipped entirely
+        $this->assertEquals(100, CommissionLedger::where('member_id', $m3->id)->where('type', 'IC')->sum('amount'));
+        $this->assertEquals(30, CommissionLedger::where('member_id', $m2->id)->where('type', 'IC')->sum('amount'));
+        $this->assertEquals(0, CommissionLedger::where('member_id', $m1->id)->count());
+    }
+
     public function test_gap_respects_rank_qualification(): void
     {
         $plan = $this->plan(['level_schedule' => ['2.5', '1', '0.5']]);
@@ -144,6 +169,11 @@ class EngineTest extends TestCase
         $m2 = $this->member('M2', $m1->id, depth: 2);
         $m3 = $this->member('M3', $m2->id, depth: 1);
         $m4 = $this->member('M4', $m3->id, depth: 0);
+
+        // GAP is EP-gated like IC — qualifying uplines need active bonds. lvlcom_count 0
+        // keeps these bonds from emitting GAP instalments of their own in this run.
+        $this->bond($m2, $plan, ['lvlcom_count' => 0]);
+        $this->bond($m3, $plan, ['lvlcom_count' => 0]);
 
         $bond = $this->bond($m4, $plan, ['value' => 1000, 'lvlcom_count' => 11]);
         $issued = app(CommissionService::class)->runGap(Carbon::now());
@@ -183,6 +213,7 @@ class EngineTest extends TestCase
         $plan = $this->plan();
         $m1 = $this->member('M1', null);
         $m2 = $this->member('M2', $m1->id);
+        $this->bond($m1, $plan, ['lvlcom_count' => 0]);   // EP headroom for the earner
         $bond = $this->bond($m2, $plan, ['value' => 1000]);
         app(CommissionService::class)->issueInstantCommission($bond); // M1 gets 10% = 100 (pending)
 
@@ -203,6 +234,7 @@ class EngineTest extends TestCase
     {
         $plan = $this->plan(['ic_schedule' => ['10', '5']]);
         $upline = $this->member('UP1', null);
+        $this->bond($upline, $plan, ['lvlcom_count' => 0]);   // EP headroom for the earner
 
         $bond = app(PurchaseService::class)->registerPurchase([
             'plan_id' => $plan->id,

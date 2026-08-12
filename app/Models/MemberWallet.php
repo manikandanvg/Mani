@@ -17,6 +17,7 @@ class MemberWallet extends Model
         'earning_total' => 'decimal:2',
         'withdrawn_total' => 'decimal:2',
         'digi_gold_grams' => 'decimal:4',
+        'digi_silver_grams' => 'decimal:4',
     ];
 
     public function member() { return $this->belongsTo(Member::class); }

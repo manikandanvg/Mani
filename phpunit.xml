@@ -38,5 +38,8 @@
         <env name="EXCHANGE_DRIVER" value="manual"/>
         <env name="LBOX_TTS_ENABLED" value="false"/>
         <env name="LBOX_STT_ENABLED" value="false"/>
+        <env name="RAZORPAY_KEY" value=""/>
+        <env name="RAZORPAY_SECRET" value=""/>
+        <env name="RAZORPAY_WEBHOOK_SECRET" value=""/>
     </php>
 </phpunit>

@@ -79,6 +79,7 @@ class TrackDistributor extends TrackPage
                 __('Coupon balance') => $this->money($w->coupon_balance),
                 __('E-pin balance') => $this->money($w->epin_balance),
                 __('Digi gold (g)') => number_format((float) $w->digi_gold_grams, 4),
+                __('Digi silver (g)') => number_format((float) $w->digi_silver_grams, 4),
                 __('Total earned') => $this->money($w->earning_total),
                 __('Total withdrawn') => $this->money($w->withdrawn_total),
             ]];

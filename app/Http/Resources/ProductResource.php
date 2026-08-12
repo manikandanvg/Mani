@@ -31,7 +31,9 @@ class ProductResource extends JsonResource
             'weight' => (float) $this->weight,
             'purity' => $this->purity,
             'is_featured' => (bool) $this->is_featured,
-            'in_stock' => (float) $this->stock_qty > 0,
+            // null = stock not tracked (made to order at the live rate) → available;
+            // only an explicit admin-set 0 reads as out of stock.
+            'in_stock' => $this->stock_qty === null || (float) $this->stock_qty > 0,
             'image' => static::imageUrl($this->images->first()?->path ?? null),
             'price' => [
                 'currency' => 'INR',

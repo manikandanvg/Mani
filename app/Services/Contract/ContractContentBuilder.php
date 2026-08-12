@@ -23,7 +23,9 @@ class ContractContentBuilder
     {
         $plan = $bond->plan;
         $code = (int) preg_replace('/\D/', '', (string) ($plan->code ?? ''));
-        $rec = (float) ($bond->epin_value ?: $bond->value);
+        // NOTE: epin_value is decimal-cast to a STRING — "0.00" is truthy, so the
+        // ?: must run on the float or a zero epin_value renders a ₹0.00 contract.
+        $rec = (float) $bond->epin_value ?: (float) $bond->value;
         $cbc = (float) $bond->cbc_value;                 // monthly cashback value
         $start = $bond->bond_date ? $bond->bond_date->copy() : Carbon::now();
 

@@ -41,7 +41,7 @@ class AdminPanelTest extends TestCase
         $resources = [
             // master + network + catalog
             'branches', 'members', 'ranks', 'plans', 'products',
-            'categories', 'currencies', 'languages', 'commission-ledgers',
+            'categories', 'currencies', 'languages',
             'mous', 'charge-brackets', 'vendors', 'catalog-products', 'staff',
             // trade
             'purchases',
@@ -64,8 +64,9 @@ class AdminPanelTest extends TestCase
                 ->assertSuccessful();
         }
 
-        // index-only resources (no create page)
-        foreach (['stocks', 'orders', 'rd-entries', 'branch-orders', 'bonds', 'payout-statements'] as $slug) {
+        // index-only resources (no create page). commission-ledgers became a read-only
+        // VIEW-backed ledger (board 2026-08-10) — rows are written by the engines.
+        foreach (['stocks', 'orders', 'rd-entries', 'branch-orders', 'bonds', 'payout-statements', 'commission-ledgers'] as $slug) {
             $this->actingAs($this->adminUser)->get("/admin/{$slug}")->assertSuccessful();
         }
     }

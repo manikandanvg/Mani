@@ -1,7 +1,9 @@
 <?php
 
 use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 // Online-order fulfilment pipeline (board spec 2026-08-09): placed(pending) →
 // confirmed → packed → shipped → delivered / cancelled. Also fixes a latent bug:
@@ -17,12 +19,22 @@ return new class extends Migration
     {
         // Repair rows the old enum truncated to '' before tightening anything.
         DB::table('orders')->where('status', '')->update(['status' => 'pending']);
-        DB::statement('ALTER TABLE orders MODIFY status ' . self::NEW);
+
+        if (DB::getDriverName() === 'mysql') {
+            DB::statement('ALTER TABLE orders MODIFY status ' . self::NEW);
+        } else {
+            // sqlite (tests): MODIFY/ENUM is MySQL-only — rebuild the column as a
+            // plain string, which also drops the old CHECK so 'confirmed'/'packed' fit.
+            Schema::table('orders', fn (Blueprint $t) => $t->string('status', 20)->default('pending')->change());
+        }
     }
 
     public function down(): void
     {
         DB::table('orders')->whereIn('status', ['confirmed', 'packed'])->update(['status' => 'paid']);
-        DB::statement('ALTER TABLE orders MODIFY status ' . self::OLD);
+
+        if (DB::getDriverName() === 'mysql') {
+            DB::statement('ALTER TABLE orders MODIFY status ' . self::OLD);
+        }
     }
 };

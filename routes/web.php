@@ -14,6 +14,13 @@ use Illuminate\Support\Facades\Route;
 // signature-verified in the controller and the route is CSRF-exempt (bootstrap/app.php).
 Route::post('/webhooks/razorpay', RazorpayWebhookController::class)->name('webhooks.razorpay');
 
+// Digi-gold buy — browser leg of the app flow (Phase 3). The pay page is opened from
+// the app with a 30-min signed URL; verify is posted by Razorpay Checkout JS.
+Route::get('/digigold/{purchase}/pay', [\App\Http\Controllers\DigiGoldPayController::class, 'pay'])
+    ->middleware('signed')->name('digigold.pay');
+Route::post('/digigold/payment/verify', [\App\Http\Controllers\DigiGoldPayController::class, 'verify'])
+    ->name('digigold.verify');
+
 // Admin: stream a bond's contract / MOU as a PDF (auth-guarded).
 Route::get('/admin/contracts/{bond}/pdf', fn (Bond $bond) => app(ContractService::class)->stream($bond))
     ->middleware(['web', 'auth'])->name('contract.pdf');

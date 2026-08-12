@@ -77,7 +77,6 @@ class RedeemableQrTest extends TestCase
     public function test_deliver_sends_contract_and_qr_then_marks_sent(): void
     {
         Storage::fake('public');
-        config(['services.whatsapp.test_recipient' => '9677676034']);
         Http::fake(['*' => Http::response(['status' => 'ok', 'message' => 'sent'], 200)]);
 
         $bond = $this->makeBond();
@@ -90,9 +89,25 @@ class RedeemableQrTest extends TestCase
         $this->assertTrue((bool) $qr->fresh()->qr_sent);
         $this->assertNotNull($qr->fresh()->sent_at);
 
-        // Two media messages went out (contract PDF + QR image), both to the test recipient.
-        Http::assertSentCount(2);
-        Http::assertSent(fn ($req) => str_contains($req->url(), 'type=media')
-            && str_contains($req->url(), 'number=919677676034'));
+        // Board 2026-08-11: WhatsApp is OTP-only — delivery is app push + inbox.
+        // Two inbox entries land (contract + QR) carrying the download URLs; no
+        // WhatsApp media HTTP calls go out at all.
+        Http::assertSentCount(0);
+
+        $inbox = \Illuminate\Support\Facades\DB::table('notifications')
+            ->where('notifiable_id', $bond->member_id)
+            ->get()
+            ->map(fn ($n) => json_decode($n->data, true));
+
+        $this->assertCount(2, $inbox);
+        $categories = $inbox->pluck('category')->sort()->values()->all();
+        $this->assertSame(['contract', 'qr'], $categories);
+
+        $qrMsg = $inbox->firstWhere('category', 'qr');
+        $this->assertSame((string) $qr->id, $qrMsg['data']['qr_id']);
+        $this->assertNotEmpty($qrMsg['data']['image_url']);
+
+        $contractMsg = $inbox->firstWhere('category', 'contract');
+        $this->assertNotEmpty($contractMsg['data']['contract_url']);
     }
 }

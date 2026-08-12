@@ -10,9 +10,12 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 /**
- * Closed-wallet withdrawal (L-BOX QR flow): scan the box's static QR at a branch,
- * confirm an amount, and the wallet balance moves to that branch — the box announces
- * it and the incharge hands over gold/cash. No payment gateway involved.
+ * Cash-wallet withdrawal through the branch L-BOX static QR (no gateway):
+ * the member scans (or uploads a photo of) the branch QR, requests an amount,
+ * and the incharge hands over cash/gold at the counter.
+ *
+ * Scan & Pay from digi metal is retired (board 2026-08-11) — the QR now only
+ * serves withdrawals; Digi Market moves money strictly wallet ↔ metal.
  */
 class WalletController extends Controller
 {

@@ -41,6 +41,7 @@ class MemberResource extends JsonResource
                 'coupon_balance' => (float) $wallet->coupon_balance,
                 'earning_total' => (float) $wallet->earning_total,
                 'digi_gold_grams' => (float) ($wallet->digi_gold_grams ?? 0),
+                'digi_silver_grams' => (float) ($wallet->digi_silver_grams ?? 0),
             ] : null,
         ];
     }

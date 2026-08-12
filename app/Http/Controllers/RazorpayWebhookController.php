@@ -26,10 +26,20 @@ class RazorpayWebhookController extends Controller
         }
 
         $event = (string) $request->input('event');
+
+        // One-time payments (Phase 3): payment.captured settles digi-gold buys and
+        // storefront/mobile orders even when the buyer never returned from Checkout
+        // to the verify page. Idempotent — verify may already have marked them paid.
+        if ($event === 'payment.captured') {
+            $this->settleCapturedPayment((array) $request->input('payload.payment.entity', []));
+
+            return response()->json(['ok' => true]);
+        }
+
         $sub = $request->input('payload.subscription.entity', []);
         $subId = $sub['id'] ?? null;
         if (! $subId) {
-            return response()->json(['ok' => true]);   // nothing actionable (e.g. order webhooks)
+            return response()->json(['ok' => true]);   // nothing actionable (e.g. other order webhooks)
         }
 
         $mandate = RdMandate::where('razorpay_subscription_id', $subId)->first();
@@ -101,6 +111,66 @@ class RazorpayWebhookController extends Controller
             'Auto-debit received — RD instalment recorded',
             '₹' . number_format((float) $mandate->amount, 2) . ' was auto-debited and your RD instalment is recorded. Your contract passbook is updated.',
             route: '/contracts/' . $mandate->bond_id,
+        );
+    }
+
+    /**
+     * Settle a captured one-time payment by its gateway order id: a digi-gold
+     * purchase or a storefront/mobile order. Both paths are idempotent.
+     */
+    protected function settleCapturedPayment(array $payment): void
+    {
+        $gatewayOrderId = $payment['order_id'] ?? null;
+        if (! $gatewayOrderId) {
+            return;
+        }
+
+        // Digi-gold buy?
+        if (\App\Models\DigiGoldPurchase::where('razorpay_order_id', $gatewayOrderId)->exists()) {
+            app(\App\Services\Wallet\DigiMarketService::class)
+                ->settleByGatewayOrder($gatewayOrderId, $payment['id'] ?? null);
+
+            return;
+        }
+
+        // Storefront / mobile e-com order?
+        $order = \App\Models\Order::where('razorpay_order_id', $gatewayOrderId)->first();
+        if (! $order || $order->payment_status === 'paid') {
+            return;
+        }
+
+        \App\Models\Payment::updateOrCreate(
+            ['razorpay_order_id' => $gatewayOrderId],
+            [
+                'order_id' => $order->id,
+                'gateway' => 'razorpay',
+                'razorpay_payment_id' => $payment['id'] ?? null,
+                'amount' => $order->total,
+                'currency' => 'INR',
+                'status' => 'paid',
+                'method' => $payment['method'] ?? null,
+                'email' => $payment['email'] ?? $order->email,
+                'contact' => $payment['contact'] ?? $order->phone,
+                'meta' => $payment,
+            ],
+        );
+        $order->update(['payment_status' => 'paid', 'status' => 'confirmed', 'paid_at' => now()]);
+
+        if ($order->member_id) {
+            \App\Services\Push\Notifier::to(
+                \App\Models\Member::find($order->member_id),
+                'order',
+                'Payment successful — ' . $order->order_no,
+                '₹' . number_format((float) $order->total, 2) . ' received. Your order is confirmed and will be processed shortly.',
+                route: '/orders/' . $order->id,
+            );
+        }
+        \App\Services\Push\Notifier::admins(
+            'Online order paid — ' . $order->order_no,
+            ($order->customer_name ?: 'A customer') . ' paid ₹' . number_format((float) $order->total, 2)
+                . '. Process it under Online Orders → Order Management.',
+            url: '/admin/order-management',
+            category: 'order',
         );
     }
 

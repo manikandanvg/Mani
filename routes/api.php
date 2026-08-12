@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\V1\AttendanceController;
 use App\Http\Controllers\Api\V1\Auth\OtpController;
 use App\Http\Controllers\Api\V1\CommunityController;
 use App\Http\Controllers\Api\V1\DeviceTokenController;
+use App\Http\Controllers\Api\V1\DigiGoldController;
 use App\Http\Controllers\Api\V1\LibraryController;
 use App\Http\Controllers\Api\V1\MeetingController;
 use App\Http\Controllers\Api\V1\MemberBusinessController;
@@ -42,6 +43,33 @@ Route::prefix('v1')->group(function () {
         ]);
     });
 
+    // CMS pages (board 2026-08-11 item 11): the app's Legal/About pop-ups load
+    // straight from the database — same content the storefront renders.
+    Route::get('pages', function () {
+        return response()->json([
+            'data' => \App\Models\CmsPage::published()->orderBy('slug')->get()
+                ->map(fn ($p) => [
+                    'slug' => $p->slug,
+                    'title' => \App\Support\Translatable::pick($p->title),
+                ])->values(),
+        ]);
+    });
+    Route::get('pages/{slug}', function (string $slug) {
+        $page = \App\Models\CmsPage::published()->where('slug', $slug)->firstOrFail();
+
+        return response()->json([
+            'slug' => $page->slug,
+            'title' => \App\Support\Translatable::pick($page->title),
+            'body' => \App\Support\Translatable::pick($page->body),   // HTML
+        ]);
+    });
+
+    // Home utilities (board 2026-08-11 items 8.3–8.5) — public, legacy parity.
+    Route::get('price-list', [\App\Http\Controllers\Api\V1\UtilityController::class, 'priceList']);
+    Route::get('calculator/plans', [\App\Http\Controllers\Api\V1\UtilityController::class, 'calculatorPlans']);
+    Route::post('calculator', [\App\Http\Controllers\Api\V1\UtilityController::class, 'calculator']);
+    Route::get('stores', [\App\Http\Controllers\Api\V1\UtilityController::class, 'stores']);
+
     // Shop catalog (Phase 1).
     Route::get('categories', [ShopController::class, 'categories']);
     Route::get('products', [ShopController::class, 'products']);
@@ -70,6 +98,9 @@ Route::prefix('v1')->group(function () {
     Route::middleware('auth:sanctum')->group(function () {
         Route::get('me', [AccountController::class, 'me']);
         Route::post('logout', [AccountController::class, 'logout']);
+        // Multi-account holders (board 2026-08-11): list + swap accounts on one phone.
+        Route::get('me/accounts', [AccountController::class, 'accounts']);
+        Route::post('me/switch', [AccountController::class, 'switchAccount']);
 
         // Cart checkout + orders (Phase 1).
         Route::post('checkout/quote', [OrderController::class, 'quote']);
@@ -79,7 +110,9 @@ Route::prefix('v1')->group(function () {
 
         // My Business — distributor area (Phase 2). Member-only (403 for customers).
         Route::get('member/dashboard', [MemberBusinessController::class, 'dashboard']);
+        Route::get('member/status', [MemberBusinessController::class, 'status']);
         Route::get('member/downline', [MemberBusinessController::class, 'downline']);
+        Route::get('member/genealogy', [MemberBusinessController::class, 'genealogy']);
         Route::get('member/earnings/summary', [MemberBusinessController::class, 'earningsSummaryEndpoint']);
         Route::get('member/earnings', [MemberBusinessController::class, 'earnings']);
         Route::get('member/bonds', [MemberBusinessController::class, 'bonds']);
@@ -127,6 +160,15 @@ Route::prefix('v1')->group(function () {
         Route::get('member/wallet/qr/{uuid}', [WalletController::class, 'resolveQr']);
         Route::post('member/wallet/withdraw', [WalletController::class, 'withdraw']);
         Route::get('member/wallet/withdrawals', [WalletController::class, 'withdrawals']);
+
+        // Digi Market (board 2026-08-11) — gold + silver investment purses.
+        // Buy by amount/weight (wallet or online funding); withdraw metal → cash
+        // wallet minus the platform fee. Scan & Pay from metal is retired.
+        Route::get('digimarket', [DigiGoldController::class, 'summary']);
+        Route::post('digimarket/quote', [DigiGoldController::class, 'quote']);
+        Route::post('digimarket/buy', [DigiGoldController::class, 'buy']);
+        Route::post('digimarket/withdraw', [DigiGoldController::class, 'withdraw']);
+        Route::get('digimarket/purchases/{purchase}', [DigiGoldController::class, 'purchase']);
 
         // Live & Learn (Phase 6a) — scheduled meetings (Zoom deep-link).
         Route::get('meetings', [MeetingController::class, 'index']);
