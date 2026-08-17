@@ -9,12 +9,12 @@
 
             <div class="border-t border-b border-stone-100 my-6 py-4 text-sm text-left space-y-1">
                 <div class="flex justify-between"><span class="text-stone-600">{{ ucfirst($purchase->metal) }}</span><span class="font-semibold">{{ number_format((float) $purchase->grams, 4) }} g</span></div>
-                <div class="flex justify-between"><span class="text-stone-600">{{ tr('Rate') }}</span><span>₹{{ number_format((float) $purchase->rate, 2) }} / g</span></div>
+                <div class="flex justify-between"><span class="text-stone-600">{{ tr('Rate') }}</span><span>₹{{ \App\Support\Money::group((float) $purchase->rate) }} / g</span></div>
             </div>
 
             <div class="flex justify-between items-baseline mb-6">
                 <span class="font-medium">{{ tr('Amount payable') }}</span>
-                <span class="text-3xl font-serif font-bold text-brand">₹{{ number_format((float) $purchase->amount, 2) }}</span>
+                <span class="text-3xl font-serif font-bold text-brand">₹{{ \App\Support\Money::group((float) $purchase->amount) }}</span>
             </div>
 
             @if ($razorpayKey && $purchase->razorpay_order_id)

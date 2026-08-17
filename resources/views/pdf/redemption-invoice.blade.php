@@ -3,7 +3,7 @@
 
     $member = $invoice->member;
     $plan   = $invoice->bond?->plan;
-    $fmt    = fn ($n) => number_format((float) $n, 2);
+    $fmt    = fn ($n) => \App\Support\Money::group((float) $n, 2, strtoupper($invoice->currency_code ?: 'INR'));
     $wt     = fn ($n) => rtrim(rtrim(number_format((float) $n, 3), '0'), '.');
 
     // The invoice renders in ITS OWN stamped currency + tax regime (India = ₹/GST,
@@ -151,7 +151,7 @@
                 @if ($showFx)
                 <tr>
                     <td colspan="7" class="right muted" style="font-size:9px;">Approx. in {{ strtoupper($fxCode) }}</td>
-                    <td class="right muted" style="font-size:9px;">{{ $fxSymbol }}{{ number_format($fxGrand, 2) }}</td>
+                    <td class="right muted" style="font-size:9px;">{{ $fxSymbol }}{{ \App\Support\Money::group($fxGrand, 2, strtoupper($fxCode)) }}</td>
                 </tr>
                 @endif
                 <tr>

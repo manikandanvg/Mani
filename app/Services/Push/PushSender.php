@@ -79,11 +79,14 @@ class PushSender
                     ->withOptions(['verify' => app_ca()])
                     ->timeout(15)
                     ->post($endpoint, [
-                        'message' => [
+                        // FCM requires `data` to be a JSON object. An empty PHP array
+                        // encodes as [] and is rejected with INVALID_ARGUMENT, so the
+                        // key is omitted entirely when there is no data payload.
+                        'message' => array_filter([
                             'token' => $token,
                             'notification' => ['title' => $title, 'body' => $body],
-                            'data' => $stringData,
-                        ],
+                            'data' => $stringData ?: null,
+                        ], fn ($v) => $v !== null),
                     ]);
 
                 if ($res->successful()) {

@@ -104,6 +104,32 @@ class MemberBusinessController extends Controller
         $marginType = array_search(strtoupper((string) $request->query('type', '')), $this->resellerLabels(), true);
 
         $rows = match ($stream) {
+            // GAP (item 5, 2026-08-12): ONE merged line per month — the turnover-based
+            // salary is granted monthly; the day-by-day sources live behind the
+            // details popup (gapDetails below).
+            'GAP' => (function () use ($member) {
+                $monthExpr = \Illuminate\Support\Facades\DB::getDriverName() === 'sqlite'
+                    ? "strftime('%Y-%m', earned_on)"
+                    : "DATE_FORMAT(earned_on, '%Y-%m')";
+
+                return $this->ledgerQuery($member, 'GAP')
+                    ->selectRaw("$monthExpr as month")
+                    ->selectRaw('SUM(amount) as amount, SUM(net_amount) as net, COUNT(*) as entries')
+                    ->selectRaw("SUM(CASE WHEN status = 'paid' THEN 1 ELSE 0 END) as paid_entries")
+                    ->groupByRaw($monthExpr)
+                    ->orderByRaw("$monthExpr desc")
+                    ->paginate(12)
+                    ->through(fn ($r) => [
+                        'stream' => 'GAP',
+                        'merged' => true,
+                        'month' => $r->month,
+                        'date' => $r->month . '-01',
+                        'amount' => (float) $r->amount,
+                        'net' => (float) $r->net,
+                        'entries' => (int) $r->entries,
+                        'status' => (int) $r->entries > 0 && (int) $r->paid_entries >= (int) $r->entries ? 'paid' : 'pending',
+                    ]);
+            })(),
             'CBC' => $this->cbcQuery($member)->latest('cbc_date')->paginate(20)
                 ->through(fn (CbcEntry $r) => [
                     'stream' => 'CBC',
@@ -139,6 +165,41 @@ class MemberBusinessController extends Controller
         };
 
         return response()->json($rows);
+    }
+
+    /**
+     * GET /member/earnings/gap-details?month=YYYY-MM — the "where from" table
+     * behind a merged monthly GAP line (item 5): every day's credit with the
+     * source distributor and genealogy level.
+     */
+    public function gapDetails(Request $request): JsonResponse
+    {
+        $member = $this->member($request);
+        $data = $request->validate(['month' => ['required', 'regex:/^\d{4}-\d{2}$/']]);
+
+        $start = \Illuminate\Support\Carbon::createFromFormat('Y-m-d', $data['month'] . '-01')->startOfMonth();
+
+        $rows = $this->ledgerQuery($member, 'GAP')
+            ->whereBetween('earned_on', [$start->toDateString(), $start->copy()->endOfMonth()->toDateString()])
+            ->with('fromMember:id,name,member_code')
+            ->orderBy('earned_on')
+            ->get()
+            ->map(fn (CommissionLedger $r) => [
+                'date' => optional($r->earned_on)->toDateString(),
+                'from' => $r->fromMember?->name,
+                'from_code' => $r->fromMember?->member_code,
+                'level' => $r->level,
+                'amount' => (float) $r->amount,
+                'net' => (float) $r->net_amount,
+                'status' => $r->status,
+            ]);
+
+        return response()->json([
+            'month' => $data['month'],
+            'total' => round((float) $rows->sum('amount'), 2),
+            'net' => round((float) $rows->sum('net'), 2),
+            'rows' => $rows,
+        ]);
     }
 
     /** GET /member/bonds — the member's bonds/plans with progress. */
@@ -247,6 +308,8 @@ class MemberBusinessController extends Controller
                 'levels_covered' => $level,
                 'quality' => Translatable::pick($member->rank?->name),
             ],
+            // "Arrange ₹X more to reach District Admin" (item 4) — null at top stage.
+            'coaching' => app(\App\Services\NetworkService::class)->nextStage($member),
             'pi' => [
                 'total_value' => round($icTotal, 2),
                 'installments' => ['paid' => $icPaidCount, 'total' => $icCount],
@@ -276,7 +339,13 @@ class MemberBusinessController extends Controller
     {
         $member = $this->member($request)->load('rank');
 
-        return response()->json(['root' => $this->genealogyNode($member, 10)]);
+        return response()->json([
+            'root' => $this->genealogyNode($member, 10),
+            // Admin-parity web chart for the app's WebView (item 12) — signed, 3h.
+            'web_url' => \Illuminate\Support\Facades\URL::temporarySignedRoute(
+                'app.genealogy', now()->addHours(3), ['member' => $member->id],
+            ),
+        ]);
     }
 
     protected function genealogyNode(Member $m, int $depth): array

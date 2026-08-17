@@ -71,8 +71,8 @@ class CommissionService
             foreach ($credited as $c) {
                 \App\Services\Push\Notifier::to($c['upline'], 'network',
                     'New billing in your downline',
-                    "{$buyer} billed ₹" . number_format((float) $bond->value, 2)
-                        . ' — you earned ₹' . number_format($c['amount'], 2) . " (Level {$c['level']}, pending approval).",
+                    "{$buyer} billed ₹" . \App\Support\Money::group((float) $bond->value)
+                        . ' — you earned ₹' . \App\Support\Money::group($c['amount']) . " (Level {$c['level']}, pending approval).",
                     route: '/earnings',
                     data: ['bond_id' => (string) $bond->id, 'level' => (string) $c['level']],
                 );

@@ -86,7 +86,7 @@ class UtilityController extends Controller
         if ($amount < (float) $plan->min_value) {
             return response()->json([
                 'message' => 'Minimum for ' . (Translatable::pick($plan->name) ?: $plan->code)
-                    . ' is ₹' . number_format((float) $plan->min_value, 2) . '.',
+                    . ' is ₹' . \App\Support\Money::group((float) $plan->min_value) . '.',
             ], 422);
         }
 
@@ -121,6 +121,93 @@ class UtilityController extends Controller
             'contract_allocation' => $contractAlloc,
             'charges_pct' => $chargePct,
             'cbc_total' => $cbcTotal,
+            // Item 2a (board 2026-08-12): the same benefit lines the CONTRACT
+            // prints, computed for this amount — plan-code semantics mirror
+            // ContractContentBuilder so the calculator and the PDF always agree.
+            'benefits' => $this->benefitRows($plan, $amount),
+        ]);
+    }
+
+    /** Contract-style benefit rows [{label, value}] for a plan + amount. */
+    protected function benefitRows(Plan $plan, float $amount): array
+    {
+        $code = (int) preg_replace('/\D/', '', (string) ($plan->code ?? ''));
+        $inr = fn (float $n) => \App\Support\Money::inr($n);
+
+        // RD savings plans — monthly amount × validity + bonus months.
+        if (($plan->type ?? null) === 'rd' || in_array($code, [200, 208, 209], true)) {
+            $months = (int) ($plan->validity_months ?: 11);
+            $bonus = $code === 200 ? 3 : ($code === 208 ? 2 : 1);
+
+            return [
+                ['label' => "Savings {$inr($amount)} × {$months} months", 'value' => $inr($amount * $months)],
+                ['label' => "{$bonus} month(s) Bonus", 'value' => $inr($amount * $bonus)],
+                ['label' => 'Maturity worth', 'value' => $inr($amount * ($months + $bonus))],
+            ];
+        }
+
+        // Dealership plans — the contract's amount split.
+        $rows = match (true) {
+            $code === 201 => [
+                ['label' => 'SPOT 916 HUID Gold Coins (or) Bar : 50%', 'value' => $inr($amount / 2)],
+                ['label' => '24 months Contract : 50%', 'value' => $inr($amount / 2)],
+            ],
+            $code === 205 => [
+                ['label' => 'SPOT 916 HUID Gold Coins (or) Bar : 70%', 'value' => $inr($amount * 0.70)],
+                ['label' => '24 months Contract : 30%', 'value' => $inr($amount * 0.30)],
+            ],
+            $code === 202 => [
+                ['label' => '12 months Contract : 100%', 'value' => $inr($amount)],
+            ],
+            in_array($code, [203, 204, 207, 214], true) => [
+                ['label' => 'spot Gold 916 HUID Coins (or) Gold Bar (80%)', 'value' => $inr($amount * 0.80)],
+                ['label' => 'Interior (10%)', 'value' => $inr($amount * 0.10)],
+                ['label' => 'Refundable Deposit (10%)', 'value' => $inr($amount * 0.10)],
+            ],
+            default => [
+                ['label' => 'Contract amount', 'value' => $inr($amount)],
+                ['label' => 'Validity', 'value' => (int) ($plan->validity_months ?: 12) . ' months'],
+            ],
+        };
+
+        // Monthly cashback line where the plan pays CBC.
+        if ((float) $plan->cbc_value > 0 && (int) $plan->cbc_count > 0) {
+            $monthlyCbc = round($amount * (float) $plan->cbc_value / 100 / max(1, (int) $plan->cbc_count), 2);
+            $rows[] = [
+                'label' => "Cash Back Coupon {$inr($monthlyCbc)} × {$plan->cbc_count} months",
+                'value' => $inr($monthlyCbc * (int) $plan->cbc_count),
+            ];
+        }
+
+        return $rows;
+    }
+
+    /**
+     * GET /posts?type=news|blog — Events & News for the app Info screen (item 20).
+     * Public; images come out on the REQUEST host so LAN devices can load them.
+     */
+    public function posts(Request $request): JsonResponse
+    {
+        $type = $request->query('type', 'news');
+        abort_unless(in_array($type, ['news', 'blog'], true), 422, 'type must be news or blog');
+
+        return response()->json([
+            'data' => \App\Models\Post::query()
+                ->published()
+                ->type($type)
+                ->orderByDesc('published_at')
+                ->limit(20)
+                ->get()
+                ->map(fn (\App\Models\Post $p) => [
+                    'id' => $p->id,
+                    'type' => $p->type,
+                    'title' => Translatable::pick($p->title),
+                    'excerpt' => Translatable::pick($p->excerpt),
+                    'body' => Translatable::pick($p->body),
+                    'image' => \App\Http\Resources\ProductResource::imageUrl($p->image_path),
+                    'author' => $p->author_name,
+                    'published_at' => optional($p->published_at)->toIso8601String(),
+                ])->values(),
         ]);
     }
 

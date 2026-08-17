@@ -162,7 +162,7 @@ class SettlementService
                     \App\Services\Push\Notifier::to($qr->member, 'settlement',
                         'Scheme settled — your gold QR is ready',
                         'Your contract ' . $qr->invoice_no . ' matured and settled. A gold QR worth ₹'
-                            . number_format((float) $qr->cash_worth, 2) . ' has been issued to you.',
+                            . \App\Support\Money::group((float) $qr->cash_worth) . ' has been issued to you.',
                         route: '/qrs/' . $qr->id,
                         data: ['qr_code' => (string) $qr->qr_code],
                     );

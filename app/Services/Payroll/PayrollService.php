@@ -98,7 +98,7 @@ class PayrollService
             \App\Services\Push\Notifier::to($slip->employee?->member, 'wallet',
                 'Payslip ready — ' . $run->periodLabel(),
                 'Your salary slip for ' . $run->periodLabel() . ' is ready: net ₹'
-                    . number_format((float) $slip->net, 2) . '. Tap to view.',
+                    . \App\Support\Money::group((float) $slip->net) . '. Tap to view.',
                 route: '/payslips/' . $slip->id,
             );
         }
@@ -126,7 +126,7 @@ class PayrollService
         foreach ($run->payslips()->with('employee.member')->get() as $slip) {
             \App\Services\Push\Notifier::to($slip->employee?->member, 'wallet',
                 'Salary paid — ' . $run->periodLabel(),
-                '₹' . number_format((float) $slip->net, 2) . ' disbursed'
+                \App\Support\Money::inr((float) $slip->net) . ' disbursed'
                     . ($reference ? " (ref {$reference})" : '') . '. Thank you for your service.',
                 route: '/payslips/' . $slip->id,
             );

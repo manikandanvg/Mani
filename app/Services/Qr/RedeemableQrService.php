@@ -178,7 +178,7 @@ class RedeemableQrService
 
         return "REDEEMABLE STOCK QR : {$qr->qr_code}"
             . "\nWI : {$gram}"
-            . "\nWorth ₹. " . number_format((float) $qr->cash_worth, 2)
+            . "\nWorth ₹. " . \App\Support\Money::group((float) $qr->cash_worth)
             . "\nMode : " . strtoupper($qr->qr_mode)
             . "\nUser : {$name} ({$code})"
             . "\n\nThis QR requires an OTP sent to your mobile number to redeem it."

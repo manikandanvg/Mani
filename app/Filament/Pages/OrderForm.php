@@ -116,10 +116,10 @@ class OrderForm extends Page implements HasForms
 
                             return new HtmlString(sprintf(
                                 '<span class="text-sm">%s <b>₹%s</b> · %s <b>₹%s</b> · %s <b class="%s">₹%s</b></span>',
-                                e(__('Order limit')), number_format($limit, 2),
-                                e(__('pending approval')), number_format($pending, 2),
+                                e(__('Order limit')), \App\Support\Money::group($limit),
+                                e(__('pending approval')), \App\Support\Money::group($pending),
                                 e(__('available now')), $avail > 0 ? 'text-green-600' : 'text-red-600',
-                                number_format($avail, 2)
+                                \App\Support\Money::group($avail)
                             ));
                         }),
                     Repeater::make('lines')
@@ -183,7 +183,7 @@ class OrderForm extends Page implements HasForms
                                 ->label('Line total')
                                 ->content(fn (Get $get) => new HtmlString(
                                     '<span class="font-semibold">₹' .
-                                    number_format($this->lineTotal($get('catalog_product_id'), (float) $get('weight')), 2) .
+                                    \App\Support\Money::group($this->lineTotal($get('catalog_product_id'), (float) $get('weight'))) .
                                     '</span>'
                                 ))
                                 ->columnSpan(3),
@@ -194,7 +194,7 @@ class OrderForm extends Page implements HasForms
                         ->options(['cash' => 'Cash', 'cheque' => 'Cheque', 'online' => 'Online', 'digi_cash' => 'Digi Cash (wallet)', 'others' => 'Others'])
                         ->default('cash')->required()
                         ->helperText(fn () => 'Digi cash available: ₹'
-                            . number_format((float) (auth()->user()?->branch?->digi_cash_balance ?? 0), 2)),
+                            . \App\Support\Money::group((float) (auth()->user()?->branch?->digi_cash_balance ?? 0))),
                     Textarea::make('payment_remarks')->label('Payment remarks')->rows(2),
                     Placeholder::make('summary')
                         ->label('')
@@ -275,16 +275,16 @@ class OrderForm extends Page implements HasForms
         $grand = $cross + $gst;
         $rows = [
             ['Items', (string) $count],
-            ['Cross total', '₹' . number_format($cross, 2)],
-            ['GST', '₹' . number_format($gst, 2)],
-            ['Grand total', '₹' . number_format($grand, 2)],
+            ['Cross total', \App\Support\Money::inr($cross)],
+            ['GST', \App\Support\Money::inr($gst)],
+            ['Grand total', \App\Support\Money::inr($grand)],
         ];
 
         // Approximate equivalent in the viewer's currency (the order itself is in INR).
         $fxCode = \App\Support\Money::current();
         if (strtoupper($fxCode) !== strtoupper(\App\Support\Money::base()?->code ?? 'INR') && $grand > 0) {
             $sym = \App\Support\Money::currency($fxCode)?->symbol ?? '';
-            $rows[] = ['Approx. (' . strtoupper($fxCode) . ')', $sym . ' ' . number_format(\App\Support\Money::convert($grand, $fxCode), 2)];
+            $rows[] = ['Approx. (' . strtoupper($fxCode) . ')', $sym . ' ' . \App\Support\Money::group(\App\Support\Money::convert($grand, $fxCode), 2, strtoupper($fxCode))];
         }
 
         // Show remaining order headroom for a distributor: max(member BV, invested).
@@ -294,8 +294,8 @@ class OrderForm extends Page implements HasForms
             if ($limit > 0) {
                 $pending = (float) \App\Models\BranchOrderRequest::where('branch_id', $user->branch_id)
                     ->where('status', 'pending')->sum('grand_total');
-                $rows[] = ['Order limit', '₹' . number_format($limit, 2)];
-                $rows[] = ['Available now', '₹' . number_format(max(0, $limit - $pending - $grand), 2)];
+                $rows[] = ['Order limit', \App\Support\Money::inr($limit)];
+                $rows[] = ['Available now', \App\Support\Money::inr(max(0, $limit - $pending - $grand))];
             }
         }
         $html = '<div class="grid grid-cols-4 gap-2 text-sm">';
@@ -352,7 +352,7 @@ class OrderForm extends Page implements HasForms
         Notification::make()
             ->success()
             ->title('Order submitted')
-            ->body($request->request_no . ' sent to Head Office for approval (₹' . number_format((float) $request->grand_total, 2) . ').')
+            ->body($request->request_no . ' sent to Head Office for approval (₹' . \App\Support\Money::group((float) $request->grand_total) . ').')
             ->send();
 
         $this->form->fill([

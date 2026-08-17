@@ -180,8 +180,8 @@ class BranchOrderService
             if (($data['payment_type'] ?? null) === 'digi_cash') {
                 $branch = Branch::whereKey($branchId)->lockForUpdate()->first();
                 abort_if(! $branch || (float) $branch->digi_cash_balance + 0.01 < $grand, 422,
-                    'Insufficient Digi cash: wallet holds ₹' . number_format((float) ($branch->digi_cash_balance ?? 0), 2)
-                    . ', order needs ₹' . number_format($grand, 2) . '.');
+                    'Insufficient Digi cash: wallet holds ₹' . \App\Support\Money::group((float) ($branch->digi_cash_balance ?? 0))
+                    . ', order needs ₹' . \App\Support\Money::group($grand) . '.');
                 $branch->decrement('digi_cash_balance', $grand);
             }
 
@@ -220,7 +220,7 @@ class BranchOrderService
         // HQ bell: a dealer order awaits approval (board 2026-08-11).
         \App\Services\Push\Notifier::admins(
             'Stock order ' . $request->request_no . ' awaiting approval',
-            ($request->branch?->name ?? 'A branch') . ' ordered ₹' . number_format((float) $request->grand_total, 2)
+            ($request->branch?->name ?? 'A branch') . ' ordered ₹' . \App\Support\Money::group((float) $request->grand_total)
                 . ' (' . $request->no_of_items . ' item(s), ' . strtoupper((string) $request->payment_type) . ').',
             url: '/admin/branch-orders',
             category: 'order',
@@ -253,9 +253,9 @@ class BranchOrderService
             422,
             sprintf(
                 'Order exceeds your limit of ₹%s (₹%s already pending, this order ₹%s).',
-                number_format($limit, 2),
-                number_format($pending, 2),
-                number_format($grand, 2)
+                \App\Support\Money::group($limit),
+                \App\Support\Money::group($pending),
+                \App\Support\Money::group($grand)
             )
         );
     }
@@ -332,7 +332,7 @@ class BranchOrderService
             Branch::find($request->branch_id)?->distributorUser?->memberAccount,
             'order',
             'Stock order approved — ' . $request->request_no,
-            'Head Office approved your order of ₹' . number_format((float) $request->grand_total, 2)
+            'Head Office approved your order of ₹' . \App\Support\Money::group((float) $request->grand_total)
                 . '. The stock has been added to your branch.',
             route: '/stock-orders/' . $request->id,
         );
@@ -390,7 +390,7 @@ class BranchOrderService
             Branch::find($request->branch_id)?->distributorUser?->memberAccount,
             'order',
             'Stock order rejected — ' . $request->request_no,
-            'Head Office rejected your stock order of ₹' . number_format((float) $request->grand_total, 2)
+            'Head Office rejected your stock order of ₹' . \App\Support\Money::group((float) $request->grand_total)
                 . ($request->payment_type === 'digi_cash' ? '. Your Digi cash has been refunded.' : '.'),
             route: '/stock-orders/' . $request->id,
         );

@@ -60,6 +60,40 @@ class Money
         $symbol = $currency->symbol ?? '';
         $value = self::convert($baseAmount, $code);
 
-        return trim($symbol . ' ' . number_format($value, $decimals));
+        $code = strtoupper($currency->code ?? 'INR');
+
+        return trim($symbol . ' ' . self::group($value, $decimals, $code));
+    }
+
+    /**
+     * Digit grouping per currency region (board 2026-08-12 item 3): INR uses the
+     * Indian lakh/crore system — ₹18,83,97,300.00, never ₹188,397,300.00. Other
+     * currencies keep Western thousands.
+     */
+    public static function group(float|int|string|null $value, int $decimals = 2, string $code = 'INR'): string
+    {
+        $value = (float) ($value ?? 0);
+
+        if ($code !== 'INR') {
+            return number_format($value, $decimals);
+        }
+
+        $sign = $value < 0 ? '-' : '';
+        $fixed = number_format(abs($value), $decimals, '.', '');
+        [$int, $frac] = array_pad(explode('.', $fixed, 2), 2, '');
+
+        // Last 3 digits stand alone; every 2 digits above them get a comma.
+        if (strlen($int) > 3) {
+            $head = substr($int, 0, -3);
+            $int = preg_replace('/\B(?=(\d{2})+$)/', ',', $head) . ',' . substr($int, -3);
+        }
+
+        return $sign . $int . ($decimals > 0 ? '.' . $frac : '');
+    }
+
+    /** Indian-grouped rupee string WITH the ₹ sign — for services/blades that hand-format. */
+    public static function inr(float|int|string|null $value, int $decimals = 2): string
+    {
+        return '₹' . self::group($value, $decimals, 'INR');
     }
 }

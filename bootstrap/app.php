@@ -15,6 +15,8 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         // Razorpay posts webhooks without a CSRF token; authenticity is verified by HMAC signature.
         $middleware->validateCsrfTokens(except: ['webhooks/*']);
+        // Mobile app language: X-Locale header → app locale for every API response.
+        $middleware->api(append: [\App\Http\Middleware\SetApiLocale::class]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //

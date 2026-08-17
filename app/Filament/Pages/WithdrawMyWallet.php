@@ -82,8 +82,8 @@ class WithdrawMyWallet extends Page implements HasForms
                 Forms\Components\Radio::make('wallet')
                     ->label(__('Withdraw from'))
                     ->options([
-                        'member_cash' => __('My commission wallet — balance ₹:b', ['b' => number_format($b['member_cash'], 2)]),
-                        'branch_digi' => __('Branch Digi cash wallet — balance ₹:b', ['b' => number_format($b['branch_digi'], 2)]),
+                        'member_cash' => __('My commission wallet — balance ₹:b', ['b' => \App\Support\Money::group($b['member_cash'])]),
+                        'branch_digi' => __('Branch Digi cash wallet — balance ₹:b', ['b' => \App\Support\Money::group($b['branch_digi'])]),
                     ])
                     ->required()
                     ->columnSpanFull(),
@@ -133,15 +133,15 @@ class WithdrawMyWallet extends Page implements HasForms
 
         $this->sections = [
             ['heading' => __('Balances'), 'kv' => [
-                __('My commission wallet') => number_format($b['member_cash'], 2),
-                __('Branch Digi cash wallet') => number_format($b['branch_digi'], 2),
+                __('My commission wallet') => \App\Support\Money::group($b['member_cash']),
+                __('Branch Digi cash wallet') => \App\Support\Money::group($b['branch_digi']),
             ]],
             ['heading' => __('My recent requests'),
                 'columns' => [__('Date'), __('Wallet'), __('Amount'), __('Status'), __('Disbursed at'), __('Note')],
                 'rows' => $recent->map(fn ($w) => [
                     $w->created_at?->format('d M Y H:i'),
                     $w->wallet === 'branch_digi' ? __('Branch Digi cash') : __('Commission wallet'),
-                    number_format((float) $w->amount, 2),
+                    \App\Support\Money::group((float) $w->amount),
                     ucfirst((string) $w->status),
                     $w->disbursed_at?->format('d M Y H:i'),
                     $w->note,

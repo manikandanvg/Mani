@@ -19,7 +19,7 @@
 
             <div style="margin-top:.75rem;font-size:.95rem;line-height:1.6;">
                 <div style="font-weight:700;color:#ab222f;letter-spacing:.04em;">{{ $qr->qr_code }}</div>
-                <div>Worth <strong>₹ {{ number_format((float) $qr->cash_worth, 2) }}</strong>
+                <div>Worth <strong>₹ {{ \App\Support\Money::group((float) $qr->cash_worth) }}</strong>
                     @if ($qr->gram_worth !== null)
                         · <strong>{{ number_format((float) $qr->gram_worth, 3) }} gm</strong>
                     @endif

@@ -14,7 +14,7 @@
     $duration = (int) ($plan->validity_months ?: $plan->level_com_duration ?: 12);
     $start    = $bond->bond_date;
     $end      = $start ? $start->copy()->addMonthsNoOverflow($duration) : null;
-    $fmt      = fn ($n) => $sym . ' ' . number_format((float) $n, 2);
+    $fmt      = fn ($n) => $sym . ' ' . \App\Support\Money::group((float) $n, 2, strtoupper($branch?->currency_code ?: 'INR'));
 
     $contractBody = $contractBody ?? '';
     $contractNo   = $contractNo ?? $bond->invoice_no;

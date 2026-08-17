@@ -89,8 +89,25 @@ class MemberResource extends BaseResource
                     ->default('IN'),
                 Forms\Components\TextInput::make('pan')
                     ->maxLength(15),
+                Forms\Components\Toggle::make('pan_verified')
+                    ->label('PAN verified')
+                    ->helperText('Digital verification also sets this from the app/Sales screen.'),
                 Forms\Components\TextInput::make('aadhaar')
                     ->maxLength(16),
+                // Re-KYC review (item 18): the app uploads the Aadhaar card photo;
+                // approving = switching this toggle ON (the member is push-notified
+                // "Aadhaar verified ✓" by the Member observer).
+                Forms\Components\Toggle::make('aadhaar_verified')
+                    ->label('Aadhaar verified (manual approval)')
+                    ->helperText('Review the uploaded card below before approving.'),
+                Forms\Components\Placeholder::make('aadhaar_doc')
+                    ->label('Uploaded Aadhaar card')
+                    ->content(fn (?\App\Models\Member $record) => $record?->aadhaar_doc_path
+                        ? new \Illuminate\Support\HtmlString(
+                            '<a href="' . e(asset('storage/' . $record->aadhaar_doc_path)) . '" target="_blank">'
+                            . '<img src="' . e(asset('storage/' . $record->aadhaar_doc_path)) . '" style="max-height:180px;border-radius:8px" /></a>'
+                        )
+                        : 'Not uploaded yet.'),
                 Forms\Components\TextInput::make('bank_name')
                     ->maxLength(150),
                 Forms\Components\TextInput::make('bank_acno')
@@ -106,8 +123,12 @@ class MemberResource extends BaseResource
                 Forms\Components\TextInput::make('nominee_phone')
                     ->tel()
                     ->maxLength(20),
-                Forms\Components\TextInput::make('photo_path')
-                    ->maxLength(255),
+                Forms\Components\FileUpload::make('photo_path')
+                    ->label('Profile photo')
+                    ->image()
+                    ->directory('members')
+                    ->maxSize(6144)
+                    ->imageEditor(),
                 Forms\Components\TextInput::make('bv')
                     ->label('Business Volume (BV)')
                     ->required()
@@ -168,6 +189,17 @@ class MemberResource extends BaseResource
                         'referrer',
                         fn ($q) => $q->where('name', 'like', "%{$search}%")->orWhere('member_code', 'like', "%{$search}%")
                     )),
+                // Green KYC badge (board 2026-08-12 item 1) — shown wherever members list.
+                Tables\Columns\TextColumn::make('kyc_verified')
+                    ->label('KYC')
+                    ->badge()
+                    ->state(fn (Member $r) => $r->kyc_verified
+                        ? 'Verified'
+                        : (($r->pan_verified || $r->aadhaar_verified) ? 'Partial' : 'Pending'))
+                    ->color(fn (string $state) => match ($state) {
+                        'Verified' => 'success', 'Partial' => 'warning', default => 'gray',
+                    })
+                    ->icon(fn (string $state) => $state === 'Verified' ? 'heroicon-m-check-badge' : null),
                 Tables\Columns\TextColumn::make('name')
                     ->searchable(),
                 Tables\Columns\TextColumn::make('phone')

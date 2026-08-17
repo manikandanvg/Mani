@@ -75,7 +75,7 @@ abstract class ReportPage extends Page implements HasForms
 
     protected function money($value): string
     {
-        return number_format((float) $value, 2);
+        return \App\Support\Money::group((float) $value);
     }
 
     protected function dmy($date): string

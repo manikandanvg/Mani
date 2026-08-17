@@ -234,7 +234,7 @@ class RedemptionService
                 $sym = $branch?->currencySymbol() ?: '₹';
                 $worthLocal = round((float) $qr->cash_worth / $fx, 2);
                 abort_if($grand + 0.01 < $worthLocal, 422,
-                    'Redeemed value (' . $sym . number_format($grand, 2) . ') is below the QR worth (' . $sym . number_format($worthLocal, 2) . ').');
+                    'Redeemed value (' . $sym . \App\Support\Money::group($grand) . ') is below the QR worth (' . $sym . \App\Support\Money::group($worthLocal) . ').');
             }
 
             $invoice = RedemptionInvoice::create([
@@ -308,7 +308,7 @@ class RedemptionService
             \App\Services\Push\Notifier::to($invoice->member, 'redeem',
                 'Gold redeemed — ' . $invoice->invoice_no,
                 'Your QR was redeemed at ' . ($invoice->branch?->name ?? 'the branch')
-                    . ' for ₹' . number_format((float) $invoice->grand_total, 2) . '. Tax invoice attached in the app.',
+                    . ' for ₹' . \App\Support\Money::group((float) $invoice->grand_total) . '. Tax invoice attached in the app.',
                 route: '/redemptions/' . $invoice->id,
                 data: ['invoice_no' => (string) $invoice->invoice_no],
             );

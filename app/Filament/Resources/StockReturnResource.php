@@ -109,7 +109,7 @@ class StockReturnResource extends BaseResource
                     ->color('success')
                     ->requiresConfirmation()
                     ->modalDescription(fn (StockReturn $record) => 'Approve ' . $record->return_no
-                        . '? The stock moves to Head Office and ₹' . number_format((float) $record->total_amount, 2)
+                        . '? The stock moves to Head Office and ₹' . \App\Support\Money::group((float) $record->total_amount)
                         . ' is credited to the branch Digi cash wallet.')
                     ->visible(fn (StockReturn $record) => $record->status === 'pending' && static::isHq())
                     ->action(function (StockReturn $record) {

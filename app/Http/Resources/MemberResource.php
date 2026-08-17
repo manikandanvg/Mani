@@ -32,6 +32,20 @@ class MemberResource extends JsonResource
             ]),
             'bv' => (float) $this->bv,
             'gbv' => (float) $this->gbv,
+            // Profile card (item 21) + Re-KYC gate (item 18), board 2026-08-12.
+            'dob' => optional($this->dob)->toDateString(),
+            'address' => $this->address,
+            'city' => $this->city,
+            'pincode' => $this->pincode,
+            'upi' => $this->upi,
+            'photo_url' => ProductResource::imageUrl($this->photo_path),
+            'kyc' => [
+                'verified' => (bool) $this->pan_verified && (bool) $this->aadhaar_verified,
+                'pan_verified' => (bool) $this->pan_verified,
+                'aadhaar_verified' => (bool) $this->aadhaar_verified,
+                'aadhaar_doc_uploaded' => filled($this->aadhaar_doc_path),
+                'rekyc_required' => \App\Models\KycSetting::rekycRequiredFor($this->resource),
+            ],
             // Payroll (2026-07): drives the app's Attendance/Payslip cards.
             'is_employee' => (bool) ($this->employeeProfile && $this->employeeProfile->status === 'active'),
             'wallet' => $wallet ? [

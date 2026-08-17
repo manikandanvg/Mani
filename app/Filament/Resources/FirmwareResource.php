@@ -46,7 +46,36 @@ class FirmwareResource extends BaseResource
                 Forms\Components\FileUpload::make('path')
                     ->label('Binary (.bin)')
                     ->disk('local')->directory('firmware')
-                    ->acceptedFileTypes(['application/octet-stream'])
+                    /*
+                     * No MIME allow-list. `.bin` has no registered media type, so
+                     * the browser reports whatever the OS says — Windows commonly
+                     * sends application/x-binary or nothing at all, and a
+                     * mimetypes rule then rejects a perfectly good build.
+                     *
+                     * The magic byte below is the check that actually matters: it
+                     * proves the file IS an ESP32 image, which MIME never did.
+                     * Flashing a wrong file to a remote fleet is unrecoverable
+                     * without a site visit, so this is worth being strict about.
+                     */
+                    ->rule(static fn () => static function (string $attribute, $value, \Closure $fail) {
+                        $file = is_array($value) ? reset($value) : $value;
+                        if (! $file instanceof \Illuminate\Http\UploadedFile) {
+                            return;   // already-stored path on edit — nothing to re-check
+                        }
+
+                        if (strtolower((string) $file->getClientOriginalExtension()) !== 'bin') {
+                            $fail('Upload the .bin from .pio/build/<env>/firmware.bin.');
+
+                            return;
+                        }
+
+                        // ESP32 image header starts with 0xE9. firmware.elf, a
+                        // merged flash dump or a zip will not.
+                        if (@file_get_contents($file->getRealPath(), false, null, 0, 1) !== "\xE9") {
+                            $fail('That is not an ESP32 firmware image (missing the 0xE9 header). Did you pick firmware.elf instead of firmware.bin?');
+                        }
+                    })
+                    ->helperText('The firmware.bin produced by `pio run` — e.g. .pio/build/pro/firmware.bin')
                     ->required()
                     ->columnSpanFull(),
                 Forms\Components\TextInput::make('notes')->columnSpanFull(),

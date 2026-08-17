@@ -61,30 +61,30 @@
             </tr>
             <tr>
                 <td>Basic ({{ rtrim(rtrim(number_format((float) ($slip->snapshot['basic_pct'] ?? 50), 2), '0'), '.') }}%)</td>
-                <td class="num">{{ number_format((float) $slip->basic, 2) }}</td>
+                <td class="num">{{ \App\Support\Money::group((float) $slip->basic) }}</td>
                 <td>Provident Fund (EPF)</td>
-                <td class="num">{{ number_format((float) $slip->pf_employee, 2) }}</td>
+                <td class="num">{{ \App\Support\Money::group((float) $slip->pf_employee) }}</td>
             </tr>
             <tr>
                 <td>Other Allowances</td>
-                <td class="num">{{ number_format((float) $slip->gross - (float) $slip->basic, 2) }}</td>
+                <td class="num">{{ \App\Support\Money::group((float) $slip->gross - (float) $slip->basic) }}</td>
                 <td>ESI</td>
-                <td class="num">{{ number_format((float) $slip->esi_employee, 2) }}</td>
+                <td class="num">{{ \App\Support\Money::group((float) $slip->esi_employee) }}</td>
             </tr>
             <tr>
                 <td></td><td class="num"></td>
                 <td>TDS {{ ($slip->snapshot['tds_mode'] ?? 'flat') === 'slab' ? '(Sec 192)' : '' }}</td>
-                <td class="num">{{ number_format((float) $slip->tds, 2) }}</td>
+                <td class="num">{{ \App\Support\Money::group((float) $slip->tds) }}</td>
             </tr>
             <tr>
                 <th>Gross Earnings</th>
-                <th class="num">{{ number_format((float) $slip->gross, 2) }}</th>
+                <th class="num">{{ \App\Support\Money::group((float) $slip->gross) }}</th>
                 <th>Total Deductions</th>
-                <th class="num">{{ number_format((float) $slip->pf_employee + (float) $slip->esi_employee + (float) $slip->tds, 2) }}</th>
+                <th class="num">{{ \App\Support\Money::group((float) $slip->pf_employee + (float) $slip->esi_employee + (float) $slip->tds) }}</th>
             </tr>
             <tr class="net">
                 <td colspan="3">NET PAY</td>
-                <td class="num">₹ {{ number_format((float) $slip->net, 2) }}</td>
+                <td class="num">₹ {{ \App\Support\Money::group((float) $slip->net) }}</td>
             </tr>
         </table>
     </div>
@@ -93,8 +93,8 @@
 
     <table class="meta" style="margin-top:8px">
         <tr>
-            <td class="k">Employer PF Contribution</td><td class="v">₹ {{ number_format((float) $slip->pf_employer, 2) }}</td>
-            <td class="k">Employer ESI Contribution</td><td class="v">₹ {{ number_format((float) $slip->esi_employer, 2) }}</td>
+            <td class="k">Employer PF Contribution</td><td class="v">₹ {{ \App\Support\Money::group((float) $slip->pf_employer) }}</td>
+            <td class="k">Employer ESI Contribution</td><td class="v">₹ {{ \App\Support\Money::group((float) $slip->esi_employer) }}</td>
         </tr>
         <tr>
             <td class="k">Payment Status</td><td class="v" style="text-transform:uppercase">{{ $slip->status }}</td>

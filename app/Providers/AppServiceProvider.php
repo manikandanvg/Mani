@@ -12,8 +12,11 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        // PAN verifier driver, swappable via config('services.pan.driver').
+        // PAN verifier driver — admin-entered creds/driver (System → Verification
+        // Settings) overlay config('services.pan') at resolve time; .env is the fallback.
         $this->app->bind(\App\Services\Pan\PanVerifier::class, function () {
+            \App\Models\KycSetting::applyPanConfig();
+
             return match (config('services.pan.driver')) {
                 'sandbox' => new \App\Services\Pan\SandboxPanVerifier,
                 'surepass', 'zoop' => new \App\Services\Pan\SurepassPanVerifier,
@@ -22,10 +25,15 @@ class AppServiceProvider extends ServiceProvider
         });
 
         // Aadhaar verifier: OTP e-KYC when the admin enables it (System → Verification
-        // Settings), otherwise the instant offline checksum.
-        $this->app->bind(\App\Services\Aadhaar\AadhaarVerifier::class, fn () => \App\Models\KycSetting::aadhaarOtpEnabled()
-            ? new \App\Services\Aadhaar\SandboxOtpAadhaarVerifier
-            : new \App\Services\Aadhaar\ChecksumAadhaarVerifier);
+        // Settings), otherwise the instant offline checksum. OTP e-KYC shares the
+        // Sandbox account, so the admin creds overlay applies here too.
+        $this->app->bind(\App\Services\Aadhaar\AadhaarVerifier::class, function () {
+            \App\Models\KycSetting::applyPanConfig();
+
+            return \App\Models\KycSetting::aadhaarOtpEnabled()
+                ? new \App\Services\Aadhaar\SandboxOtpAadhaarVerifier
+                : new \App\Services\Aadhaar\ChecksumAadhaarVerifier;
+        });
 
         // Translation driver, swappable via config('services.translation.driver').
         $this->app->bind(\App\Services\Translation\Translator::class, function () {
@@ -61,6 +69,24 @@ class AppServiceProvider extends ServiceProvider
         // Admin-only Filament app: forms only ever fill schema-defined fields, so a
         // global unguard keeps every model mass-assignable without per-model $fillable.
         Model::unguard();
+
+        // OTP abuse guards: each /auth/otp/request is a paid WhatsApp send AND an
+        // SMS-bombing vector against arbitrary phones, so it is throttled per target
+        // phone (tight) and per caller IP (looser, so one office NAT can still serve
+        // several users). Verify is capped per IP on top of the 5-wrong-attempts
+        // kill built into OtpService.
+        \Illuminate\Support\Facades\RateLimiter::for('otp-request', function (\Illuminate\Http\Request $request) {
+            $phone = preg_replace('/\D+/', '', (string) $request->input('phone', '')) ?: $request->ip();
+
+            return [
+                \Illuminate\Cache\RateLimiting\Limit::perMinute(3)->by('otp-req:m:' . $phone),
+                \Illuminate\Cache\RateLimiting\Limit::perHour(10)->by('otp-req:h:' . $phone),
+                \Illuminate\Cache\RateLimiting\Limit::perMinute(15)->by('otp-req:ip:' . $request->ip()),
+            ];
+        });
+        \Illuminate\Support\Facades\RateLimiter::for('otp-verify', fn (\Illuminate\Http\Request $request) => [
+            \Illuminate\Cache\RateLimiting\Limit::perMinute(10)->by('otp-ver:ip:' . $request->ip()),
+        ]);
 
         // Every data table gets a CSV / Excel / PDF / Print export toolbar, reading the
         // table's own columns + currently filtered rows. No table sets header actions of

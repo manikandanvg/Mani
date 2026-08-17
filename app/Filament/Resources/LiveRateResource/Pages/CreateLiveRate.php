@@ -21,8 +21,8 @@ class CreateLiveRate extends CreateRecord
         $n = \App\Services\Push\Notifier::broadcast(
             'rates',
             'Gold & silver rates updated',
-            'Gold ₹' . number_format((float) $rate->gold, 2) . '/g · Silver ₹'
-                . number_format((float) $rate->silver, 2) . '/g — effective now at Lord Jeweller.',
+            'Gold ₹' . \App\Support\Money::group((float) $rate->gold) . '/g · Silver ₹'
+                . \App\Support\Money::group((float) $rate->silver) . '/g — effective now at Lord Jeweller.',
             route: '/rates',
         );
 

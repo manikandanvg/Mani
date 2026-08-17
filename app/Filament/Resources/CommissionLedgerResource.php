@@ -192,7 +192,7 @@ class CommissionLedgerResource extends BaseResource
                             \App\Models\Member::find($r->member_id),
                             'commission',
                             'Commission entry under dispute',
-                            'Your ' . $r->type . ' entry of ₹' . number_format((float) $r->amount, 2)
+                            'Your ' . $r->type . ' entry of ₹' . \App\Support\Money::group((float) $r->amount)
                                 . ' dated ' . $r->earned_on?->format('d M Y') . ' is under review. ' . $data['note'],
                             route: '/earnings',
                         );

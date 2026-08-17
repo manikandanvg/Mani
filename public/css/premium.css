@@ -138,3 +138,21 @@
 }
 :root { --font-family: 'Museo', ui-sans-serif, system-ui, sans-serif; }
 body { font-family: 'Museo', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif; }
+
+/* ── Low stock rows (board 2026-08-13) ──────────────────────────────────
+   A product at or below its minimum gets a light danger wash plus a red
+   left rail, so it reads as "reorder me" without shouting over the grid. */
+.icl-stock-low {
+    background-color: rgba(220, 38, 38, 0.07) !important;
+    box-shadow: inset 3px 0 0 0 #dc2626;
+}
+.icl-stock-low:hover {
+    background-color: rgba(220, 38, 38, 0.12) !important;
+}
+.dark .icl-stock-low {
+    background-color: rgba(248, 113, 113, 0.12) !important;
+    box-shadow: inset 3px 0 0 0 #f87171;
+}
+.dark .icl-stock-low:hover {
+    background-color: rgba(248, 113, 113, 0.18) !important;
+}

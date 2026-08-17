@@ -75,6 +75,32 @@ class DigiGoldController extends Controller
     }
 
     /**
+     * GET /digimarket/history — the FULL activity ledger, paginated (item 9,
+     * 2026-08-12): every buy/sell with metal, grams, rate, value and fee.
+     */
+    public function history(Request $request): JsonResponse
+    {
+        $member = $this->member($request);
+
+        $rows = DigiGoldTxn::where('member_id', $member->id)
+            ->orderByDesc('id')
+            ->paginate(30)
+            ->through(fn (DigiGoldTxn $t) => [
+                'id' => $t->id,
+                'metal' => $t->metal,
+                'type' => $t->type,
+                'grams' => (float) $t->grams,
+                'rate' => (float) $t->rate,
+                'value' => (float) $t->value,
+                'fee' => (float) $t->fee,
+                'source' => $t->source,
+                'at' => $t->created_at->toIso8601String(),
+            ]);
+
+        return response()->json($rows);
+    }
+
+    /**
      * POST /digimarket/quote — {metal, amount?|grams?, direction?: buy|withdraw}.
      * Withdraw quotes include the platform fee + net credited.
      */

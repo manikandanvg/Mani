@@ -106,7 +106,7 @@ class DigiMarketService
             throw new \InvalidArgumentException('Unknown funding method.');
         }
         if ($amount < self::MIN_BUY_INR) {
-            throw new \InvalidArgumentException('Minimum purchase is ₹' . number_format(self::MIN_BUY_INR) . '.');
+            throw new \InvalidArgumentException('Minimum purchase is ₹' . \App\Support\Money::group(self::MIN_BUY_INR, 0) . '.');
         }
 
         $quote = $this->quote($metal, $amount);
@@ -152,8 +152,8 @@ class DigiMarketService
             if (! $wallet || (float) $wallet->cash_balance < $quote['amount']) {
                 throw new \InvalidArgumentException(sprintf(
                     'Insufficient wallet balance — you need ₹%s, available ₹%s.',
-                    number_format($quote['amount'], 2),
-                    number_format((float) ($wallet->cash_balance ?? 0), 2),
+                    \App\Support\Money::group($quote['amount']),
+                    \App\Support\Money::group((float) ($wallet->cash_balance ?? 0)),
                 ));
             }
 
@@ -243,7 +243,7 @@ class DigiMarketService
         $q = $this->withdrawQuote($metal, $amount, $grams);
 
         if ($q['amount'] < self::MIN_BUY_INR) {
-            throw new \InvalidArgumentException('Minimum transfer is ₹' . number_format(self::MIN_BUY_INR) . '.');
+            throw new \InvalidArgumentException('Minimum transfer is ₹' . \App\Support\Money::group(self::MIN_BUY_INR, 0) . '.');
         }
 
         $column = $this->gramsColumn($metal);
@@ -279,9 +279,9 @@ class DigiMarketService
 
         Notifier::to($member, 'wallet',
             'Digi ' . ucfirst($metal) . ' transferred to wallet',
-            number_format($q['grams'], 4) . ' g sold at ₹' . number_format($q['rate'], 2) . '/g — ₹'
-                . number_format($q['net'], 2) . ' credited to your cash wallet'
-                . ($q['fee'] > 0 ? ' (platform fee ₹' . number_format($q['fee'], 2) . ')' : '') . '.',
+            number_format($q['grams'], 4) . ' g sold at ₹' . \App\Support\Money::group($q['rate']) . '/g — ₹'
+                . \App\Support\Money::group($q['net']) . ' credited to your cash wallet'
+                . ($q['fee'] > 0 ? ' (platform fee ₹' . \App\Support\Money::group($q['fee']) . ')' : '') . '.',
             route: '/wallet',
         );
 
@@ -321,9 +321,9 @@ class DigiMarketService
 
         Notifier::to($purchase->member, 'wallet',
             'Digi ' . ucfirst($purchase->metal) . ' purchased',
-            number_format((float) $purchase->grams, 4) . ' g credited for ₹' . number_format((float) $purchase->amount, 2)
+            number_format((float) $purchase->grams, 4) . ' g credited for ₹' . \App\Support\Money::group((float) $purchase->amount)
                 . ($fromWallet ? ' from your cash wallet' : '')
-                . ' at ₹' . number_format((float) $purchase->rate, 2) . '/g. Balance: ' . number_format($balance, 4) . ' g.',
+                . ' at ₹' . \App\Support\Money::group((float) $purchase->rate) . '/g. Balance: ' . number_format($balance, 4) . ' g.',
             route: '/digimarket',
         );
     }

@@ -21,6 +21,7 @@
             this.selected = {
                 name: el.dataset.name, code: el.dataset.code, position: el.dataset.position,
                 count: el.dataset.count, active: el.dataset.active === '1', url: el.dataset.url,
+                verified: el.dataset.verified === '1',
                 initial: (el.dataset.name || '?').charAt(0).toUpperCase()
             };
             this.modal = true;
@@ -179,6 +180,9 @@
                         <b :class="selected.active ? 'icl-ok' : 'icl-off'" x-text="selected.active ? 'Active' : 'Inactive'"></b>
                     </div>
                     <div><span>Team size</span><b x-text="selected.count"></b></div>
+                    <div><span>KYC</span>
+                        <b :class="selected.verified ? 'icl-ok' : 'icl-off'" x-text="selected.verified ? '✓ Verified' : 'Pending'"></b>
+                    </div>
                 </div>
                 <a class="icl-modal-open" :href="selected.url" x-show="selected.url" target="_blank">Open distributor record →</a>
             </div>
@@ -262,6 +266,12 @@
 
     .icl-inactive { opacity: .55; }
     .icl-inactive .icl-ava { background: #9ca3af; }
+    /* KYC verified tick (board 2026-08-12 items 1/2) */
+    .icl-ava { position: relative; }
+    .icl-verified { position: absolute; right: -4px; bottom: -3px; width: 16px; height: 16px; border-radius: 50%;
+        background: #059669; color: #fff; font-size: .62rem; font-weight: 800; display: flex; align-items: center;
+        justify-content: center; border: 2px solid #fff; line-height: 1; }
+    .dark .icl-verified { border-color: #1f2937; }
     .icl-card.icl-dim { opacity: .2; filter: grayscale(1); }
     .icl-card.icl-hit { outline: 3px solid #e6ad46; outline-offset: 2px; }
     .icl-card.icl-current { outline: 3px solid #ab222f; outline-offset: 2px; box-shadow: 0 0 0 6px rgba(171,34,47,.15); }

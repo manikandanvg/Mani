@@ -195,7 +195,7 @@ class SalesService
 
             \App\Services\Push\Notifier::to($member, 'invoice',
                 'Invoice ' . $invoice->invoice_no,
-                'Your purchase of ₹' . number_format((float) $invoice->grand_total, 2) . ' is billed. Thank you for shopping with Lord Jeweller.',
+                'Your purchase of ₹' . \App\Support\Money::group((float) $invoice->grand_total) . ' is billed. Thank you for shopping with Lord Jeweller.',
                 route: '/invoices/' . $invoice->id,
                 data: ['invoice_no' => (string) $invoice->invoice_no],
             );
@@ -461,7 +461,7 @@ class SalesService
         if ($plan->max_value !== null && $grandBase > (float) $plan->max_value) {
             throw new \RuntimeException(sprintf(
                 'Bill value ₹%s exceeds the %s per-bill limit of ₹%s.',
-                number_format($grandBase, 2), $plan->code, number_format((float) $plan->max_value, 2)
+                \App\Support\Money::group($grandBase), $plan->code, \App\Support\Money::group((float) $plan->max_value)
             ));
         }
 
@@ -476,7 +476,7 @@ class SalesService
             if ($billed + $grandBase > (float) $plan->max_sales_value) {
                 throw new \RuntimeException(sprintf(
                     'Monthly billing cap reached for %s: ₹%s already billed this month, cap is ₹%s.',
-                    $plan->code, number_format($billed, 2), number_format((float) $plan->max_sales_value, 2)
+                    $plan->code, \App\Support\Money::group($billed), \App\Support\Money::group((float) $plan->max_sales_value)
                 ));
             }
         }

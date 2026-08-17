@@ -49,6 +49,17 @@ class Member extends Model implements AuthenticatableContract
             });
         });
 
+        // Stamp the verified-at clock whenever a KYC flag flips (board 2026-08-12:
+        // the Re-KYC window compares against these — an admin toggle must count).
+        static::saving(function (self $member) {
+            if ($member->isDirty('pan_verified')) {
+                $member->pan_verified_at = $member->pan_verified ? now() : null;
+            }
+            if ($member->isDirty('aadhaar_verified')) {
+                $member->aadhaar_verified_at = $member->aadhaar_verified ? now() : null;
+            }
+        });
+
         // KYC-verified acknowledgements (board 2026-08-11).
         static::updated(function (self $member) {
             if ($member->wasChanged('pan_verified') && $member->pan_verified) {
@@ -77,6 +88,16 @@ class Member extends Model implements AuthenticatableContract
     public function employeeProfile() { return $this->hasOne(EmployeeProfile::class); }
     public function bonds() { return $this->hasMany(Bond::class); }
     public function user() { return $this->belongsTo(User::class); }
+
+    /**
+     * Full KYC (board 2026-08-12 item 1): PAN digitally verified AND Aadhaar
+     * verified. Drives the green "Verified" badge everywhere a member is shown
+     * (admin tables, genealogy nodes, the app profile/tree).
+     */
+    public function getKycVerifiedAttribute(): bool
+    {
+        return (bool) $this->pan_verified && (bool) $this->aadhaar_verified;
+    }
 
     public function deviceTokens() { return $this->morphMany(DeviceToken::class, 'owner'); }
 

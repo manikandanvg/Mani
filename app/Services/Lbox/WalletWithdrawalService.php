@@ -58,7 +58,7 @@ class WalletWithdrawalService
             if (! $wallet || (float) $wallet->cash_balance < $amount) {
                 throw new \InvalidArgumentException(sprintf(
                     'Insufficient wallet balance — available ₹%s.',
-                    number_format((float) ($wallet->cash_balance ?? 0), 2),
+                    \App\Support\Money::group((float) ($wallet->cash_balance ?? 0)),
                 ));
             }
 
@@ -74,8 +74,8 @@ class WalletWithdrawalService
             ]);
 
             $line = ($device->language ?? 'en') === 'ta'
-                ? sprintf('ரூபாய் %s, %s அவர்களிடமிருந்து பெறப்பட்டது. கவுண்டரில் வழங்கவும்.', number_format($amount, 0), $member->name)
-                : sprintf('Rupees %s received from %s. Please disburse at the counter.', number_format($amount, 0), $member->name);
+                ? sprintf('ரூபாய் %s, %s அவர்களிடமிருந்து பெறப்பட்டது. கவுண்டரில் வழங்கவும்.', \App\Support\Money::group($amount, 0), $member->name)
+                : sprintf('Rupees %s received from %s. Please disburse at the counter.', \App\Support\Money::group($amount, 0), $member->name);
 
             $this->announcements->queue($device, 'withdrawal', $line, [
                 'withdrawal_id' => $withdrawal->id,
@@ -89,7 +89,7 @@ class WalletWithdrawalService
         // L-BOX scan → amount acknowledgement to the member (board 2026-08-11).
         \App\Services\Push\Notifier::to($member, 'wallet',
             'Withdrawal request received',
-            '₹' . number_format($amount, 2) . ' withdrawal requested at '
+            \App\Support\Money::inr($amount) . ' withdrawal requested at '
                 . ($withdrawal->branch?->name ?? 'the branch') . '. Collect at the counter once disbursed.',
             route: '/wallet',
             data: ['withdrawal_id' => (string) $withdrawal->id],
@@ -99,7 +99,7 @@ class WalletWithdrawalService
         $branchName = $withdrawal->branch?->name ?? 'branch #' . $withdrawal->branch_id;
         \App\Services\Push\Notifier::admins(
             'Withdrawal request — ' . $branchName,
-            $member->member_code . ' requested ₹' . number_format($amount, 2)
+            $member->member_code . ' requested ₹' . \App\Support\Money::group($amount)
                 . ' at ' . $branchName . '. Approve or cancel under L-BOX → Wallet Withdrawals.',
             url: '/admin/wallet-withdrawals',
             category: 'wallet',
@@ -108,7 +108,7 @@ class WalletWithdrawalService
         if ($dealer && $dealer->id !== $member->id) {
             \App\Services\Push\Notifier::to($dealer, 'wallet',
                 'Withdrawal at your branch',
-                $member->member_code . ' requested ₹' . number_format($amount, 2)
+                $member->member_code . ' requested ₹' . \App\Support\Money::group($amount)
                     . '. Prepare cash/gold for the counter once HQ disburses.',
                 route: '/wallet',
             );
@@ -148,7 +148,7 @@ class WalletWithdrawalService
                 if (! $memberWallet || (float) $memberWallet->cash_balance < $amount) {
                     throw new \InvalidArgumentException(sprintf(
                         'Insufficient wallet balance — available ₹%s.',
-                        number_format((float) ($memberWallet->cash_balance ?? 0), 2),
+                        \App\Support\Money::group((float) ($memberWallet->cash_balance ?? 0)),
                     ));
                 }
                 $memberWallet->decrement('cash_balance', $amount);
@@ -158,7 +158,7 @@ class WalletWithdrawalService
                 if (! $branch || (float) $branch->digi_cash_balance < $amount) {
                     throw new \InvalidArgumentException(sprintf(
                         'Insufficient branch Digi cash — available ₹%s.',
-                        number_format((float) ($branch->digi_cash_balance ?? 0), 2),
+                        \App\Support\Money::group((float) ($branch->digi_cash_balance ?? 0)),
                     ));
                 }
                 $branch->decrement('digi_cash_balance', $amount);
@@ -177,7 +177,7 @@ class WalletWithdrawalService
         // HQ bell + admin mobile: a dealer asked for money from the panel.
         \App\Services\Push\Notifier::admins(
             'Withdrawal request — ' . ($withdrawal->branch?->name ?? 'branch #' . $withdrawal->branch_id),
-            ($user->name ?: 'A dealer') . ' requested ₹' . number_format($amount, 2)
+            ($user->name ?: 'A dealer') . ' requested ₹' . \App\Support\Money::group($amount)
                 . ' from the ' . ($wallet === 'branch_digi' ? 'branch Digi cash wallet' : 'commission wallet')
                 . '. Approve or cancel under L-BOX → Wallet Withdrawals.',
             url: '/admin/wallet-withdrawals',
@@ -207,7 +207,7 @@ class WalletWithdrawalService
 
         \App\Services\Push\Notifier::to($withdrawal->member, 'wallet',
             'Withdrawal disbursed',
-            '₹' . number_format((float) $withdrawal->amount, 2) . ' handed over as ' . strtoupper($mode)
+            \App\Support\Money::inr((float) $withdrawal->amount) . ' handed over as ' . strtoupper($mode)
                 . ' at ' . ($withdrawal->branch?->name ?? 'the branch') . '.',
             route: '/wallet',
         );
@@ -242,7 +242,7 @@ class WalletWithdrawalService
 
         \App\Services\Push\Notifier::to($withdrawal->member, 'wallet',
             'Withdrawal cancelled — amount refunded',
-            '₹' . number_format((float) $withdrawal->amount, 2) . ' was returned to your '
+            \App\Support\Money::inr((float) $withdrawal->amount) . ' was returned to your '
                 . ($withdrawal->wallet === 'branch_digi' ? 'branch Digi cash wallet' : 'commission wallet')
                 . ($note ? '. Reason: ' . $note : '.'),
             route: '/wallet',

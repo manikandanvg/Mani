@@ -24,7 +24,7 @@ class CommunityController extends Controller
     public function feed(Request $request): JsonResponse
     {
         $posts = $this->visible($request)
-            ->with(['author', 'poster'])
+            ->with(['author', 'poster', 'media'])
             ->withCount(['reactions', 'appComments'])
             ->orderByDesc('pinned')
             ->orderByDesc('created_at')
@@ -45,6 +45,7 @@ class CommunityController extends Controller
             'title' => ['nullable', 'string', 'max:255'],
             'body' => ['required', 'string', 'max:4000'],
             'visibility' => ['nullable', 'in:public,members'],
+            'photo' => ['nullable', 'image', 'max:8192'],   // item 8: post with picture
         ]);
 
         $post = SocialPost::create([
@@ -55,7 +56,14 @@ class CommunityController extends Controller
             'visibility' => $data['visibility'] ?? 'members',
         ]);
 
-        return response()->json(['data' => $this->present($post->load('poster'), $request)], 201);
+        if ($request->hasFile('photo')) {
+            $post->media()->create([
+                'path' => $request->file('photo')->store('community', 'public'),
+                'type' => 'image',
+            ]);
+        }
+
+        return response()->json(['data' => $this->present($post->load(['poster', 'media']), $request)], 201);
     }
 
     /** DELETE /community/posts/{post} — a member removes their own post. */
@@ -107,7 +115,7 @@ class CommunityController extends Controller
     {
         abort_unless($this->canSee($request, $post), 404);
 
-        $comments = $post->appComments()->with('author')->orderBy('created_at')
+        $comments = $post->appComments()->where('is_hidden', false)->with('author')->orderBy('created_at')
             ->paginate(30)
             ->through(fn (SocialPostComment $c) => $this->presentComment($c));
 
@@ -166,7 +174,7 @@ class CommunityController extends Controller
             ->limit(20)
             ->get()
             ->values()
-            ->map(fn (Member $m, int $i) => $this->presentRank($m, $i + 1, $me, (float) $m->metric_value));
+            ->map(fn (Member $m, int $i) => $this->presentRank($m, $i + 1, $me, (float) $m->metric_value, $metric));
 
         // The caller's value + global rank (1 + how many active members rank above them).
         $myValue = $this->metricValue($me, $metric);
@@ -184,6 +192,40 @@ class CommunityController extends Controller
         ]);
     }
 
+    /**
+     * GET /community/champions — the champion list BY RANK for the Info screen
+     * (item 19, board 2026-08-12): every active rank from Corporate Director down,
+     * with its top active members by BV. Open to members AND customers — it is a
+     * motivational showcase, not network data.
+     */
+    public function champions(): JsonResponse
+    {
+        $ranks = \App\Models\Rank::where('is_active', true)
+            ->where('depth', '>', 0)                 // MEMBER (depth 0) is not a "champion" tier
+            ->orderByDesc('depth')
+            ->get()
+            ->map(fn (\App\Models\Rank $rank) => [
+                'rank' => \App\Support\Translatable::pick($rank->name) ?: $rank->code,
+                'depth' => (int) $rank->depth,
+                'members' => Member::where('status', 'active')
+                    ->where('rank_id', $rank->id)
+                    ->orderByDesc('bv')
+                    ->orderBy('id')
+                    ->limit(5)
+                    ->get()
+                    ->map(fn (Member $m) => [
+                        'member_code' => $m->member_code,
+                        'name' => $m->name,
+                        'city' => $m->city,
+                        'bv' => (float) $m->bv,
+                    ])->values(),
+            ])
+            ->filter(fn (array $tier) => $tier['members']->isNotEmpty())
+            ->values();
+
+        return response()->json(['data' => $ranks]);
+    }
+
     protected function metricValue(Member $m, string $metric): float
     {
         return match ($metric) {
@@ -194,15 +236,22 @@ class CommunityController extends Controller
         };
     }
 
-    protected function presentRank(Member $m, int $rank, Member $me, float $value): array
+    protected function presentRank(Member $m, int $rank, Member $me, float $value, string $metric = 'bv'): array
     {
+        $mine = (int) $m->id === (int) $me->id;
+
         return [
             'rank' => $rank,
             'member_code' => $m->member_code,
             'name' => $m->name,
-            'tier' => Translatable::pick($m->rank?->name),
-            'value' => round($value, 2),
-            'mine' => (int) $m->id === (int) $me->id,
+            // Every row carries a TBP title so the ranking column is never empty;
+            // `titled` marks real stage-holders (depth ≥ 1) for the gold treatment.
+            'tier' => Translatable::pick($m->rank?->name) ?: 'Distributor',
+            'titled' => (bool) ($m->rank && (int) $m->rank->depth > 0),
+            // Income is private — on the earnings board others see the ORDER, not
+            // the amount; only your own row keeps its number.
+            'value' => ($metric === 'earnings' && ! $mine) ? null : round($value, 2),
+            'mine' => $mine,
         ];
     }
 
@@ -213,7 +262,8 @@ class CommunityController extends Controller
     {
         $levels = $request->user() instanceof Member ? ['public', 'members'] : ['public'];
 
-        return SocialPost::published()->whereIn('visibility', $levels);
+        // Hidden = moderated away by admin (item 8) — invisible in the app, kept in DB.
+        return SocialPost::published()->whereIn('visibility', $levels)->where('is_hidden', false);
     }
 
     protected function canSee(Request $request, SocialPost $post): bool
@@ -221,6 +271,7 @@ class CommunityController extends Controller
         $levels = $request->user() instanceof Member ? ['public', 'members'] : ['public'];
 
         return in_array($post->visibility, $levels, true)
+            && ! $post->is_hidden
             && ($post->published_at === null || $post->published_at->lte(now()));
     }
 
@@ -248,6 +299,9 @@ class CommunityController extends Controller
             'kind' => $isMemberPost ? 'member' : 'announcement',
             'mine' => $this->ownedBy($request, $post),
             'visibility' => $post->visibility,
+            // Post pictures (item 8) — request-host URLs so LAN phones resolve them.
+            'images' => $post->media->where('type', 'image')->sortBy('sort')
+                ->map(fn ($m) => media_url($m->path))->filter()->values(),
             'like_count' => (int) ($post->reactions_count ?? $post->reactions()->count()),
             'comment_count' => (int) ($post->app_comments_count ?? $post->appComments()->count()),
             'liked' => $post->reactions()

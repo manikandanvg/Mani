@@ -222,13 +222,7 @@ class ContractContentBuilder
     /** Indian-grouped amount, e.g. 2500000 → 25,00,000.00 (lakh/crore digit groups). */
     private function inr(float $n): string
     {
-        [$int, $dec] = explode('.', number_format($n, 2, '.', ''));
-        if (strlen($int) > 3) {
-            $head = preg_replace('/\B(?=(\d{2})+(?!\d))/', ',', substr($int, 0, -3));
-            $int = $head . ',' . substr($int, -3);
-        }
-
-        return $int . '.' . $dec;
+        return \App\Support\Money::group($n);
     }
 
     /** Two-column amount rows (label : value). */
@@ -276,11 +270,11 @@ class ContractContentBuilder
 
     private function m(float $n): string
     {
-        return '₹.' . number_format($n, 2);
+        return '₹.' . \App\Support\Money::group($n);
     }
 
     private function n(float $n): string
     {
-        return number_format($n, 2);
+        return \App\Support\Money::group($n);
     }
 }

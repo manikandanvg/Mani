@@ -38,7 +38,16 @@ class VerificationSettings extends Page implements HasForms
 
     public function mount(): void
     {
-        $this->form->fill(['aadhaar_otp_enabled' => KycSetting::current()->aadhaar_otp_enabled]);
+        $s = KycSetting::current();
+        $this->form->fill([
+            'aadhaar_otp_enabled' => $s->aadhaar_otp_enabled,
+            'rekyc_enabled' => (bool) $s->rekyc_enabled,
+            'rekyc_from' => optional($s->rekyc_from)->toDateString(),
+            'rekyc_until' => optional($s->rekyc_until)->toDateString(),
+            'pan_driver' => $s->pan_driver,
+            'sandbox_key' => $s->sandbox_key,
+            'sandbox_secret' => $s->sandbox_secret,
+        ]);
     }
 
     public function form(Form $form): Form
@@ -57,14 +66,64 @@ class VerificationSettings extends Page implements HasForms
                             . '</div>'
                         )),
                 ]),
+
+            // Sandbox (sandbox.co.in) account — one key/secret powers PAN digital
+            // verification AND Aadhaar OTP e-KYC. DB-first; .env is the fallback.
+            Section::make('Verification API (sandbox.co.in)')
+                ->description('Live API credentials for PAN / Aadhaar e-KYC. Leave empty to use the server .env values.')
+                ->schema([
+                    \Filament\Forms\Components\Select::make('pan_driver')
+                        ->label('PAN verification mode')
+                        ->options([
+                            'fake' => 'Test mode — no real API (always verifies)',
+                            'sandbox' => 'Live — Sandbox API',
+                        ])
+                        ->placeholder('Use server default (.env: ' . (config('services.pan.driver') ?: 'fake') . ')')
+                        ->helperText('Live mode needs valid credentials below and credits on your Sandbox account.'),
+                    \Filament\Forms\Components\TextInput::make('sandbox_key')
+                        ->label('API key')
+                        ->placeholder(config('services.pan.key') ? 'Using .env key (' . substr((string) config('services.pan.key'), 0, 12) . '…)' : 'key_live_…'),
+                    \Filament\Forms\Components\TextInput::make('sandbox_secret')
+                        ->label('API secret')
+                        ->password()->revealable()
+                        ->placeholder(config('services.pan.secret') ? 'Using .env secret' : 'secret_live_…'),
+                ])->columns(3),
+
+            // Re-KYC campaign (board 2026-08-12, item 17a): while ON and inside the
+            // window, the app blocks distributors until PAN (digital) + Aadhaar
+            // (upload → manual approval on Members) are re-verified.
+            Section::make('Re-KYC campaign')
+                ->description('Force every distributor to re-verify PAN + Aadhaar in the app within a date window.')
+                ->schema([
+                    Toggle::make('rekyc_enabled')
+                        ->label('Re-KYC required')
+                        ->helperText('On: the app asks distributors to complete KYC again. PAN is verified digitally; the Aadhaar card photo lands on the member for your manual approval.'),
+                    \Filament\Forms\Components\DatePicker::make('rekyc_from')
+                        ->label('Window from')->native(false)
+                        ->helperText('Verifications older than this date do not count.'),
+                    \Filament\Forms\Components\DatePicker::make('rekyc_until')
+                        ->label('Window until')->native(false)
+                        ->helperText('Leave empty for an open-ended campaign.'),
+                ])->columns(3),
         ]);
     }
 
     public function save(): void
     {
+        $state = $this->form->getState();
+
         KycSetting::current()->update([
-            'aadhaar_otp_enabled' => (bool) ($this->form->getState()['aadhaar_otp_enabled'] ?? false),
+            'aadhaar_otp_enabled' => (bool) ($state['aadhaar_otp_enabled'] ?? false),
+            'rekyc_enabled' => (bool) ($state['rekyc_enabled'] ?? false),
+            'rekyc_from' => $state['rekyc_from'] ?: null,
+            'rekyc_until' => $state['rekyc_until'] ?: null,
+            'pan_driver' => $state['pan_driver'] ?: null,
+            'sandbox_key' => trim((string) ($state['sandbox_key'] ?? '')) ?: null,
+            'sandbox_secret' => trim((string) ($state['sandbox_secret'] ?? '')) ?: null,
         ]);
+
+        // New credentials → the cached Sandbox access token must be re-minted.
+        \App\Services\Sandbox\SandboxAuth::forget();
 
         Notification::make()->title('Verification settings saved')->success()->send();
     }

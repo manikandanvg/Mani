@@ -28,8 +28,8 @@ use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
     // --- Public ---
-    Route::post('auth/otp/request', [OtpController::class, 'request']);
-    Route::post('auth/otp/verify', [OtpController::class, 'verify']);
+    Route::post('auth/otp/request', [OtpController::class, 'request'])->middleware('throttle:otp-request');
+    Route::post('auth/otp/verify', [OtpController::class, 'verify'])->middleware('throttle:otp-verify');
 
     // Live metal rate (India) — the app's canonical first call.
     Route::get('rates', function () {
@@ -64,11 +64,36 @@ Route::prefix('v1')->group(function () {
         ]);
     });
 
+    // App preferences meta (2026-08-12 item 14): the language + currency options the
+    // "My Preferences" screen offers, straight from the admin-end modules.
+    Route::get('meta/preferences', function () {
+        return response()->json([
+            'languages' => \App\Models\Language::where('is_active', true)->orderBy('sort')->get()
+                ->map(fn ($l) => [
+                    'code' => strtolower($l->code),
+                    'name' => $l->name,
+                    'native_name' => $l->native_name,
+                    'default' => (bool) $l->is_default,
+                ])->values(),
+            'currencies' => \App\Models\Currency::where('is_active', true)->orderBy('code')->get()
+                ->map(fn ($c) => [
+                    'code' => strtoupper($c->code),
+                    'symbol' => $c->symbol,
+                    'name' => $c->name,
+                    'rate_to_base' => (float) $c->rate_to_base,   // 1 INR = rate units
+                    'decimals' => (int) ($c->decimals ?? 2),
+                    'base' => (bool) $c->is_base,
+                ])->values(),
+            'base_currency' => strtoupper(\App\Support\Money::base()?->code ?? 'INR'),
+        ]);
+    });
+
     // Home utilities (board 2026-08-11 items 8.3–8.5) — public, legacy parity.
     Route::get('price-list', [\App\Http\Controllers\Api\V1\UtilityController::class, 'priceList']);
     Route::get('calculator/plans', [\App\Http\Controllers\Api\V1\UtilityController::class, 'calculatorPlans']);
     Route::post('calculator', [\App\Http\Controllers\Api\V1\UtilityController::class, 'calculator']);
     Route::get('stores', [\App\Http\Controllers\Api\V1\UtilityController::class, 'stores']);
+    Route::get('posts', [\App\Http\Controllers\Api\V1\UtilityController::class, 'posts']);   // Events & News (item 20)
 
     // Shop catalog (Phase 1).
     Route::get('categories', [ShopController::class, 'categories']);
@@ -114,6 +139,7 @@ Route::prefix('v1')->group(function () {
         Route::get('member/downline', [MemberBusinessController::class, 'downline']);
         Route::get('member/genealogy', [MemberBusinessController::class, 'genealogy']);
         Route::get('member/earnings/summary', [MemberBusinessController::class, 'earningsSummaryEndpoint']);
+        Route::get('member/earnings/gap-details', [MemberBusinessController::class, 'gapDetails']);
         Route::get('member/earnings', [MemberBusinessController::class, 'earnings']);
         Route::get('member/bonds', [MemberBusinessController::class, 'bonds']);
 
@@ -140,6 +166,7 @@ Route::prefix('v1')->group(function () {
         // Community (Phase 5a/5b/5c) — announcements + team feed + engagement + leaderboards.
         Route::get('community/feed', [CommunityController::class, 'feed']);
         Route::get('community/leaderboard', [CommunityController::class, 'leaderboard']);
+        Route::get('community/champions', [CommunityController::class, 'champions']);   // item 19
         Route::post('community/posts', [CommunityController::class, 'store']);          // member posts
         Route::get('community/posts/{post}', [CommunityController::class, 'show']);
         Route::delete('community/posts/{post}', [CommunityController::class, 'destroy']); // own post
@@ -165,6 +192,7 @@ Route::prefix('v1')->group(function () {
         // Buy by amount/weight (wallet or online funding); withdraw metal → cash
         // wallet minus the platform fee. Scan & Pay from metal is retired.
         Route::get('digimarket', [DigiGoldController::class, 'summary']);
+        Route::get('digimarket/history', [DigiGoldController::class, 'history']);
         Route::post('digimarket/quote', [DigiGoldController::class, 'quote']);
         Route::post('digimarket/buy', [DigiGoldController::class, 'buy']);
         Route::post('digimarket/withdraw', [DigiGoldController::class, 'withdraw']);
@@ -175,6 +203,19 @@ Route::prefix('v1')->group(function () {
 
         // Training library (Phase 6b) — browse public drive folders/files (member-only).
         Route::get('library', [LibraryController::class, 'index']);
+
+        // My Profile + photo upload (item 21) and the mobile device registry (16/17b).
+        Route::get('member/profile', [\App\Http\Controllers\Api\V1\ProfileController::class, 'show']);
+        Route::post('member/profile', [\App\Http\Controllers\Api\V1\ProfileController::class, 'update']);
+        Route::post('member/profile/photo', [\App\Http\Controllers\Api\V1\ProfileController::class, 'photo']);
+        Route::post('device-registry', [\App\Http\Controllers\Api\V1\ProfileController::class, 'registerDevice']);
+
+        // Re-KYC (item 18): PAN digital, Aadhaar upload → manual approval.
+        Route::get('member/kyc', [\App\Http\Controllers\Api\V1\KycController::class, 'status']);
+        Route::post('member/kyc/pan', [\App\Http\Controllers\Api\V1\KycController::class, 'verifyPan']);
+        Route::post('member/kyc/aadhaar', [\App\Http\Controllers\Api\V1\KycController::class, 'submitAadhaar']);
+        Route::post('member/kyc/aadhaar/otp', [\App\Http\Controllers\Api\V1\KycController::class, 'sendAadhaarOtp']);
+        Route::post('member/kyc/aadhaar/otp/verify', [\App\Http\Controllers\Api\V1\KycController::class, 'verifyAadhaarOtp']);
     });
 });
 

@@ -330,6 +330,85 @@ class NetworkService
     }
 
     /**
+     * "My Status" coaching line (board 2026-08-12 app item 4, legacy parity):
+     * where the member stands, the NEXT TBP stage, and how much more business —
+     * "arrange ₹X more to reach District Admin". Uses the exact same maths as
+     * the promotion engine so the coaching never disagrees with the promotion.
+     *
+     * @return ?array{current: string, next: string, needed_bv: float, requirements: string[]}
+     */
+    public function nextStage(Member $member): ?array
+    {
+        $cfg = $this->rankConfig();
+
+        $self = (float) (DB::table('members')->where('id', $member->id)->value('unpure_bv') ?? 0);
+        $children = DB::table('members')->select('unpure_bv', 'unpure_gbv')
+            ->where('upline_id', $member->id)->get();
+
+        $legs = [];
+        $directQualified = 0;
+        $bestDirectBv = 0.0;
+        foreach ($children as $c) {
+            $bv = (float) $c->unpure_bv;
+            if ($bv >= $cfg['entry']) {
+                $directQualified++;
+            }
+            $bestDirectBv = max($bestDirectBv, $bv);
+            $legs[] = $bv + (float) $c->unpure_gbv;
+        }
+
+        $depth = $this->computeDepth($self, $legs, $directQualified);
+        $current = $cfg['byDepth']->get($depth);
+        $next = $cfg['byDepth']->get($depth + 1);
+        if (! $next) {
+            return null;   // already at the top stage
+        }
+
+        $requirements = [];
+        $neededBv = 0.0;
+
+        if ($depth === 0) {
+            // Entry gate: own ₹entry BV + one direct who also holds ₹entry BV.
+            $ownGap = max(0.0, $cfg['entry'] - $self);
+            if ($ownGap > 0) {
+                $requirements[] = 'Own business: ₹' . \App\Support\Money::group($ownGap, 0) . ' more (of ₹' . \App\Support\Money::group($cfg['entry'], 0) . ')';
+            }
+            if ($directQualified < 1) {
+                $directGap = max(0.0, $cfg['entry'] - $bestDirectBv);
+                $requirements[] = 'One direct distributor at ₹' . \App\Support\Money::group($cfg['entry'], 0)
+                    . ' BV — closest needs ₹' . \App\Support\Money::group($directGap, 0) . ' more';
+                $neededBv += $directGap;
+            }
+            $neededBv += $ownGap;
+        } else {
+            // Balanced legs: greedy-match the next template to the top-5 legs (both
+            // sorted desc); the shortfall is the sum of every unmet remainder.
+            rsort($legs);
+            $legs = array_slice($legs, 0, 5);
+            $template = collect($next->tier_template ?? [])
+                ->map(fn ($t) => (float) $t)->filter(fn ($t) => $t > 0)
+                ->sortDesc()->values();
+
+            foreach ($template as $i => $req) {
+                $legVal = $legs[$i] ?? 0.0;
+                if ($legVal < $req) {
+                    $gap = $req - $legVal;
+                    $neededBv += $gap;
+                    $requirements[] = 'Leg ' . ($i + 1) . ': ₹' . \App\Support\Money::group($gap, 0)
+                        . ' more (needs ₹' . \App\Support\Money::group($req, 0) . ')';
+                }
+            }
+        }
+
+        return [
+            'current' => \App\Support\Translatable::pick($current?->name) ?: 'Distributor',
+            'next' => \App\Support\Translatable::pick($next->name) ?: ('Stage ' . ($depth + 1)),
+            'needed_bv' => round($neededBv, 2),
+            'requirements' => $requirements,
+        ];
+    }
+
+    /**
      * Greedy balanced-leg test: each positive threshold in the template must be met by a
      * DISTINCT leg (one big leg cannot satisfy two requirements). Legs are pre-sorted desc.
      */

@@ -41,6 +41,8 @@ class QrCodeService
             Storage::disk('public')->put($path, $this->png($text));
         }
 
-        return Storage::disk('public')->url($path);
+        // Request-host-derived URL (NOT Storage::url/APP_URL) so phones on the
+        // LAN — and the live domain — always get a link they can actually load.
+        return url('storage/' . $path);
     }
 }

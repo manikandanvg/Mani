@@ -79,6 +79,12 @@ class LboxController extends Controller
             // HQ speaker volume: the box applies it when volume_ver changes (0 = never set)
             'volume' => $device->volume_level,
             'volume_ver' => $device->volume_updated_at?->getTimestamp() ?? 0,
+            // Fleet relocation (LBOX_DEVICE_API_URL): a box provisioned against the
+            // LAN re-points itself here and reboots — no site visit. Only ever sent
+            // when HQ sets it explicitly; an unset value must never move a fleet.
+            // Boxes older than fw 1.0.12 ignore the key AND cannot do TLS, so never
+            // publish an https base until every box has taken that update.
+            'api_url' => config('lbox.device_api_url') ?: null,
         ]);
     }
 

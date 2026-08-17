@@ -56,7 +56,25 @@ class MemberDocumentController extends Controller
             ->sortByDesc('date')
             ->values();
 
-        return response()->json(['data' => $docs]);
+        // Item 10 (board 2026-08-12): the member's redeemable contract QRs with
+        // status + worth. Image URLs are request-host-derived (QrCodeService).
+        $qrSvc = app(\App\Services\Qr\RedeemableQrService::class);
+        $qrs = \App\Models\RedeemableQr::where('member_id', $member->id)
+            ->latest()->get()
+            ->map(fn (\App\Models\RedeemableQr $q) => [
+                'id' => $q->id,
+                'qr_code' => $q->qr_code,
+                'mode' => $q->qr_mode,
+                'status' => $q->redeemed_at ? 'redeemed' : ($q->status ?: 'active'),
+                'gram_worth' => (float) $q->gram_worth,
+                'cash_worth' => (float) $q->cash_worth,
+                'invoice_no' => $q->invoice_no,
+                'image_url' => $qrSvc->imageUrl($q),
+                'issued_at' => optional($q->created_at)->toDateString(),
+                'redeemed_at' => optional($q->redeemed_at)->toDateString(),
+            ])->values();
+
+        return response()->json(['data' => $docs, 'qrs' => $qrs]);
     }
 
     /** GET /member/documents/{type}/{id} (signed) — stream the PDF, scoped to the member. */

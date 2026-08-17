@@ -44,7 +44,21 @@ class MeetingResource extends BaseResource
                 Forms\Components\TextInput::make('duration_min')->label('Duration (min)')->numeric()->default(60),
                 Forms\Components\TextInput::make('host_name')->label('Host'),
                 Forms\Components\Select::make('visibility')
-                    ->options(['members' => 'Distributors only', 'public' => 'Everyone'])->default('members')->required(),
+                    ->options(['members' => 'Distributors only', 'public' => 'Everyone'])->default('members')->required()->live(),
+                // Board 2026-08-12 item 7: optionally narrow the audience to a TBP stage
+                // and above. The app list AND the schedule push both honour this.
+                Forms\Components\Select::make('min_rank_depth')
+                    ->label('Minimum rank (audience)')
+                    ->options([
+                        1 => 'Taluk Admin & above',
+                        2 => 'District Admin & above',
+                        3 => 'Zonal Admin & above',
+                        4 => 'State Admin & above',
+                        5 => 'Corporate Admin only',
+                    ])
+                    ->placeholder('All distributors')
+                    ->visible(fn (Forms\Get $get) => $get('visibility') === 'members')
+                    ->helperText('Leave empty for every distributor. The schedule notification goes only to this audience.'),
                 Forms\Components\Toggle::make('is_published')->default(true),
             ]),
         ]);

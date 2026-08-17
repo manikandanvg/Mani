@@ -148,11 +148,20 @@ class DeviceResource extends BaseResource
                             ->body("Serial {$record->serial_no} — the code is shown once; note it down now.")
                             ->success()->persistent()->send();
                     }),
+                // Board 2026-08-12 (web item 9): open the static QR as a branded card
+                // modal (branch name + device + big QR) instead of a bare PNG tab.
                 Tables\Actions\Action::make('staticQr')
                     ->label('Static QR')
                     ->icon('heroicon-o-qr-code')
-                    ->url(fn (Device $record) => app(\App\Services\Qr\QrCodeService::class)
-                        ->store($record->uuid, "lbox-{$record->serial_no}"), shouldOpenInNewTab: true)
+                    ->modalHeading(__('L-BOX Static QR'))
+                    ->modalContent(fn (Device $record) => view('filament.modals.device-static-qr', [
+                        'device' => $record,
+                        'qrUrl' => app(\App\Services\Qr\QrCodeService::class)
+                            ->store($record->uuid, "lbox-{$record->serial_no}"),
+                    ]))
+                    ->modalWidth('md')
+                    ->modalSubmitAction(false)
+                    ->modalCancelActionLabel(__('Close'))
                     ->tooltip('Print this QR on the box — distributors scan it to withdraw their wallet at this branch.'),
                 Tables\Actions\Action::make('reAnchor')
                     ->label('Re-anchor')

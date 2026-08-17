@@ -12,9 +12,14 @@
          data-position="{{ $node['position'] }}"
          data-count="{{ $node['descendants'] }}"
          data-active="{{ $node['active'] ? '1' : '0' }}"
+         data-verified="{{ ($node['verified'] ?? false) ? '1' : '0' }}"
          data-url="{{ $node['url'] }}"
          @click="pick($el)">
-        <div class="icl-ava">{{ $node['initial'] }}</div>
+        <div class="icl-ava">{{ $node['initial'] }}
+            @if ($node['verified'] ?? false)
+                <span class="icl-verified" title="KYC verified">✓</span>
+            @endif
+        </div>
         <div class="icl-meta">
             <div class="icl-name">{{ $node['name'] }}</div>
             <div class="icl-code">{{ $node['code'] }}</div>

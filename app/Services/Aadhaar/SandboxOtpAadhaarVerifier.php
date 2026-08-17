@@ -51,6 +51,8 @@ class SandboxOtpAadhaarVerifier implements AadhaarVerifier
                 return ['ok' => true, 'ref_id' => (string) $refId, 'message' => $data['message'] ?? 'OTP sent to the Aadhaar-linked mobile.'];
             }
 
+            $this->logGateway('send', $res->status(), $body);
+
             return ['ok' => false, 'ref_id' => null, 'message' => $this->friendly($body['message'] ?? ($data['message'] ?? 'Could not send OTP'))];
         } catch (\Throwable $e) {
             Log::warning('Aadhaar OTP send failed: ' . $e->getMessage());
@@ -77,6 +79,10 @@ class SandboxOtpAadhaarVerifier implements AadhaarVerifier
 
             $status = strtoupper((string) ($data['status'] ?? ''));
             $valid = $res->successful() && ($status === 'VALID' || ! empty($data['name']));
+
+            if (! $valid) {
+                $this->logGateway('verify', $res->status(), $body);
+            }
 
             return [
                 'valid' => (bool) $valid,
@@ -107,10 +113,43 @@ class SandboxOtpAadhaarVerifier implements AadhaarVerifier
         return $res;
     }
 
+    /**
+     * Gateway strings are written for developers, not distributors. UIDAI's OKYC
+     * source drops out regularly (peak hours especially) and surfaces as
+     * "Source Unavailable" / 502 / 503 — that is a wait-and-retry, NOT a wrong
+     * OTP, so the member must be told to keep the same OTP screen open.
+     */
     protected function friendly(string $msg): string
     {
-        return stripos($msg, 'credit') !== false
-            ? 'Aadhaar gateway has no credits — top up your Sandbox account (console.sandbox.co.in).'
-            : $msg;
+        if (stripos($msg, 'credit') !== false) {
+            return 'Aadhaar gateway has no credits — top up your Sandbox account (console.sandbox.co.in).';
+        }
+
+        foreach (['source unavailable', 'source not available', 'upstream', 'gateway time', 'timed out', 'temporarily unavailable'] as $needle) {
+            if (stripos($msg, $needle) !== false) {
+                return 'The UIDAI Aadhaar service is not responding right now. This is not a problem with your OTP — wait a minute and press Verify OTP again.';
+            }
+        }
+
+        if (stripos($msg, 'otp') !== false && stripos($msg, 'invalid') !== false) {
+            return 'That OTP is not correct. Check the SMS and re-enter it.';
+        }
+
+        if (stripos($msg, 'expire') !== false) {
+            return 'The OTP has expired. Tap Resend OTP to get a new one.';
+        }
+
+        return $msg;
+    }
+
+    /** Keep the gateway's own transaction_id — Sandbox support asks for it first. */
+    protected function logGateway(string $step, int $status, array $body): void
+    {
+        Log::warning('Aadhaar OKYC ' . $step . ' failed', [
+            'http' => $status,
+            'code' => $body['code'] ?? null,
+            'message' => $body['message'] ?? null,
+            'transaction_id' => $body['transaction_id'] ?? null,
+        ]);
     }
 }

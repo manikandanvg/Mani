@@ -132,7 +132,7 @@ class RedemptionInvoiceResource extends BaseResource
             );
         }
 
-        $fmt = fn ($n) => '₹' . number_format((float) $n, 2);
+        $fmt = fn ($n) => \App\Support\Money::inr((float) $n);
         $wt = fn ($l) => $l['material'] === 'vessel'
             ? rtrim(rtrim(number_format($l['weight'], 2), '0'), '.') . ' pc'
             : rtrim(rtrim(number_format($l['weight'], 3), '0'), '.') . ' g';

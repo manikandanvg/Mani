@@ -45,6 +45,14 @@ return [
     ],
 
     // Razorpay payment gateway. Key id is public (Checkout JS); secret stays server-side.
+    // Zoom Meeting SDK (in-app meeting join, 2026-08-12) — General App credentials
+    // from marketplace.zoom.us; the secret signs SDK JWTs server-side only.
+    'zoom' => [
+        'sdk_client_id' => env('ZOOM_SDK_CLIENT_ID'),
+        'sdk_client_secret' => env('ZOOM_SDK_CLIENT_SECRET'),
+        'web_sdk_version' => env('ZOOM_WEB_SDK_VERSION', '6.2.0'),
+    ],
+
     'razorpay' => [
         'key' => env('RAZORPAY_KEY'),
         'secret' => env('RAZORPAY_SECRET'),

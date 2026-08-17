@@ -109,7 +109,7 @@ class RazorpayWebhookController extends Controller
             \App\Models\Member::find($mandate->member_id),
             'rd',
             'Auto-debit received — RD instalment recorded',
-            '₹' . number_format((float) $mandate->amount, 2) . ' was auto-debited and your RD instalment is recorded. Your contract passbook is updated.',
+            \App\Support\Money::inr((float) $mandate->amount) . ' was auto-debited and your RD instalment is recorded. Your contract passbook is updated.',
             route: '/contracts/' . $mandate->bond_id,
         );
     }
@@ -161,13 +161,13 @@ class RazorpayWebhookController extends Controller
                 \App\Models\Member::find($order->member_id),
                 'order',
                 'Payment successful — ' . $order->order_no,
-                '₹' . number_format((float) $order->total, 2) . ' received. Your order is confirmed and will be processed shortly.',
+                \App\Support\Money::inr((float) $order->total) . ' received. Your order is confirmed and will be processed shortly.',
                 route: '/orders/' . $order->id,
             );
         }
         \App\Services\Push\Notifier::admins(
             'Online order paid — ' . $order->order_no,
-            ($order->customer_name ?: 'A customer') . ' paid ₹' . number_format((float) $order->total, 2)
+            ($order->customer_name ?: 'A customer') . ' paid ' . \App\Support\Money::inr((float) $order->total)
                 . '. Process it under Online Orders → Order Management.',
             url: '/admin/order-management',
             category: 'order',

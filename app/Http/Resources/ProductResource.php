@@ -5,7 +5,6 @@ namespace App\Http\Resources;
 use App\Support\Translatable;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 /**
@@ -65,15 +64,25 @@ class ProductResource extends JsonResource
         ];
     }
 
-    /** Build a public URL for a stored image path (pass through absolute URLs). */
-    protected static function imageUrl(?string $path): ?string
+    /**
+     * Build a public URL for a stored image path (pass through absolute URLs).
+     *
+     * Derived from the REQUEST host, not APP_URL — the phone calls the API via
+     * the LAN IP (or the live domain) and must get image links on that same host.
+     * Storage::url()/asset() would bake in APP_URL (a dev-only hostname the
+     * device cannot resolve) — the exact bug that once silenced the L-BOX audio.
+     * Legacy `images/...` paths live under public/ directly; everything else is
+     * on the public disk behind the /storage symlink.
+     */
+    public static function imageUrl(?string $path): ?string
     {
         if (! $path) {
             return null;
         }
+        if (Str::startsWith($path, ['http://', 'https://'])) {
+            return $path;
+        }
 
-        return Str::startsWith($path, ['http://', 'https://'])
-            ? $path
-            : Storage::disk('public')->url($path);
+        return Str::startsWith($path, 'images/') ? url($path) : url('storage/' . $path);
     }
 }

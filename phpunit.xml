@@ -41,5 +41,7 @@
         <env name="RAZORPAY_KEY" value=""/>
         <env name="RAZORPAY_SECRET" value=""/>
         <env name="RAZORPAY_WEBHOOK_SECRET" value=""/>
+        <env name="ZOOM_SDK_CLIENT_ID" value=""/>
+        <env name="ZOOM_SDK_CLIENT_SECRET" value=""/>
     </php>
 </phpunit>

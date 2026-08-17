@@ -129,7 +129,7 @@ class RdCollection extends Page implements HasForms
                     $b->member?->name ?? 'Distributor',
                     $b->member?->member_code ?? '—',
                     $b->plan ? Translatable::pick($b->plan->name, $locale) : 'RD',
-                    number_format((float) $b->value, 2)
+                    \App\Support\Money::group((float) $b->value)
                 ),
             ])
             ->all();
@@ -146,7 +146,7 @@ class RdCollection extends Page implements HasForms
             ->with('catalogProduct')
             ->get()
             ->mapWithKeys(fn (Stock $s) => [
-                $s->id => ($s->catalogProduct?->code ?? 'CASH') . ' — balance ₹' . number_format((float) $s->quantity, 2),
+                $s->id => ($s->catalogProduct?->code ?? 'CASH') . ' — balance ₹' . \App\Support\Money::group((float) $s->quantity),
             ])
             ->all();
     }
@@ -163,7 +163,7 @@ class RdCollection extends Page implements HasForms
         $next = $paid + 1;
 
         $rows = [
-            ['Installment value', '₹' . number_format((float) $bond->value, 2)],
+            ['Installment value', \App\Support\Money::inr((float) $bond->value)],
             ['Collected so far', $paid . ($total ? " / {$total}" : '')],
             ['This collection is due #', (string) $next],
             ['Pending', $pending === null ? '—' : (string) $pending],
@@ -200,7 +200,7 @@ class RdCollection extends Page implements HasForms
         Notification::make()
             ->success()
             ->title('Collection saved')
-            ->body($label . ' for ₹' . number_format((float) $entry->value, 2) . ' recorded.')
+            ->body($label . ' for ₹' . \App\Support\Money::group((float) $entry->value) . ' recorded.')
             ->send();
 
         $this->form->fill([

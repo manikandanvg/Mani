@@ -163,7 +163,7 @@ class RdCollectionService
 
         $units = $amount / $monthly;
         abort_if(abs($units - round($units)) > 0.001, 422,
-            'Renewal must be a whole multiple of the monthly amount (₹' . number_format($monthly, 2) . ').');
+            'Renewal must be a whole multiple of the monthly amount (₹' . \App\Support\Money::group($monthly) . ').');
 
         $paid = $monthly + (float) RdEntry::where('bond_id', $bond->id)->sum('value');
         abort_if($paid + $amount > $monthly * $validity + 0.01, 422,

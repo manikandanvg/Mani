@@ -23,7 +23,7 @@ class SocialPostResource extends BaseResource
 
     protected static ?string $navigationGroup = 'Community';
 
-    protected static ?string $navigationLabel = 'Announcements';
+    protected static ?string $navigationLabel = 'Community Posts';
 
     protected static ?string $navigationIcon = 'heroicon-o-megaphone';
 
@@ -60,9 +60,19 @@ class SocialPostResource extends BaseResource
             ->defaultSort('created_at', 'desc')
             ->columns([
                 Tables\Columns\IconColumn::make('pinned')->boolean(),
+                // Who wrote it — HQ announcement vs a member's own post (item 8).
+                Tables\Columns\TextColumn::make('poster.name')
+                    ->label('Author')
+                    ->state(fn (SocialPost $r) => $r->poster_id
+                        ? ($r->poster?->name ?: 'Member') . ' (member)'
+                        : ($r->author?->name ?: 'Lord ICL') . ' (HQ)'),
                 Tables\Columns\TextColumn::make('title')->limit(40)->placeholder('—')->wrap(),
                 Tables\Columns\TextColumn::make('body')->limit(50)->wrap()->toggleable(),
                 Tables\Columns\TextColumn::make('visibility')->badge(),
+                Tables\Columns\IconColumn::make('is_hidden')
+                    ->label('Hidden')->boolean()
+                    ->trueIcon('heroicon-m-eye-slash')->trueColor('danger')
+                    ->falseIcon('heroicon-m-eye')->falseColor('success'),
                 Tables\Columns\TextColumn::make('reactions_count')->counts('reactions')->label('Likes'),
                 Tables\Columns\TextColumn::make('app_comments_count')->counts('appComments')->label('Comments'),
                 Tables\Columns\TextColumn::make('published_at')->dateTime()->placeholder('Now')->sortable(),
@@ -74,9 +84,24 @@ class SocialPostResource extends BaseResource
             ->filters([
                 Tables\Filters\SelectFilter::make('visibility')
                     ->options(['public' => 'Everyone', 'members' => 'Distributors only', 'private' => 'Private']),
+                Tables\Filters\TernaryFilter::make('is_hidden')->label('Hidden'),
+                Tables\Filters\TernaryFilter::make('member_posts')
+                    ->label('Member posts')
+                    ->queries(
+                        true: fn (Builder $q) => $q->whereNotNull('poster_id'),
+                        false: fn (Builder $q) => $q->whereNull('poster_id'),
+                    ),
             ])
             ->actions([
+                // Moderation (item 8): hide keeps the row for the record; the app stops showing it.
+                Tables\Actions\Action::make('toggleHidden')
+                    ->label(fn (SocialPost $r) => $r->is_hidden ? 'Unhide' : 'Hide')
+                    ->icon(fn (SocialPost $r) => $r->is_hidden ? 'heroicon-m-eye' : 'heroicon-m-eye-slash')
+                    ->color(fn (SocialPost $r) => $r->is_hidden ? 'success' : 'danger')
+                    ->requiresConfirmation()
+                    ->action(fn (SocialPost $r) => $r->update(['is_hidden' => ! $r->is_hidden])),
                 Tables\Actions\EditAction::make(),
+                Tables\Actions\DeleteAction::make(),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
@@ -88,7 +113,7 @@ class SocialPostResource extends BaseResource
     public static function getRelations(): array
     {
         return [
-            //
+            RelationManagers\CommentsRelationManager::class,
         ];
     }
 

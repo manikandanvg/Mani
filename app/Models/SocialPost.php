@@ -11,6 +11,7 @@ class SocialPost extends Model
 
     protected $casts = [
         'pinned' => 'boolean',
+        'is_hidden' => 'boolean',
         'published_at' => 'datetime',
     ];
 

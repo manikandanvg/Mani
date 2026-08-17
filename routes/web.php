@@ -14,6 +14,16 @@ use Illuminate\Support\Facades\Route;
 // signature-verified in the controller and the route is CSRF-exempt (bootstrap/app.php).
 Route::post('/webhooks/razorpay', RazorpayWebhookController::class)->name('webhooks.razorpay');
 
+// In-app Zoom join (2026-08-12): the app's WebView opens this signed page; the Web
+// Meeting SDK joins with a server-signed JWT (secret never leaves the server).
+Route::get('/zoom/join/{meeting}', [\App\Http\Controllers\ZoomJoinController::class, 'show'])
+    ->middleware('signed')->name('zoom.join');
+
+// Member genealogy web page (2026-08-12 item 12): the admin-style org chart scoped
+// to the member's subtree, opened by the app in a WebView via a signed URL.
+Route::get('/app/genealogy/{member}', [\App\Http\Controllers\MemberGenealogyController::class, 'show'])
+    ->name('app.genealogy');
+
 // Digi-gold buy — browser leg of the app flow (Phase 3). The pay page is opened from
 // the app with a 30-min signed URL; verify is posted by Razorpay Checkout JS.
 Route::get('/digigold/{purchase}/pay', [\App\Http\Controllers\DigiGoldPayController::class, 'pay'])

@@ -87,4 +87,26 @@ class Notifier
 
         return $count;
     }
+
+    /**
+     * Fan out to a CUSTOM member query (board 2026-08-12 item 7: meeting schedules
+     * go to the targeted audience — e.g. only District Admin & above). The caller
+     * builds the query; this only adds the active + app-registered constraints.
+     *
+     * @return int members notified
+     */
+    public static function toQuery(\Illuminate\Database\Eloquent\Builder $query, string $category, string $title, string $body = '', ?string $route = null, array $data = []): int
+    {
+        $count = 0;
+        $query->where('status', 'active')
+            ->whereHas('deviceTokens')
+            ->chunkById(200, function ($members) use (&$count, $category, $title, $body, $route, $data) {
+                foreach ($members as $member) {
+                    self::to($member, $category, $title, $body, $route, $data);
+                    $count++;
+                }
+            });
+
+        return $count;
+    }
 }

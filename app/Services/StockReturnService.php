@@ -70,7 +70,7 @@ class StockReturnService
         \App\Services\Push\Notifier::admins(
             'Stock return ' . $return->return_no . ' awaiting approval',
             ($return->branch?->name ?? 'A branch') . ' returned stock worth ₹'
-                . number_format((float) $return->total_amount, 2) . '.',
+                . \App\Support\Money::group((float) $return->total_amount) . '.',
             url: '/admin/stock-returns',
             category: 'order',
         );
@@ -134,7 +134,7 @@ class StockReturnService
             Branch::find($return->branch_id)?->distributorUser?->memberAccount,
             'wallet',
             'Stock return approved — ' . $return->return_no,
-            '₹' . number_format((float) $return->total_amount, 2)
+            \App\Support\Money::inr((float) $return->total_amount)
                 . ' has been credited to your branch Digi cash wallet.',
             route: '/wallet',
         );
@@ -153,7 +153,7 @@ class StockReturnService
             \App\Models\Branch::find($return->branch_id)?->distributorUser?->memberAccount,
             'order',
             'Stock return rejected — ' . $return->return_no,
-            'Head Office rejected your stock return of ₹' . number_format((float) $return->total_amount, 2)
+            'Head Office rejected your stock return of ₹' . \App\Support\Money::group((float) $return->total_amount)
                 . '. The stock stays at your branch.',
             route: '/stock-returns/' . $return->id,
         );

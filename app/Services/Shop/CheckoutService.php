@@ -114,7 +114,7 @@ class CheckoutService
         $buyer?->notify(new AppNotification(
             category: 'order',
             title: "Order {$order->order_no} placed",
-            body: 'We received your order of ' . number_format((float) $order->total, 2) . ' INR. We will update you as it progresses.',
+            body: 'We received your order of ' . \App\Support\Money::group((float) $order->total) . ' INR. We will update you as it progresses.',
             route: "/orders/{$order->id}",
             data: ['order_id' => $order->id, 'order_no' => $order->order_no, 'total' => (float) $order->total],
         ));

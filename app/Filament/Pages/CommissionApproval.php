@@ -112,7 +112,7 @@ class CommissionApproval extends Page implements HasForms, HasTable
                             . ' – ' . \Illuminate\Support\Carbon::parse($r->last_earned)->format('d M Y')),
                 TextColumn::make('total_amount')
                     ->label('Total amount')
-                    ->formatStateUsing(fn ($state) => '₹ ' . number_format((float) $state, 2))
+                    ->formatStateUsing(fn ($state) => '₹ ' . \App\Support\Money::group((float) $state))
                     ->sortable(),
             ])
             ->actions([
@@ -215,10 +215,10 @@ class CommissionApproval extends Page implements HasForms, HasTable
             $html .= '<tr style="border-top:1px solid #eee">'
                 . '<td style="padding:.35rem .5rem">' . e($earned ? \Illuminate\Support\Carbon::parse($earned)->format('d M Y') : '—') . '</td>'
                 . '<td style="padding:.35rem .5rem">' . e($this->detailLabel($row)) . '</td>'
-                . '<td style="padding:.35rem .5rem;text-align:right">₹ ' . number_format($amount, 2) . '</td></tr>';
+                . '<td style="padding:.35rem .5rem;text-align:right">₹ ' . \App\Support\Money::group($amount) . '</td></tr>';
         }
         $html .= '<tr style="border-top:2px solid #ddd;font-weight:700"><td colspan="2" style="padding:.35rem .5rem">Total</td>'
-            . '<td style="padding:.35rem .5rem;text-align:right">₹ ' . number_format($total, 2) . '</td></tr></table>';
+            . '<td style="padding:.35rem .5rem;text-align:right">₹ ' . \App\Support\Money::group($total) . '</td></tr></table>';
 
         return $html;
     }
@@ -251,7 +251,7 @@ class CommissionApproval extends Page implements HasForms, HasTable
                 \App\Services\Push\Notifier::to($member, 'commission',
                     'Commission credited to your wallet',
                     "{$memberCount} " . ($this->data['type'] ?? 'commission') . ' entr' . ($memberCount === 1 ? 'y' : 'ies')
-                        . ' approved — gross ₹' . number_format($memberSum, 2) . '; the net after TDS & service charge is now in your wallet.',
+                        . ' approved — gross ₹' . \App\Support\Money::group($memberSum) . '; the net after TDS & service charge is now in your wallet.',
                     route: '/wallet',
                 );
             }
@@ -260,7 +260,7 @@ class CommissionApproval extends Page implements HasForms, HasTable
         Notification::make()
             ->success()
             ->title($count > 0 ? "Approved {$count} commission(s) for {$beneficiaries} beneficiar" . ($beneficiaries === 1 ? 'y' : 'ies') : 'Nothing to approve')
-            ->body($count > 0 ? '₹' . number_format($sum, 2) . ' credited to wallets.' : 'Selected rows were already paid.')
+            ->body($count > 0 ? \App\Support\Money::inr($sum) . ' credited to wallets.' : 'Selected rows were already paid.')
             ->send();
     }
 

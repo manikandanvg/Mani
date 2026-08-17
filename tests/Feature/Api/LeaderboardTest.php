@@ -72,9 +72,13 @@ class LeaderboardTest extends TestCase
         $res = $this->getJson('/api/v1/community/leaderboard?metric=earnings')->assertOk();
 
         $this->assertSame('L11', $res->json('top.0.member_code'));
-        $this->assertEquals(8000.0, $res->json('top.0.value'));
+        // Income privacy (2026-08-12): on the earnings board, other members' rows
+        // keep their ORDER but not their amount; only the caller sees a number.
+        $this->assertNull($res->json('top.0.value'));
         $this->assertSame(2, $res->json('me.rank'));
         $this->assertEquals(2500.0, $res->json('me.value'));
+        $mine = collect($res->json('top'))->firstWhere('member_code', 'L10');
+        $this->assertEquals(2500.0, $mine['value']);
     }
 
     public function test_inactive_members_excluded(): void

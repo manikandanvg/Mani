@@ -54,25 +54,25 @@ class AssistantService
 
         if ($hasGold) {
             return ['gold_rate', $ta
-                ? sprintf('இன்றைய தங்கம் விலை ஒரு கிராமுக்கு ரூபாய் %s.', number_format((float) $rate->gold, 2))
-                : sprintf('Today\'s gold rate is rupees %s per gram.', number_format((float) $rate->gold, 2))];
+                ? sprintf('இன்றைய தங்கம் விலை ஒரு கிராமுக்கு ரூபாய் %s.', \App\Support\Money::group((float) $rate->gold))
+                : sprintf('Today\'s gold rate is rupees %s per gram.', \App\Support\Money::group((float) $rate->gold))];
         }
         if ($hasSilver) {
             return ['silver_rate', $ta
-                ? sprintf('இன்றைய வெள்ளி விலை ஒரு கிராமுக்கு ரூபாய் %s.', number_format((float) $rate->silver, 2))
-                : sprintf('Today\'s silver rate is rupees %s per gram.', number_format((float) $rate->silver, 2))];
+                ? sprintf('இன்றைய வெள்ளி விலை ஒரு கிராமுக்கு ரூபாய் %s.', \App\Support\Money::group((float) $rate->silver))
+                : sprintf('Today\'s silver rate is rupees %s per gram.', \App\Support\Money::group((float) $rate->silver))];
         }
         if ($hasDiamond) {
             return ['diamond_rate', $ta
-                ? sprintf('இன்றைய வைர விலை ரூபாய் %s.', number_format((float) $rate->diamond, 2))
-                : sprintf('Today\'s diamond rate is rupees %s.', number_format((float) $rate->diamond, 2))];
+                ? sprintf('இன்றைய வைர விலை ரூபாய் %s.', \App\Support\Money::group((float) $rate->diamond))
+                : sprintf('Today\'s diamond rate is rupees %s.', \App\Support\Money::group((float) $rate->diamond))];
         }
         if ($asksRate) {
             return ['rates', $ta
                 ? sprintf('இன்றைய விலை: தங்கம் கிராமுக்கு ரூபாய் %s, வெள்ளி கிராமுக்கு ரூபாய் %s.',
-                    number_format((float) $rate->gold, 2), number_format((float) $rate->silver, 2))
+                    \App\Support\Money::group((float) $rate->gold), \App\Support\Money::group((float) $rate->silver))
                 : sprintf('Today\'s rates: gold rupees %s per gram, silver rupees %s per gram.',
-                    number_format((float) $rate->gold, 2), number_format((float) $rate->silver, 2))];
+                    \App\Support\Money::group((float) $rate->gold), \App\Support\Money::group((float) $rate->silver))];
         }
 
         // Volume by voice — the box applies the action locally and confirms.

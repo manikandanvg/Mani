@@ -44,7 +44,7 @@ class GenealogyTree extends Page
         $locale = Translatable::defaultLocale();
 
         $members = Member::query()
-            ->select('id', 'member_code', 'name', 'upline_id', 'rank_id', 'status')
+            ->select('id', 'member_code', 'name', 'upline_id', 'rank_id', 'status', 'pan_verified', 'aadhaar_verified')
             ->with('rank:id,name')
             ->orderBy('id')
             ->get();
@@ -62,6 +62,7 @@ class GenealogyTree extends Page
                 'code' => $m->member_code,
                 'position' => $m->rank ? Translatable::pick($m->rank->name, $locale) : '',
                 'active' => $m->status === 'active',
+                'verified' => $m->kyc_verified,   // green KYC badge (board item 1/2)
                 'initial' => strtoupper(mb_substr(trim($m->name) !== '' ? trim($m->name) : '?', 0, 1)),
                 'url' => url('/admin/members/' . $m->id . '/edit'),
                 'children' => $children,

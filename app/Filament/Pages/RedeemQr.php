@@ -115,7 +115,7 @@ class RedeemQr extends Page implements HasForms
                             ->content(fn () => $this->ctx['plan'] ?? '—'),
                         Placeholder::make('worth')->label('QR worth')
                             ->content(fn () => new HtmlString('<span class="text-lg font-bold text-primary-600">'
-                                . $this->sym() . number_format(round((float) ($this->ctx['worth'] ?? 0) / $this->fx(), 2), 2) . '</span>')),
+                                . $this->sym() . \App\Support\Money::group(round((float) ($this->ctx['worth'] ?? 0) / $this->fx(), 2)) . '</span>')),
                         Placeholder::make('mode')->label('Mode')
                             ->content(fn () => ($this->ctx['mode'] ?? '') === 'A'
                                 ? new HtmlString('<span class="font-semibold">A — Metal purchase</span> <span class="text-gray-500">(cart from original sale · billing branch only · no stock/margin)</span>')
@@ -170,7 +170,7 @@ class RedeemQr extends Page implements HasForms
                                     ->afterStateUpdated(fn ($state, callable $set) => $set('quantity', max(1, (int) $state)))
                                     ->columnSpan(2),
                                 Placeholder::make('line_total')->label('Line total')
-                                    ->content(fn (Get $get) => $this->sym() . number_format($this->priceRow($get('catalog_product_id'), (float) $get('unit_weight'), (float) $get('quantity')), 2))
+                                    ->content(fn (Get $get) => $this->sym() . \App\Support\Money::group($this->priceRow($get('catalog_product_id'), (float) $get('unit_weight'), (float) $get('quantity'))))
                                     ->columnSpan(2),
                             ]),
                         Placeholder::make('cart_total')
@@ -336,7 +336,7 @@ class RedeemQr extends Page implements HasForms
         Notification::make()
             ->success()
             ->title('Redeemed · ' . $invoice->invoice_no)
-            ->body('Tax invoice ' . $sym . number_format((float) $invoice->grand_total, 2) . ' raised.'
+            ->body('Tax invoice ' . $sym . \App\Support\Money::group((float) $invoice->grand_total) . ' raised.'
                 . ($invoice->dealer_created ? ' Dealer account opened.' : ''))
             ->actions([
                 \Filament\Notifications\Actions\Action::make('print')
@@ -466,8 +466,8 @@ class RedeemQr extends Page implements HasForms
         $colour = $ok ? '#16a34a' : '#dc2626';
         $note = $ok ? 'meets the QR worth' : 'below the QR worth — add more';
 
-        return '<span style="font-size:1.25rem;font-weight:700;color:' . $colour . '">' . $sym . number_format($total, 2) . '</span>'
-            . ' <span style="color:#6b7280">/ worth ' . $sym . number_format($worth, 2) . ' — ' . $note . '</span>';
+        return '<span style="font-size:1.25rem;font-weight:700;color:' . $colour . '">' . $sym . \App\Support\Money::group($total) . '</span>'
+            . ' <span style="color:#6b7280">/ worth ' . $sym . \App\Support\Money::group($worth) . ' — ' . $note . '</span>';
     }
 
     protected function renderModeACart(): string
@@ -477,7 +477,7 @@ class RedeemQr extends Page implements HasForms
             $rows .= '<tr>'
                 . '<td style="padding:4px 8px;border-bottom:1px solid #eee">' . e($l['description'] ?? '') . '</td>'
                 . '<td style="padding:4px 8px;border-bottom:1px solid #eee;text-align:right">' . number_format((float) ($l['quantity'] ?? 0), 3) . '</td>'
-                . '<td style="padding:4px 8px;border-bottom:1px solid #eee;text-align:right">' . $this->sym() . number_format((float) ($l['line_total'] ?? 0), 2) . '</td>'
+                . '<td style="padding:4px 8px;border-bottom:1px solid #eee;text-align:right">' . $this->sym() . \App\Support\Money::group((float) ($l['line_total'] ?? 0)) . '</td>'
                 . '</tr>';
         }
         if ($rows === '') {

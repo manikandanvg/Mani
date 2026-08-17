@@ -655,7 +655,7 @@ class Sales extends Page implements HasForms
                 $qty = (float) $s->quantity;
                 $pcs = rtrim(rtrim(number_format($qty, 4), '0'), '.');
                 $avail = $p->material === 'cash'
-                    ? '₹' . number_format($qty, 2) . ' balance'
+                    ? \App\Support\Money::inr($qty) . ' balance'
                     : $pcs . ' pcs' . ((float) $p->default_weight > 0
                         ? ' ≈ ' . number_format($p->gramsFromPieces($qty), 3) . ' g'
                         : '') . ' in stock';
@@ -677,7 +677,7 @@ class Sales extends Page implements HasForms
         // stock.quantity = PIECES (cash = ₹); show grams as the derived figure.
         $cp = CatalogProduct::find($productId);
         if ($cp?->material === 'cash') {
-            return 'Available: ₹' . number_format((float) $q, 2);
+            return 'Available: ₹' . \App\Support\Money::group((float) $q);
         }
         $pcs = rtrim(rtrim(number_format((float) $q, 4), '0'), '.');
         $grams = (float) ($cp?->default_weight ?? 0) > 0

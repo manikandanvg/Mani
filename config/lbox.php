@@ -15,6 +15,19 @@ return [
     // DISPLACED: the branch is treated offline and withdrawals at it are blocked.
     'anchor_radius_m' => env('LBOX_ANCHOR_RADIUS_M', 150),
 
+    /*
+     * Canonical API base every box should be talking to, e.g.
+     *   https://next.lordicl.com/api/device/v1
+     *
+     * Echoed in each heartbeat. A box on fw >= 1.0.12 that sees a value here
+     * different from its own saves it to NVS and reboots onto it, which is how
+     * a LAN-provisioned fleet follows the server to the cloud with no site
+     * visit. Deliberately has NO default — it is left unset until every box in
+     * the fleet is on 1.0.12+, because earlier firmware cannot speak TLS and
+     * would be stranded by an https value it also cannot ignore its way out of.
+     */
+    'device_api_url' => env('LBOX_DEVICE_API_URL'),
+
     'tts' => [
         'enabled' => env('LBOX_TTS_ENABLED', true),
 

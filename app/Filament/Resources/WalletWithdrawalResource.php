@@ -55,6 +55,26 @@ class WalletWithdrawalResource extends BaseResource
                 Tables\Columns\TextColumn::make('member.name')->label('Distributor')->searchable()
                     ->description(fn (WalletWithdrawal $w) => $w->member?->member_code),
                 Tables\Columns\TextColumn::make('branch.name')->label('Branch'),
+                // Board 2026-08-12 (web item 4): make the three origins tell apart at a
+                // glance — app QR scan at the box vs the two dealer-panel request pots.
+                Tables\Columns\TextColumn::make('source')->label('Source')->badge()
+                    ->getStateUsing(fn (WalletWithdrawal $w) => $w->device_id !== null
+                        ? 'lbox'
+                        : ($w->wallet === 'branch_digi' ? 'panel_branch_digi' : 'panel_member_cash'))
+                    ->formatStateUsing(fn (string $state) => match ($state) {
+                        'lbox' => __('L-BOX QR'),
+                        'panel_branch_digi' => __('Panel — Branch Digi'),
+                        default => __('Panel — Cash wallet'),
+                    })
+                    ->icon(fn (string $state) => match ($state) {
+                        'lbox' => 'heroicon-m-qr-code',
+                        default => 'heroicon-m-computer-desktop',
+                    })
+                    ->color(fn (string $state) => match ($state) {
+                        'lbox' => 'primary',            // brand maroon — scanned at the box
+                        'panel_branch_digi' => 'warning',
+                        default => 'gray',
+                    }),
                 Tables\Columns\TextColumn::make('wallet')->label('Wallet')->badge()
                     ->formatStateUsing(fn (?string $state) => $state === 'branch_digi' ? __('Branch Digi') : __('Commission'))
                     ->color(fn (?string $state) => $state === 'branch_digi' ? 'warning' : 'info'),
@@ -73,6 +93,21 @@ class WalletWithdrawalResource extends BaseResource
                 Tables\Filters\SelectFilter::make('status')
                     ->options(['pending' => 'Pending', 'disbursed' => 'Disbursed', 'cancelled' => 'Cancelled'])
                     ->default('pending'),
+                Tables\Filters\SelectFilter::make('source')
+                    ->label('Source')
+                    ->options([
+                        'lbox' => 'L-BOX QR',
+                        'panel_member_cash' => 'Panel — Cash wallet',
+                        'panel_branch_digi' => 'Panel — Branch Digi',
+                    ])
+                    // device_id marks an app scan at the box; panel rows carry no device
+                    // and split by which pot the money left (wallet column, 2026-08-09).
+                    ->query(fn ($query, array $data) => match ($data['value'] ?? null) {
+                        'lbox' => $query->whereNotNull('device_id'),
+                        'panel_member_cash' => $query->whereNull('device_id')->where('wallet', 'member_cash'),
+                        'panel_branch_digi' => $query->whereNull('device_id')->where('wallet', 'branch_digi'),
+                        default => $query,
+                    }),
             ])
             ->actions([
                 Tables\Actions\Action::make('disburse')
