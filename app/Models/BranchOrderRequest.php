@@ -14,6 +14,11 @@ class BranchOrderRequest extends Model
         'approved_at' => 'datetime',
     ];
 
+    public function attachments()
+    {
+        return $this->hasMany(BranchOrderAttachment::class, 'order_request_id');
+    }
+
     public function lines()
     {
         return $this->hasMany(BranchOrderLine::class, 'order_request_id');

@@ -33,11 +33,19 @@ class MeetingResource extends BaseResource
             Forms\Components\TextInput::make('title')->required()->maxLength(255)->columnSpanFull(),
             Forms\Components\Textarea::make('description')->rows(3)->columnSpanFull(),
             Forms\Components\TextInput::make('join_url')
-                ->label('Join URL')->url()->required()->maxLength(800)->columnSpanFull()
-                ->placeholder('https://zoom.us/j/...'),
+                ->label('Join URL')->url()->maxLength(800)->columnSpanFull()
+                ->placeholder('https://zoom.us/j/...')
+                // Zoom + API configured → the meeting is created AT Zoom on save
+                // and this fills itself; otherwise the URL must be pasted in.
+                ->required(fn (Forms\Get $get) => ! ($get('platform') === 'zoom'
+                    && app(\App\Services\Zoom\ZoomApiService::class)->configured()))
+                ->helperText(fn (Forms\Get $get) => $get('platform') === 'zoom'
+                    && app(\App\Services\Zoom\ZoomApiService::class)->configured()
+                        ? __('Leave blank — saving creates the meeting at Zoom and fills the link, ID and passcode automatically.')
+                        : null),
             Forms\Components\Section::make()->columns(3)->schema([
                 Forms\Components\Select::make('platform')
-                    ->options(['zoom' => 'Zoom', 'meet' => 'Google Meet', 'other' => 'Other'])->default('zoom'),
+                    ->options(['zoom' => 'Zoom', 'meet' => 'Google Meet', 'other' => 'Other'])->default('zoom')->live(),
                 Forms\Components\TextInput::make('meeting_id')->maxLength(60),
                 Forms\Components\TextInput::make('passcode')->maxLength(60),
                 Forms\Components\DateTimePicker::make('scheduled_at')->required()->seconds(false),
@@ -74,6 +82,8 @@ class MeetingResource extends BaseResource
                 Tables\Columns\TextColumn::make('scheduled_at')->dateTime()->sortable(),
                 Tables\Columns\TextColumn::make('duration_min')->label('Min')->numeric(),
                 Tables\Columns\TextColumn::make('visibility')->badge(),
+                Tables\Columns\TextColumn::make('attendances_count')->counts('attendances')
+                    ->label('Attended')->badge()->color('success'),
                 Tables\Columns\IconColumn::make('is_published')->boolean(),
             ])
             ->filters([
@@ -82,6 +92,13 @@ class MeetingResource extends BaseResource
             ])
             ->actions([Tables\Actions\EditAction::make()])
             ->bulkActions([Tables\Actions\BulkActionGroup::make([Tables\Actions\DeleteBulkAction::make()])]);
+    }
+
+    public static function getRelations(): array
+    {
+        return [
+            MeetingResource\RelationManagers\AttendancesRelationManager::class,
+        ];
     }
 
     public static function getPages(): array

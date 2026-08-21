@@ -7,6 +7,7 @@ use App\Models\CatalogProduct;
 use App\Models\LiveRate;
 use App\Services\BranchOrderService;
 use App\Support\Translatable;
+use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Repeater;
@@ -196,6 +197,16 @@ class OrderForm extends Page implements HasForms
                         ->helperText(fn () => 'Digi cash available: ₹'
                             . \App\Support\Money::group((float) (auth()->user()?->branch?->digi_cash_balance ?? 0))),
                     Textarea::make('payment_remarks')->label('Payment remarks')->rows(2),
+                    // Payment proof (board phase-1, 2026-08-21): transaction receipt,
+                    // screenshot or bank slip — HQ sees these on the approval screen.
+                    FileUpload::make('attachments')
+                        ->label('Payment receipt (photo / PDF)')
+                        ->helperText('Transaction receipt, screenshot or bank slip — up to 5 files, 8 MB each.')
+                        ->multiple()->maxFiles(5)->maxSize(8192)
+                        ->disk('public')->directory('order-receipts')
+                        ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/webp', 'application/pdf'])
+                        ->storeFileNamesIn('attachment_names')
+                        ->columnSpanFull(),
                     Placeholder::make('summary')
                         ->label('')
                         ->content(fn (Get $get) => $this->summary($get('lines') ?? []))
@@ -328,6 +339,8 @@ class OrderForm extends Page implements HasForms
                 'payment_type' => $data['payment_type'] ?? 'cash',
                 'payment_remarks' => $data['payment_remarks'] ?? null,
                 'lines' => $data['lines'] ?? [],
+                'attachments' => $data['attachments'] ?? [],
+                'attachment_names' => $data['attachment_names'] ?? [],
             ]);
         } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
             // Business-rule rejections (order limit, digi-cash balance, …) arrive as
@@ -359,6 +372,7 @@ class OrderForm extends Page implements HasForms
             'branch_id' => $data['branch_id'],
             'payment_type' => 'cash',
             'lines' => [],
+            'attachments' => [],
         ]);
     }
 }

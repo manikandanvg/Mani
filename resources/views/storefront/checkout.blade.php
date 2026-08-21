@@ -14,9 +14,14 @@
             <form method="POST" action="{{ route('checkout.place') }}" class="space-y-4">
                 @csrf
                 <input name="customer_name" value="{{ old('customer_name') }}" placeholder="Full name" class="w-full border rounded-lg px-4 py-2.5">
-                <div class="grid grid-cols-2 gap-4">
-                    <input name="email" value="{{ old('email') }}" placeholder="Email" class="border rounded-lg px-4 py-2.5">
-                    <input name="phone" value="{{ old('phone') }}" placeholder="Phone" class="border rounded-lg px-4 py-2.5">
+                <input name="email" value="{{ old('email') }}" placeholder="Email" class="w-full border rounded-lg px-4 py-2.5">
+                <div class="grid grid-cols-3 gap-4">
+                    <select name="phone_country_code" class="border rounded-lg px-3 py-2.5 bg-white">
+                        @foreach (\App\Support\DialCodes::options() as $code => $label)
+                            <option value="{{ $code }}" @selected(old('phone_country_code', '+91') === $code)>{{ $label }}</option>
+                        @endforeach
+                    </select>
+                    <input name="phone" value="{{ old('phone') }}" placeholder="Phone" class="col-span-2 border rounded-lg px-4 py-2.5">
                 </div>
                 <input name="address" value="{{ old('address') }}" placeholder="Address" class="w-full border rounded-lg px-4 py-2.5">
                 <div class="grid grid-cols-3 gap-4">

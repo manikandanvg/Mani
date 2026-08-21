@@ -1,0 +1,101 @@
+<?php
+
+namespace App\Services\Zoom;
+
+use App\Models\Meeting;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+
+/**
+ * Zoom REST API via a Server-to-Server OAuth app (board phase-1, 2026-08-21).
+ * Saving a Zoom meeting in the admin creates it AT Zoom — id / join link /
+ * passcode come back and fill the form fields automatically.
+ * Config: services.zoom.{account_id, client_id, client_secret, host}.
+ */
+class ZoomApiService
+{
+    public const OAUTH = 'https://zoom.us/oauth/token';
+
+    public const API = 'https://api.zoom.us/v2';
+
+    public function configured(): bool
+    {
+        return filled(config('services.zoom.account_id'))
+            && filled(config('services.zoom.client_id'))
+            && filled(config('services.zoom.client_secret'));
+    }
+
+    /**
+     * Create the meeting at Zoom. Returns ['meeting_id','join_url','passcode']
+     * or null on any failure (the admin then fills the fields by hand).
+     */
+    public function createMeeting(Meeting $m): ?array
+    {
+        $token = $this->token();
+        if (! $token) {
+            return null;
+        }
+
+        try {
+            $res = Http::withOptions(['verify' => app_ca()])
+                ->withToken($token)
+                ->timeout(15)
+                ->post(self::API . '/users/' . rawurlencode((string) config('services.zoom.host', 'me')) . '/meetings', [
+                    'topic' => mb_substr((string) $m->title, 0, 200),
+                    'type' => 2,   // scheduled
+                    'start_time' => $m->scheduled_at->copy()->timezone('Asia/Kolkata')->format('Y-m-d\TH:i:s'),
+                    'timezone' => 'Asia/Kolkata',
+                    'duration' => (int) ($m->duration_min ?: 60),
+                    'agenda' => mb_substr((string) $m->description, 0, 2000),
+                    'settings' => [
+                        'join_before_host' => true,
+                        'waiting_room' => false,
+                        'approval_type' => 2,   // no registration
+                        'audio' => 'both',      // computer audio + phone dial-in
+                        // Indian dial-in numbers instead of the account's US default
+                        'global_dial_in_countries' => ['IN'],
+                    ],
+                ]);
+        } catch (\Throwable $e) {
+            Log::warning('Zoom create-meeting failed: ' . $e->getMessage());
+
+            return null;
+        }
+
+        if ($res->failed()) {
+            Log::warning('Zoom create-meeting rejected', ['status' => $res->status(), 'body' => $res->json()]);
+
+            return null;
+        }
+
+        return [
+            'meeting_id' => (string) $res->json('id'),
+            'join_url' => (string) $res->json('join_url'),
+            'passcode' => (string) $res->json('password'),
+        ];
+    }
+
+    /** S2S OAuth access token, cached under its ~1h lifetime. */
+    protected function token(): ?string
+    {
+        return Cache::remember('zoom.s2s.token', 3000, function () {
+            try {
+                $res = Http::withOptions(['verify' => app_ca()])
+                    ->asForm()
+                    ->withBasicAuth((string) config('services.zoom.client_id'), (string) config('services.zoom.client_secret'))
+                    ->timeout(15)
+                    ->post(self::OAUTH, [
+                        'grant_type' => 'account_credentials',
+                        'account_id' => (string) config('services.zoom.account_id'),
+                    ]);
+
+                return $res->successful() ? (string) $res->json('access_token') : null;
+            } catch (\Throwable $e) {
+                Log::warning('Zoom OAuth token failed: ' . $e->getMessage());
+
+                return null;
+            }
+        }) ?: null;
+    }
+}

@@ -152,7 +152,29 @@ class Sales extends Page implements HasForms
                         TextInput::make('customer.dob')->label('Date of Birth')->type('date'),
                         TextInput::make('customer.father_name')->label("Father / Husband's Name"),
                         TextInput::make('customer.city')->label('City'),
-                        TextInput::make('customer.pincode')->label('Pincode'),
+                        // Pincode auto-fills Taluka / District / State from the offline
+                        // master (live India Post API as fallback). Fields stay editable.
+                        TextInput::make('customer.pincode')->label('Pincode')
+                            ->live(onBlur: true)
+                            ->afterStateUpdated(function ($state, Set $set) {
+                                $geo = app(\App\Services\Geo\PincodeService::class)->lookup((string) $state);
+                                if (! $geo) {
+                                    return;
+                                }
+                                $set('customer.state', $geo['state']);
+                                $set('customer.district', $geo['district']);
+                                if (! empty($geo['talukas'])) {
+                                    $set('customer.taluka', $geo['talukas'][0]);
+                                }
+                            })
+                            ->helperText(fn (Get $get) => filled($get('customer.pincode')) && blank($get('customer.district'))
+                                ? __('Taluka / District / State fill automatically for a known PIN.')
+                                : null),
+                        TextInput::make('customer.taluka')->label('Taluka (City)')
+                            ->datalist(fn (Get $get) => \App\Models\Pincode::where('pincode', trim((string) $get('customer.pincode')))
+                                ->pluck('taluka')->filter()->unique()->values()->all()),
+                        TextInput::make('customer.district')->label('District'),
+                        TextInput::make('customer.state')->label('State'),
                         // B2B: a GSTIN here classifies the invoice as B2B in the GSTR-1
                         // export; blank = B2C consumer sale (board 2026-08-11).
                         TextInput::make('buyer_gst')->label('Buyer GSTIN (B2B only)')
@@ -243,7 +265,22 @@ class Sales extends Page implements HasForms
                                 ->rules(['numeric', 'min:0'])
                                 // auto-derived from Qty × per-piece grams; only cash (an amount) is typed
                                 ->readOnly(fn (Get $get) => $get('material') !== 'cash' && (float) $get('unit_weight') > 0)
-                                ->helperText(fn (Get $get) => self::stockLeftHint($get('../../branch_id'), $get('catalog_product_id'))),
+                                // Cash lines echo the typed amount in words (EN + TA) so the
+                                // operator confirms the denomination before billing.
+                                ->helperText(function (Get $get) {
+                                    $stock = self::stockLeftHint($get('../../branch_id'), $get('catalog_product_id'));
+                                    $amt = (float) $get('weight');
+                                    if ($get('material') !== 'cash' || $amt <= 0) {
+                                        return $stock;
+                                    }
+                                    $cur = strtoupper(self::operatorBranch()?->currency_code ?: 'INR');
+
+                                    return new HtmlString(
+                                        ($stock ? e($stock) . '<br>' : '')
+                                        . '<span style="color:#ab222f;font-weight:600">' . e(amount_words($amt, 'en', $cur)) . '</span><br>'
+                                        . '<span style="color:#e6ad46;font-weight:600">' . e(amount_words($amt, 'ta', $cur)) . '</span>'
+                                    );
+                                }),
                             TextInput::make('rate')->label('Price /g')->numeric()->columnSpan(2)->live(onBlur: true),
                             TextInput::make('purity')->label('Purity')->columnSpan(1),
                             Placeholder::make('line_total')->label('Grand')->columnSpan(2)
@@ -474,6 +511,9 @@ class Sales extends Page implements HasForms
         $set('customer.address', $m->address);
         $set('customer.city', $m->city);
         $set('customer.pincode', $m->pincode);
+        $set('customer.taluka', $m->taluka);
+        $set('customer.district', $m->district);
+        $set('customer.state', $m->state);
         $set('customer.email', $m->email);
         $set('customer.pan', $m->pan);
         $set('customer.aadhaar', $m->aadhaar);
@@ -500,40 +540,7 @@ class Sales extends Page implements HasForms
      */
     protected static function dialCodes(): array
     {
-        $codes = [
-            '+91' => 'India (+91)',
-            '+971' => 'UAE (+971)',
-            '+966' => 'Saudi Arabia (+966)',
-            '+965' => 'Kuwait (+965)',
-            '+974' => 'Qatar (+974)',
-            '+968' => 'Oman (+968)',
-            '+973' => 'Bahrain (+973)',
-            '+65' => 'Singapore (+65)',
-            '+60' => 'Malaysia (+60)',
-            '+44' => 'United Kingdom (+44)',
-            '+1' => 'USA / Canada (+1)',
-            '+61' => 'Australia (+61)',
-            '+94' => 'Sri Lanka (+94)',
-            '+880' => 'Bangladesh (+880)',
-            '+977' => 'Nepal (+977)',
-            '+93' => 'Afghanistan (+93)',
-            '+975' => 'Bhutan (+975)',
-            '+960' => 'Maldives (+960)',
-            '+49' => 'Germany (+49)',
-            '+33' => 'France (+33)',
-            '+39' => 'Italy (+39)',
-            '+34' => 'Spain (+34)',
-            '+27' => 'South Africa (+27)',
-            '+254' => 'Kenya (+254)',
-            '+234' => 'Nigeria (+234)',
-            '+852' => 'Hong Kong (+852)',
-            '+86' => 'China (+86)',
-            '+81' => 'Japan (+81)',
-            '+64' => 'New Zealand (+64)',
-            '+92' => 'Pakistan (+92)',
-        ];
-
-        return $codes;
+        return \App\Support\DialCodes::options();
     }
 
     protected static function codeHint(?string $code): ?string

@@ -45,8 +45,13 @@ class DeviceResource extends BaseResource
                 Forms\Components\TextInput::make('serial_no')->label('Serial number')->required()
                     ->unique(ignoreRecord: true)->placeholder('LBX-LITE-0001'),
                 Forms\Components\Select::make('board_type')->label('Board')
-                    ->options(['lite' => 'Lite (ESP32, Wi-Fi)', 'pro' => 'Pro (TTGO, 4G + GPS)'])
-                    ->default('lite')->required(),
+                    ->options([
+                        'lite' => 'Lite (ESP32, Wi-Fi)',
+                        'pro' => 'Pro (TTGO, 4G + GPS)',
+                        // Board 2026-08-21: the fleet standard — ESP32-S3 N16R8.
+                        'standard' => 'Standard (ESP32-S3, Wi-Fi + BLE)',
+                    ])
+                    ->default('standard')->required(),
                 Forms\Components\Select::make('language')->label('Spoken language')
                     ->options(['en' => 'English', 'ta' => 'Tamil (தமிழ்)'])
                     ->default('en')->required()

@@ -5,7 +5,6 @@ namespace App\Http\Resources;
 use App\Support\Translatable;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 /**
@@ -33,8 +32,10 @@ class CategoryResource extends JsonResource
             return null;
         }
 
+        // Request-host URL (NOT Storage::url, which bakes in APP_URL — a dev-only
+        // hostname remote phones cannot resolve; same fix as ProductResource).
         return Str::startsWith($path, ['http://', 'https://'])
             ? $path
-            : Storage::disk('public')->url($path);
+            : url('storage/' . ltrim($path, '/'));
     }
 }

@@ -22,6 +22,16 @@ class ZoomJoinController extends Controller
         $meetingNumber = preg_replace('/\D/', '', (string) $meeting->meeting_id);
         abort_if($meetingNumber === '', 404);
 
+        // Attendance (board phase-1, 2026-08-21): the signed link carries the member
+        // id, so opening the join page logs a first-party attendance row.
+        if (($memberId = (int) $request->query('member')) > 0
+            && ($member = \App\Models\Member::find($memberId))) {
+            \App\Models\MeetingAttendance::firstOrCreate(
+                ['meeting_id' => $meeting->id, 'member_id' => $member->id, 'source' => 'app'],
+                ['participant_name' => $member->name, 'joined_at' => now()],
+            );
+        }
+
         return response()
             ->view('zoom.join', [
                 'meeting' => $meeting,

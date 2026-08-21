@@ -75,10 +75,15 @@ class BranchOrderResource extends BaseResource
                     ->options([BranchOrderService::SOURCE_ORDER_FORM => 'Order form', BranchOrderService::SOURCE_REDEMPTION => 'Redemption']),
             ])
             ->actions([
-                Tables\Actions\ViewAction::make(),
+                // No 'view' page registered (board phase-1, 2026-08-21) — the same
+                // button now opens the infolist below as a popup modal.
+                Tables\Actions\ViewAction::make()->modalWidth('5xl'),
                 Tables\Actions\Action::make('approve')
                     ->icon('heroicon-m-check-circle')->color('success')->requiresConfirmation()
                     ->modalDescription('Approve this order? The items will be added to the branch stock.')
+                    // The payment proof (receipt / bank slip) is shown right in the
+                    // confirmation so the approver checks it before approving.
+                    ->modalContent(fn (BranchOrderRequest $r) => view('filament.modals.order-attachments', ['record' => $r]))
                     ->visible(fn (BranchOrderRequest $r) => $r->status === 'pending' && static::hqApprover())
                     ->action(fn (BranchOrderRequest $r) => app(BranchOrderService::class)->approve($r)),
                 Tables\Actions\Action::make('reject')
@@ -103,6 +108,10 @@ class BranchOrderResource extends BaseResource
                 Infolists\Components\TextEntry::make('grand_total')->baseMoney(),
                 Infolists\Components\TextEntry::make('payment_type')->badge(),
                 Infolists\Components\TextEntry::make('payment_remarks')->columnSpan(2)->placeholder('—'),
+                Infolists\Components\ViewEntry::make('attachments')
+                    ->label('Payment proof')
+                    ->view('filament.modals.order-attachments')
+                    ->columnSpanFull(),
             ]),
             Infolists\Components\RepeatableEntry::make('lines')->columns(4)->schema([
                 Infolists\Components\TextEntry::make('material')->badge(),
@@ -117,7 +126,6 @@ class BranchOrderResource extends BaseResource
     {
         return [
             'index' => Pages\ListBranchOrders::route('/'),
-            'view' => Pages\ViewBranchOrder::route('/{record}'),
         ];
     }
 }

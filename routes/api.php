@@ -200,6 +200,10 @@ Route::prefix('v1')->group(function () {
 
         // Live & Learn (Phase 6a) — scheduled meetings (Zoom deep-link).
         Route::get('meetings', [MeetingController::class, 'index']);
+        // Attendance (board phase-1, 2026-08-21): join-tap log + the member's own
+        // attended-meetings list for the Training Library.
+        Route::post('meetings/{meeting}/joined', [MeetingController::class, 'joined']);
+        Route::get('member/meeting-attendance', [MeetingController::class, 'myAttendance']);
 
         // Training library (Phase 6b) — browse public drive folders/files (member-only).
         Route::get('library', [LibraryController::class, 'index']);

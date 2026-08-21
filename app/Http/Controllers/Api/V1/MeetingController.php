@@ -30,7 +30,7 @@ class MeetingController extends Controller
             ->where('scheduled_at', '>=', now()->subDays(7))
             ->orderBy('scheduled_at')
             ->get()
-            ->map(fn (Meeting $m) => $this->present($m, $displayName));
+            ->map(fn (Meeting $m) => $this->present($m, $displayName, $user instanceof Member ? $user->id : null));
 
         // Group for the app: live + upcoming together (soonest first), past separate.
         return response()->json([
@@ -40,24 +40,74 @@ class MeetingController extends Controller
         ]);
     }
 
-    protected function present(Meeting $m, string $displayName = 'LORDICL Member'): array
+    /**
+     * POST /meetings/{meeting}/joined — the app logs attendance when the member
+     * taps Join on the external Zoom link (the signed in-app page logs itself).
+     */
+    public function joined(Request $request, Meeting $meeting): JsonResponse
+    {
+        $user = $request->user();
+        abort_unless($user instanceof Member, 403);
+        abort_unless($meeting->is_published, 404);
+
+        \App\Models\MeetingAttendance::firstOrCreate(
+            ['meeting_id' => $meeting->id, 'member_id' => $user->id, 'source' => 'app'],
+            ['participant_name' => $user->name, 'joined_at' => now()],
+        );
+
+        return response()->json(['ok' => true]);
+    }
+
+    /**
+     * GET /member/meeting-attendance — the member's attended meetings, shown in
+     * the app's Training Library (board phase-1, 2026-08-21).
+     */
+    public function myAttendance(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        abort_unless($user instanceof Member, 403);
+
+        $rows = \App\Models\MeetingAttendance::with('meeting')
+            ->where('member_id', $user->id)
+            ->orderByDesc('joined_at')
+            ->limit(100)
+            ->get();
+
+        return response()->json([
+            'attendance' => $rows->map(fn ($a) => [
+                'meeting_id' => $a->meeting_id,
+                'title' => $a->meeting?->title,
+                'scheduled_at' => $a->meeting?->scheduled_at?->toIso8601String(),
+                'joined_at' => $a->joined_at?->toIso8601String(),
+                'left_at' => $a->left_at?->toIso8601String(),
+                'duration_min' => $a->duration_min,
+                'source' => $a->source,
+            ])->values(),
+        ]);
+    }
+
+    protected function present(Meeting $m, string $displayName = 'LORDICL Member', ?int $memberId = null): array
     {
         // In-app join (2026-08-12): a signed Web-SDK page URL, minted per user so
         // their name shows in the meeting. Null when the SDK isn't configured or
         // the meeting has no numeric Zoom id — the app falls back to join_url.
+        // The member id rides in the signed query so opening the page logs attendance.
         $zoom = app(\App\Services\Zoom\ZoomSdkService::class);
         $appJoinUrl = null;
         if ($zoom->configured() && filled($m->meeting_id) && preg_replace('/\D/', '', (string) $m->meeting_id) !== '') {
             $appJoinUrl = \Illuminate\Support\Facades\URL::temporarySignedRoute(
                 'zoom.join',
                 now()->addHours(3),
-                ['meeting' => $m->id, 'name' => $displayName],
+                array_filter(['meeting' => $m->id, 'name' => $displayName, 'member' => $memberId]),
             );
         }
 
         return [
             'id' => $m->id,
             'title' => $m->title,
+            'attended' => $memberId
+                ? $m->attendances()->where('member_id', $memberId)->where('source', 'app')->exists()
+                : false,
             'description' => $m->description,
             'platform' => $m->platform,
             'join_url' => $m->join_url,

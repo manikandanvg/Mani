@@ -38,7 +38,7 @@ class FirmwareResource extends BaseResource
         return $form->schema([
             Forms\Components\Section::make('Firmware build')->columns(2)->schema([
                 Forms\Components\Select::make('board_type')->label('Board')
-                    ->options(['lite' => 'Lite (ESP32)', 'pro' => 'Pro (TTGO)'])
+                    ->options(['lite' => 'Lite (ESP32)', 'pro' => 'Pro (TTGO)', 'standard' => 'Standard (ESP32-S3)'])
                     ->required(),
                 Forms\Components\TextInput::make('version')->required()
                     ->placeholder('1.0.0')
@@ -89,7 +89,9 @@ class FirmwareResource extends BaseResource
             ->defaultSort('id', 'desc')
             ->columns([
                 Tables\Columns\TextColumn::make('board_type')->label('Board')->badge()
-                    ->color(fn ($state) => $state === 'pro' ? 'info' : 'gray'),
+                    ->color(fn ($state) => match ($state) {
+                        'pro' => 'info', 'standard' => 'warning', default => 'gray',
+                    }),
                 Tables\Columns\TextColumn::make('version')->searchable(),
                 Tables\Columns\TextColumn::make('size_bytes')->label('Size')
                     ->formatStateUsing(fn ($state) => $state ? round($state / 1024) . ' KB' : '—'),

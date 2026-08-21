@@ -79,6 +79,7 @@ class CartController extends Controller
             'customer_name' => 'required|string|max:200',
             'email' => 'required|email',
             'phone' => 'required|string|max:20',
+            'phone_country_code' => 'nullable|string|max:8',
             'address' => 'required|string|max:255',
             'city' => 'required|string|max:120',
             'pincode' => 'nullable|string|max:12',

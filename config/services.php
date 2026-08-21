@@ -51,6 +51,17 @@ return [
         'sdk_client_id' => env('ZOOM_SDK_CLIENT_ID'),
         'sdk_client_secret' => env('ZOOM_SDK_CLIENT_SECRET'),
         'web_sdk_version' => env('ZOOM_WEB_SDK_VERSION', '6.2.0'),
+        // Server-to-Server OAuth app (board phase-1, 2026-08-21): lets the admin
+        // panel create the meeting AT Zoom when one is saved here — no parallel
+        // manual entry on the Zoom portal. Needs a Business/Pro Zoom plan.
+        'account_id' => env('ZOOM_ACCOUNT_ID'),
+        'client_id' => env('ZOOM_CLIENT_ID'),
+        'client_secret' => env('ZOOM_CLIENT_SECRET'),
+        // which licensed user hosts auto-created meetings ('me' = the app owner)
+        'host' => env('ZOOM_HOST_USER', 'me'),
+        // "Secret Token" from the app's Feature → Event Subscriptions page;
+        // validates the attendance webhooks (participant joined/left).
+        'webhook_secret' => env('ZOOM_WEBHOOK_SECRET'),
     ],
 
     'razorpay' => [

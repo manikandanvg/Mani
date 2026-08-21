@@ -73,6 +73,17 @@
                 setTimeout(function () { window.location.href = NATIVE_URL; }, 1200);
             }
 
+            // Plain-HTTP page (dev LAN / lordicl.test): browsers only honour
+            // COOP/COEP in a SECURE context, so isolation can never happen here
+            // no matter what the server sends. Name that directly — on the live
+            // HTTPS domain this branch disappears.
+            if (!window.isSecureContext) {
+                handOff('The embedded player needs HTTPS.',
+                    'page loaded over http:// — secure context required; opening the Zoom app instead');
+
+                return;
+            }
+
             // The SDK decodes video through WASM into a SharedArrayBuffer, which
             // browsers expose only on a cross-origin-isolated page.
             //

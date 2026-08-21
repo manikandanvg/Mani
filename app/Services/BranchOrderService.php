@@ -214,6 +214,24 @@ class BranchOrderService
                 ]);
             }
 
+            // Payment-proof files (board phase-1, 2026-08-21): already stored on the
+            // public disk by the form; record them against the order for the approver.
+            $names = (array) ($data['attachment_names'] ?? []);
+            foreach ((array) ($data['attachments'] ?? []) as $path) {
+                if (! is_string($path) || $path === '') {
+                    continue;
+                }
+                $disk = \Illuminate\Support\Facades\Storage::disk('public');
+                \App\Models\BranchOrderAttachment::create([
+                    'order_request_id' => $request->id,
+                    'path' => $path,
+                    'original_name' => $names[$path] ?? basename($path),
+                    'mime' => $disk->exists($path) ? $disk->mimeType($path) : null,
+                    'size' => $disk->exists($path) ? $disk->size($path) : null,
+                    'uploaded_by' => $userId,
+                ]);
+            }
+
             return $request->fresh('lines');
         });
 

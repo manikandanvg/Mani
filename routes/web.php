@@ -14,6 +14,10 @@ use Illuminate\Support\Facades\Route;
 // signature-verified in the controller and the route is CSRF-exempt (bootstrap/app.php).
 Route::post('/webhooks/razorpay', RazorpayWebhookController::class)->name('webhooks.razorpay');
 
+// Zoom event webhook (board phase-1, 2026-08-21): meeting attendance capture.
+// No auth; HMAC-verified in the controller, CSRF-exempt via webhooks/* (bootstrap/app.php).
+Route::post('/webhooks/zoom', [\App\Http\Controllers\ZoomWebhookController::class, 'handle'])->name('webhooks.zoom');
+
 // In-app Zoom join (2026-08-12): the app's WebView opens this signed page; the Web
 // Meeting SDK joins with a server-signed JWT (secret never leaves the server).
 Route::get('/zoom/join/{meeting}', [\App\Http\Controllers\ZoomJoinController::class, 'show'])

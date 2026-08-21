@@ -17,6 +17,11 @@ class Meeting extends Model
         'is_published' => 'boolean',
     ];
 
+    public function attendances()
+    {
+        return $this->hasMany(MeetingAttendance::class);
+    }
+
     public function scopePublished($query)
     {
         return $query->where('is_published', true);

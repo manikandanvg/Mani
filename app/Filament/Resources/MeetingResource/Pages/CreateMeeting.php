@@ -13,6 +13,26 @@ class CreateMeeting extends CreateRecord
     protected function afterCreate(): void
     {
         $meeting = $this->getRecord();
+
+        // Zoom auto-create (board phase-1, 2026-08-21): a Zoom meeting saved without
+        // a link is created AT Zoom via the S2S API; id/link/passcode fill themselves.
+        $zoomApi = app(\App\Services\Zoom\ZoomApiService::class);
+        if ($meeting->platform === 'zoom' && blank($meeting->join_url) && $zoomApi->configured()) {
+            if ($z = $zoomApi->createMeeting($meeting)) {
+                $meeting->update($z);
+                $meeting->refresh();
+                \Filament\Notifications\Notification::make()
+                    ->title('Created at Zoom')
+                    ->body("Meeting ID {$z['meeting_id']} — join link and passcode filled in.")
+                    ->success()->send();
+            } else {
+                \Filament\Notifications\Notification::make()
+                    ->title('Zoom auto-create failed')
+                    ->body('The meeting was saved here, but Zoom did not accept it — check the Zoom credentials or add the join link by hand.')
+                    ->warning()->persistent()->send();
+            }
+        }
+
         if (! $meeting->is_published || ! $meeting->scheduled_at) {
             return;
         }

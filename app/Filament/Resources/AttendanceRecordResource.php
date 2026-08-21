@@ -43,8 +43,14 @@ class AttendanceRecordResource extends BaseResource
                 Tables\Columns\TextColumn::make('date')->date()->sortable(),
                 Tables\Columns\TextColumn::make('employee.employee_code')->label('Employee')->searchable()
                     ->description(fn (AttendanceRecord $r) => $r->employee?->member?->name),
-                Tables\Columns\ImageColumn::make('selfie_path')->label('Selfie')->disk('public')
+                // Request-host URLs (not disk()/Storage::url, which bake in the dev-only
+                // APP_URL) so selfies load for remote/LAN admin sessions too.
+                Tables\Columns\ImageColumn::make('selfie_path')->label('Selfie')
+                    ->getStateUsing(fn (AttendanceRecord $r) => $r->selfie_path ? url('storage/' . ltrim($r->selfie_path, '/')) : null)
                     ->circular()->defaultImageUrl(null),
+                Tables\Columns\ImageColumn::make('checkout_selfie_path')->label('Out selfie')
+                    ->getStateUsing(fn (AttendanceRecord $r) => $r->checkout_selfie_path ? url('storage/' . ltrim($r->checkout_selfie_path, '/')) : null)
+                    ->circular()->defaultImageUrl(null)->toggleable(),
                 Tables\Columns\TextColumn::make('check_in_at')->label('In')->time('H:i')->sortable(),
                 Tables\Columns\TextColumn::make('check_out_at')->label('Out')->time('H:i'),
                 Tables\Columns\TextColumn::make('location')->label('Location')
