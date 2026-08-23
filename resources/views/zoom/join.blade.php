@@ -50,15 +50,6 @@
 
             var NATIVE_URL = @json($nativeUrl);
 
-            /** Stop pretending to connect; say why and offer the native app. */
-            function fail(message, detail) {
-                status.textContent = 'Could not start the meeting here.';
-                err.textContent = message;
-                diag.textContent = detail || '';
-                fallback.style.display = 'inline-block';
-                document.querySelector('.spin').style.display = 'none';
-            }
-
             /**
              * The embedded player is optional; being in the meeting is not. When
              * the player cannot run, send the member straight to the Zoom app
@@ -84,29 +75,15 @@
                 return;
             }
 
-            // The SDK decodes video through WASM into a SharedArrayBuffer, which
-            // browsers expose only on a cross-origin-isolated page.
-            //
-            // Two very different causes look identical from here — the server not
-            // sending COOP/COEP, or a browser that refuses to isolate even when it
-            // does (Android WebView is inconsistent about this, and Zoom does not
-            // support WebView for the Web SDK). Re-fetch this same page and read
-            // the headers back so the screen states which one it actually is
-            // instead of guessing, then hand off either way.
-            if (!window.crossOriginIsolated) {
-                handOff('This device cannot run the meeting player.', 'checking why…');
-
-                fetch(window.location.href, { method: 'GET', cache: 'no-store' }).then(function (r) {
-                    var coop = r.headers.get('cross-origin-opener-policy');
-                    var coep = r.headers.get('cross-origin-embedder-policy');
-                    diag.textContent = (coop && coep)
-                        ? 'COOP/COEP present (' + coop + ' / ' + coep + ') — this browser refuses to isolate'
-                        : 'server sent no COOP/COEP (coop=' + coop + ' coep=' + coep + ')';
-                }).catch(function (e) {
-                    diag.textContent = 'header probe failed: ' + ((e && e.message) || 'unknown');
-                });
-
-                return;
+            // SharedArrayBuffer (gallery view, multi-stream video) exists only on a
+            // cross-origin-isolated page. Android WebView never isolates — it has
+            // no COOP support — so on the phone `crossOriginIsolated` is always
+            // false even though this page sends COOP/COEP. The Zoom SDK still runs
+            // without SAB in a reduced-video mode (2026-08-23: stop bailing out
+            // here; only a real init/join failure hands off to the Zoom app).
+            var isolated = !!window.crossOriginIsolated;
+            if (!isolated) {
+                diag.textContent = 'no SharedArrayBuffer on this device — reduced video mode';
             }
 
             if (typeof ZoomMtgEmbedded === 'undefined') {
@@ -116,6 +93,13 @@
                 );
                 return;
             }
+
+            // Watchdog: a WebView that silently never finishes init/join must not
+            // strand the member on a spinner — hand off to the Zoom app instead.
+            var joined = false;
+            var watchdog = setTimeout(function () {
+                if (!joined) handOff('The meeting player did not start in time.', 'join watchdog (25s) — ' + (isolated ? 'isolated' : 'no SAB'));
+            }, 25000);
 
             try {
                 var client = ZoomMtgEmbedded.createClient();
@@ -134,17 +118,22 @@
                         userName: @json($displayName),
                     });
                 }).then(function () {
+                    joined = true;
+                    clearTimeout(watchdog);
                     boot.style.display = 'none';
                 }).catch(function (e) {
+                    clearTimeout(watchdog);
                     // Zoom returns {type, reason, errorCode} — keep the code, it is
-                    // what their support asks for first.
-                    fail(
+                    // what their support asks for first. On a phone the player is
+                    // optional: go to the Zoom app rather than show an error.
+                    handOff(
                         (e && (e.reason || e.message)) || 'Could not join this meeting.',
                         e && e.errorCode ? 'zoom error ' + e.errorCode : ''
                     );
                 });
             } catch (e) {
-                fail('The meeting player could not start.', (e && e.message) || '');
+                clearTimeout(watchdog);
+                handOff('The meeting player could not start.', (e && e.message) || '');
             }
         })();
     </script>
