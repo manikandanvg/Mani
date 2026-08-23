@@ -36,6 +36,10 @@
         window.addEventListener('error', function (e) {
             if (e && e.target && e.target.tagName === 'SCRIPT') {
                 window.__zoomLoadError = 'SDK script did not load (network or CDN blocked).';
+            } else if (e && e.message && !window.__zoomLoadError) {
+                // The SDK downloaded but threw while initialising (typical inside
+                // Android WebView) — surface the real message, not a generic line.
+                window.__zoomLoadError = 'SDK failed to start: ' + e.message;
             }
         }, true);
     </script>
