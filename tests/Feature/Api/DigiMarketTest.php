@@ -276,6 +276,25 @@ class DigiMarketTest extends TestCase
             ->assertStatus(422);
     }
 
+    /** Board 2026-08-23 "loophole": a ₹ preset (buy chip) submitted as a withdraw must die at the holding. */
+    public function test_withdraw_by_amount_beyond_holding_is_refused_for_both_metals(): void
+    {
+        MemberWallet::find($this->member->id)->update(['digi_gold_grams' => 0.01, 'digi_silver_grams' => 0.5, 'cash_balance' => 0]);
+        Sanctum::actingAs($this->member, ['*']);
+
+        // 0.01 g gold @ ₹10,000/g = ₹100 held; asking for ₹500 is refused
+        $this->postJson('/api/v1/digimarket/withdraw', ['metal' => 'gold', 'amount' => 500])
+            ->assertStatus(422)
+            ->assertJsonFragment(['message' => 'Insufficient Digi Gold — you need 0.0500 g, available 0.0100 g.']);
+        $this->postJson('/api/v1/digimarket/withdraw', ['metal' => 'silver', 'amount' => 5000])
+            ->assertStatus(422);
+
+        $wallet = MemberWallet::find($this->member->id);
+        $this->assertSame(0.0, (float) $wallet->cash_balance);
+        $this->assertSame(0.01, (float) $wallet->digi_gold_grams);
+        $this->assertSame(0.5, (float) $wallet->digi_silver_grams);
+    }
+
     public function test_scan_and_pay_routes_are_gone(): void
     {
         Sanctum::actingAs($this->member, ['*']);
