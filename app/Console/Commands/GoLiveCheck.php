@@ -68,15 +68,23 @@ class GoLiveCheck extends Command
         $this->row('Webhook secret', filled(config('services.zoom.webhook_secret')) ? 'set' : 'missing', filled(config('services.zoom.webhook_secret')) ? 'pass' : 'warn', 'details: php artisan zoom:check');
 
         $this->section('Messaging');
-        $this->row('FCM push', config('services.fcm.enabled') && filled(config('services.fcm.private_key')) ? 'enabled' : 'off', config('services.fcm.enabled') && filled(config('services.fcm.private_key')) ? 'pass' : 'warn', 'FCM_ENABLED + service-account creds — acks/reminders are push-only');
+        // Effective creds = admin "Push Notification Settings" row first, .env fallback (PushSetting::fcm()).
+        $fcmOn = app(\App\Services\Push\PushSender::class)->enabled();
+        $this->row('FCM push', $fcmOn ? 'enabled' : 'off', $fcmOn ? 'pass' : 'fail', 'every ack/reminder/OTP-less notice is push-only — enable it: Admin → System → Push Notification Settings (FCM service account) or FCM_* in .env');
         $test = (string) config('services.whatsapp.test_recipient');
         $this->row('WHATSAPP_TEST_RECIPIENT', $test === '' ? 'cleared' : $test, $test === '' ? 'pass' : 'fail', 'every OTP/QR WhatsApp goes to this number instead of the customer — clear it in production');
 
         $this->section('L-BOX voice');
         $py = (string) config('lbox.stt.python');
-        $this->row('STT python', $py, ($py !== '' && ($py === 'python' || is_file($py))) ? 'pass' : 'fail', 'LBOX_STT_PYTHON must point at the venv python (e.g. /www/lbox-venv/bin/python3)');
+        $sttOk = $py !== '' && ($py === 'python' || is_file($py));
+        if ($sttOk && PHP_OS_FAMILY !== 'Windows' && function_exists('shell_exec')) {
+            // The interpreter exists — but does it have faster-whisper? (/usr/bin/python3 usually doesn't; the venv does.)
+            $probe = trim((string) @shell_exec(escapeshellarg($py) . ' -c "import faster_whisper; print(1)" 2>/dev/null'));
+            $sttOk = $probe === '1';
+        }
+        $this->row('STT python (faster-whisper)', $py, $sttOk ? 'pass' : 'fail', 'LBOX_STT_PYTHON must be the venv python that has faster-whisper, e.g. /www/lbox-venv/bin/python3');
         $esp = (string) config('lbox.tts.espeak.bin');
-        $this->row('espeak-ng', $esp, is_file($esp) ? 'pass' : 'warn', 'Tamil TTS — LBOX_ESPEAK_BIN=/usr/bin/espeak-ng');
+        $this->row('espeak-ng', $esp, is_file($esp) ? 'pass' : 'warn', 'Tamil voice lines fall back to beeps/text — apt install -y espeak-ng, LBOX_ESPEAK_BIN=/usr/bin/espeak-ng');
         $this->row('LBOX_DEVICE_API_URL', (string) (config('lbox.device_api_url') ?: 'unset'), 'info', 'set to ' . url('/api/device/v1') . ' once every box is on fw >= 1.0.12 to pull the fleet to this server');
 
         $this->newLine();
