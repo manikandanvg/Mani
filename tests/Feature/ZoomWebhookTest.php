@@ -104,4 +104,72 @@ class ZoomWebhookTest extends TestCase
         $this->postJson('/webhooks/zoom', $payload, $this->signedHeaders($payload))->assertOk();
         $this->assertDatabaseCount('meeting_attendances', 0);
     }
+    public function test_member_code_in_display_name_ties_the_row_to_the_member(): void
+    {
+        $meeting = $this->meeting();
+        $rank = \App\Models\Rank::firstOrCreate(['code' => 'MEMBER'], ['name' => ['en' => 'Member'], 'depth' => 0, 'target_bv' => 0]);
+        $member = \App\Models\Member::create([
+            'member_code' => 'LJW77', 'name' => 'Priya', 'phone' => '9000000077',
+            'joined_on' => now(), 'placement' => 'level', 'rank_id' => $rank->id, 'status' => 'active',
+        ]);
+        // a second "Priya" proves the code wins over the name match
+        \App\Models\Member::create([
+            'member_code' => 'LJW78', 'name' => 'Priya', 'phone' => '9000000078',
+            'joined_on' => now(), 'placement' => 'level', 'rank_id' => $rank->id, 'status' => 'active',
+        ]);
+
+        $joined = [
+            'event' => 'meeting.participant_joined',
+            'payload' => ['object' => [
+                'id' => '123456789',
+                'participant' => ['user_id' => '77', 'user_name' => 'Priya · ljw77', 'join_time' => now()->toIso8601String()],
+            ]],
+        ];
+        $this->postJson('/webhooks/zoom', $joined, $this->signedHeaders($joined))->assertOk();
+
+        $this->assertDatabaseHas('meeting_attendances', [
+            'meeting_id' => $meeting->id, 'member_id' => $member->id, 'zoom_participant_id' => '77',
+        ]);
+    }
+
+    public function test_meeting_ended_closes_rows_that_never_got_a_leave_event(): void
+    {
+        $meeting = $this->meeting();
+        $join = now()->subMinutes(30);
+        $open = \App\Models\MeetingAttendance::create([
+            'meeting_id' => $meeting->id, 'participant_name' => 'Ravi', 'zoom_participant_id' => '1',
+            'source' => 'zoom', 'joined_at' => $join,
+        ]);
+        $closed = \App\Models\MeetingAttendance::create([
+            'meeting_id' => $meeting->id, 'participant_name' => 'Sita', 'zoom_participant_id' => '2',
+            'source' => 'zoom', 'joined_at' => $join, 'left_at' => $join->copy()->addMinutes(5), 'duration_min' => 5,
+        ]);
+
+        $ended = [
+            'event' => 'meeting.ended',
+            'payload' => ['object' => ['id' => '123456789', 'end_time' => $join->copy()->addMinutes(30)->toIso8601String()]],
+        ];
+        $this->postJson('/webhooks/zoom', $ended, $this->signedHeaders($ended))->assertOk();
+
+        $this->assertSame(30, $open->fresh()->duration_min);
+        $this->assertNotNull($open->fresh()->left_at);
+        $this->assertSame(5, $closed->fresh()->duration_min);   // untouched
+    }
+
+    public function test_unique_attendee_count_merges_app_and_zoom_rows_of_one_member(): void
+    {
+        $meeting = $this->meeting();
+        $rank = \App\Models\Rank::firstOrCreate(['code' => 'MEMBER'], ['name' => ['en' => 'Member'], 'depth' => 0, 'target_bv' => 0]);
+        $member = \App\Models\Member::create([
+            'member_code' => 'LJW79', 'name' => 'Kumar', 'phone' => '9000000079',
+            'joined_on' => now(), 'placement' => 'level', 'rank_id' => $rank->id, 'status' => 'active',
+        ]);
+        \App\Models\MeetingAttendance::create(['meeting_id' => $meeting->id, 'member_id' => $member->id, 'source' => 'app', 'joined_at' => now()]);
+        \App\Models\MeetingAttendance::create(['meeting_id' => $meeting->id, 'member_id' => $member->id, 'source' => 'zoom', 'zoom_participant_id' => '9', 'joined_at' => now()]);
+        \App\Models\MeetingAttendance::create(['meeting_id' => $meeting->id, 'participant_name' => 'Guest', 'zoom_participant_id' => '10', 'source' => 'zoom', 'joined_at' => now()]);
+        \App\Models\MeetingAttendance::create(['meeting_id' => $meeting->id, 'participant_name' => 'Guest', 'zoom_participant_id' => '10', 'source' => 'zoom', 'joined_at' => now()]);   // rejoin
+
+        $this->assertSame(4, $meeting->attendances()->count());
+        $this->assertSame(2, $meeting->uniqueAttendeeCount());
+    }
 }

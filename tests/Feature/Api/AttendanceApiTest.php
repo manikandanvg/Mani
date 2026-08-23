@@ -82,6 +82,9 @@ class AttendanceApiTest extends TestCase
         // the selfie landed on disk
         $employeeId = $this->employee->fresh()->employeeProfile->id;
         Storage::disk('public')->assertExists("attendance/{$employeeId}/" . now()->toDateString() . '-in.jpg');
+        // ...and is re-encoded as a real JPEG (board 2026-08-23: compressed on save)
+        $info = getimagesizefromstring(Storage::disk('public')->get("attendance/{$employeeId}/" . now()->toDateString() . '-in.jpg'));
+        $this->assertSame(IMAGETYPE_JPEG, $info[2]);
 
         // duplicate check-in is rejected
         $this->post('/api/v1/member/attendance/check-in', [
@@ -148,5 +151,21 @@ class AttendanceApiTest extends TestCase
         $this->assertSame('present', $res->json('today.status'));
         $this->assertSame(1, $res->json('summary.present'));
         $this->assertCount(1, $res->json('records'));
+    }
+
+    public function test_oversized_selfie_is_downscaled_on_save(): void
+    {
+        Sanctum::actingAs($this->employee, ['*']);
+
+        $this->post('/api/v1/member/attendance/check-in', [
+            'selfie' => UploadedFile::fake()->image('big.jpg', 3000, 4000),
+            'lat' => 11.0168445,
+            'lng' => 76.9558321,
+        ], ['Accept' => 'application/json'])->assertStatus(201);
+
+        $employeeId = $this->employee->fresh()->employeeProfile->id;
+        [$w, $h] = getimagesizefromstring(Storage::disk('public')->get("attendance/{$employeeId}/" . now()->toDateString() . '-in.jpg'));
+        $this->assertSame(1024, max($w, $h));
+        $this->assertSame(768, min($w, $h));
     }
 }

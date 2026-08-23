@@ -37,29 +37,35 @@ class ZoomApiService
             return null;
         }
 
-        try {
-            $res = Http::withOptions(['verify' => app_ca()])
-                ->withToken($token)
-                ->timeout(15)
-                ->post(self::API . '/users/' . rawurlencode((string) config('services.zoom.host', 'me')) . '/meetings', [
-                    'topic' => mb_substr((string) $m->title, 0, 200),
-                    'type' => 2,   // scheduled
-                    'start_time' => $m->scheduled_at->copy()->timezone('Asia/Kolkata')->format('Y-m-d\TH:i:s'),
-                    'timezone' => 'Asia/Kolkata',
-                    'duration' => (int) ($m->duration_min ?: 60),
-                    'agenda' => mb_substr((string) $m->description, 0, 2000),
-                    'settings' => [
-                        'join_before_host' => true,
-                        'waiting_room' => false,
-                        'approval_type' => 2,   // no registration
-                        'audio' => 'both',      // computer audio + phone dial-in
-                        // Indian dial-in numbers instead of the account's US default
-                        'global_dial_in_countries' => ['IN'],
-                    ],
-                ]);
-        } catch (\Throwable $e) {
-            Log::warning('Zoom create-meeting failed: ' . $e->getMessage());
+        $body = [
+            'topic' => mb_substr((string) $m->title, 0, 200),
+            'type' => 2,   // scheduled
+            'start_time' => $m->scheduled_at->copy()->timezone('Asia/Kolkata')->format('Y-m-d\TH:i:s'),
+            'timezone' => 'Asia/Kolkata',
+            'duration' => (int) ($m->duration_min ?: 60),
+            'agenda' => mb_substr((string) $m->description, 0, 2000),
+            'settings' => [
+                'join_before_host' => true,
+                'waiting_room' => false,
+                'approval_type' => 2,   // no registration
+                'audio' => 'both',      // computer audio + phone dial-in
+                // Indian dial-in numbers instead of the account's US default
+                'global_dial_in_countries' => ['IN'],
+            ],
+        ];
 
+        $res = $this->post($token, $body);
+
+        // Basic (free) Zoom plans have no dial-in at all and reject the country
+        // list with code 300 "Country code IN is not available for host" — retry
+        // once without it rather than failing the whole create (seen 2026-08-23).
+        if ($res && $res->failed() && $res->json('code') === 300
+            && str_contains((string) $res->json('message'), 'Country code')) {
+            unset($body['settings']['global_dial_in_countries']);
+            $res = $this->post($token, $body);
+        }
+
+        if (! $res) {
             return null;
         }
 
@@ -76,8 +82,22 @@ class ZoomApiService
         ];
     }
 
+    protected function post(string $token, array $body): ?\Illuminate\Http\Client\Response
+    {
+        try {
+            return Http::withOptions(['verify' => app_ca()])
+                ->withToken($token)
+                ->timeout(15)
+                ->post(self::API . '/users/' . rawurlencode((string) config('services.zoom.host', 'me')) . '/meetings', $body);
+        } catch (\Throwable $e) {
+            Log::warning('Zoom create-meeting failed: ' . $e->getMessage());
+
+            return null;
+        }
+    }
+
     /** S2S OAuth access token, cached under its ~1h lifetime. */
-    protected function token(): ?string
+    public function token(): ?string
     {
         return Cache::remember('zoom.s2s.token', 3000, function () {
             try {

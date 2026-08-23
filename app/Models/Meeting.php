@@ -22,6 +22,18 @@ class Meeting extends Model
         return $this->hasMany(MeetingAttendance::class);
     }
 
+    /**
+     * Distinct people who attended: members counted once even when they have
+     * both an app-join row and a Zoom row; unmatched Zoom participants count
+     * once per Zoom participant id (or name).
+     */
+    public function uniqueAttendeeCount(): int
+    {
+        return (int) $this->attendances()
+            ->selectRaw("count(distinct member_id) + count(distinct case when member_id is null then coalesce(zoom_participant_id, participant_name) end) as n")
+            ->value('n');
+    }
+
     public function scopePublished($query)
     {
         return $query->where('is_published', true);

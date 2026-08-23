@@ -82,13 +82,30 @@ class MeetingResource extends BaseResource
                 Tables\Columns\TextColumn::make('scheduled_at')->dateTime()->sortable(),
                 Tables\Columns\TextColumn::make('duration_min')->label('Min')->numeric(),
                 Tables\Columns\TextColumn::make('visibility')->badge(),
-                Tables\Columns\TextColumn::make('attendances_count')->counts('attendances')
-                    ->label('Attended')->badge()->color('success'),
+                // Distinct people, not rows: a member with both an app-join row and a
+                // Zoom row counts once; unmatched Zoom participants count by name.
+                Tables\Columns\TextColumn::make('attended')
+                    ->label('Attended')->badge()->color('success')
+                    ->getStateUsing(fn (Meeting $m) => $m->uniqueAttendeeCount()),
                 Tables\Columns\IconColumn::make('is_published')->boolean(),
             ])
             ->filters([
                 Tables\Filters\SelectFilter::make('platform')
                     ->options(['zoom' => 'Zoom', 'meet' => 'Google Meet', 'other' => 'Other']),
+                // Board 2026-08-23: "how many joined in a date interval" — filter the
+                // meetings by schedule window; the Attended badge gives the per-meeting count.
+                Tables\Filters\Filter::make('scheduled')
+                    ->form([
+                        Forms\Components\DatePicker::make('from')->label('Scheduled from'),
+                        Forms\Components\DatePicker::make('to')->label('Scheduled to'),
+                    ])
+                    ->query(fn ($query, array $data) => $query
+                        ->when($data['from'] ?? null, fn ($q, $d) => $q->whereDate('scheduled_at', '>=', $d))
+                        ->when($data['to'] ?? null, fn ($q, $d) => $q->whereDate('scheduled_at', '<=', $d)))
+                    ->indicateUsing(fn (array $data) => array_filter([
+                        ($data['from'] ?? null) ? 'From ' . $data['from'] : null,
+                        ($data['to'] ?? null) ? 'To ' . $data['to'] : null,
+                    ])),
             ])
             ->actions([Tables\Actions\EditAction::make()])
             ->bulkActions([Tables\Actions\BulkActionGroup::make([Tables\Actions\DeleteBulkAction::make()])]);

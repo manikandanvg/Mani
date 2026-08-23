@@ -10,7 +10,8 @@ use Illuminate\Support\Carbon;
 
 /**
  * Zoom event webhooks (board phase-1, 2026-08-21) — attendance capture.
- * Subscribed events: meeting.participant_joined / meeting.participant_left.
+ * Subscribed events: meeting.participant_joined / meeting.participant_left /
+ * meeting.ended (closes rows whose leave event never arrived).
  * Authenticity: Zoom's HMAC header signature (services.zoom.webhook_secret);
  * the endpoint.url_validation challenge is answered the way Zoom requires.
  */
@@ -41,16 +42,30 @@ class ZoomWebhookController extends Controller
             return response()->json(['ok' => true]);   // not one of ours
         }
 
+        // Host ended the meeting: every still-open Zoom row is closed at end_time
+        // (Zoom sends no participant_left for people present at the end).
+        if ($event === 'meeting.ended') {
+            $ended = $this->time($object['end_time'] ?? null);
+            MeetingAttendance::where('meeting_id', $meeting->id)
+                ->where('source', 'zoom')
+                ->whereNull('left_at')
+                ->each(fn (MeetingAttendance $row) => $row->update([
+                    'left_at' => $ended,
+                    'duration_min' => max(1, (int) round($row->joined_at->diffInSeconds($ended) / 60)),
+                ]));
+
+            return response()->json(['ok' => true]);
+        }
+
         $p = (array) ($object['participant'] ?? []);
         $pid = (string) ($p['user_id'] ?? $p['participant_user_id'] ?? $p['id'] ?? '');
         $name = trim((string) ($p['user_name'] ?? ''));
+        $email = strtolower(trim((string) ($p['email'] ?? '')));
 
         if ($event === 'meeting.participant_joined') {
             MeetingAttendance::create([
                 'meeting_id' => $meeting->id,
-                // app-minted join links carry the member's own name — an exact
-                // match ties the Zoom row back to the member
-                'member_id' => $name !== '' ? Member::where('name', $name)->value('id') : null,
+                'member_id' => $this->matchMember($name, $email),
                 'participant_name' => $name ?: null,
                 'zoom_participant_id' => $pid ?: null,
                 'source' => 'zoom',
@@ -68,12 +83,32 @@ class ZoomWebhookController extends Controller
                 $left = $this->time($p['leave_time'] ?? null);
                 $row->update([
                     'left_at' => $left,
-                    'duration_min' => max(1, (int) ceil($row->joined_at->diffInSeconds($left) / 60)),
+                    'duration_min' => max(1, (int) round($row->joined_at->diffInSeconds($left) / 60)),
                 ]);
             }
         }
 
         return response()->json(['ok' => true]);
+    }
+
+    /**
+     * Tie a Zoom participant back to a member. App-minted join links put the
+     * member code after the name ("Priya · LJW01"), so the code is the reliable
+     * key; a Zoom-account e-mail and an exact name are the fallbacks.
+     */
+    protected function matchMember(string $name, string $email): ?int
+    {
+        if ($name !== '' && preg_match('/(?:·|\(|-)\s*([A-Za-z0-9]{3,20})\)?\s*$/u', $name, $m)) {
+            $id = Member::whereRaw('UPPER(member_code) = ?', [strtoupper($m[1])])->value('id');
+            if ($id) {
+                return $id;
+            }
+        }
+        if ($email !== '' && ($id = Member::whereRaw('LOWER(email) = ?', [$email])->value('id'))) {
+            return $id;
+        }
+
+        return $name !== '' ? Member::where('name', $name)->value('id') : null;
     }
 
     protected function time(?string $iso): Carbon

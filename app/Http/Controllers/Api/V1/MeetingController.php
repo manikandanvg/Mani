@@ -20,7 +20,12 @@ class MeetingController extends Controller
     {
         $user = $request->user();
         $levels = $user instanceof Member ? ['members', 'public'] : ['public'];
+        // Zoom display name carries the member code so the participant webhook
+        // can tie the Zoom row back to the member (see ZoomWebhookController).
         $displayName = (string) ($user->name ?? 'LORDICL Member');
+        if ($user instanceof Member && filled($user->member_code)) {
+            $displayName .= ' · ' . $user->member_code;
+        }
         // Rank-targeted meetings (item 7): only visible from the required TBP stage up.
         $myDepth = $user instanceof Member ? (int) ($user->rank?->depth ?? 0) : 0;
 
@@ -105,8 +110,9 @@ class MeetingController extends Controller
         return [
             'id' => $m->id,
             'title' => $m->title,
+            // any row tied to this member — an app-join tap OR a Zoom-verified row
             'attended' => $memberId
-                ? $m->attendances()->where('member_id', $memberId)->where('source', 'app')->exists()
+                ? $m->attendances()->where('member_id', $memberId)->exists()
                 : false,
             'description' => $m->description,
             'platform' => $m->platform,

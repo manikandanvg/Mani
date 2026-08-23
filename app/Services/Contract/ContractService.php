@@ -69,7 +69,9 @@ class ContractService
         $path = 'contracts/' . $this->filename($bond);
         Storage::disk('public')->put($path, $this->pdf($bond)->output());
 
-        return Storage::disk('public')->url($path);
+        // Request-host URL (NOT Storage::url/APP_URL): this link is pushed to the
+        // mobile app, which must reach it on whatever host it called us on.
+        return url('storage/' . $path);
     }
 
     protected function filename(Bond $bond): string
