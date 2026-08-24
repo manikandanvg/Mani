@@ -83,6 +83,24 @@ class MeetingZoomTest extends TestCase
             ->assertHeader('Cross-Origin-Embedder-Policy', 'require-corp');
     }
 
+    /** The CDN embedded SDK needs React/ReactDOM globals or it throws at load. */
+    public function test_join_page_loads_zoom_react_vendor_scripts_before_the_sdk(): void
+    {
+        config(['services.zoom.sdk_client_id' => 'zoom_client_x', 'services.zoom.sdk_client_secret' => 'zoom_secret_x']);
+        $this->makeMeeting();
+
+        Sanctum::actingAs($this->member, ['*']);
+        $url = $this->getJson('/api/v1/meetings')->json('upcoming.0.app_join_url');
+
+        $html = $this->get($url)->assertOk()->getContent();
+        $react = strpos($html, '/lib/vendor/react.min.js');
+        $dom = strpos($html, '/lib/vendor/react-dom.min.js');
+        $sdk = strpos($html, 'zoom-meeting-embedded-');
+        $this->assertNotFalse($react);
+        $this->assertNotFalse($dom);
+        $this->assertTrue($react < $sdk && $dom < $sdk, 'vendor scripts must precede the SDK bundle');
+    }
+
     public function test_join_page_offers_a_native_zoom_fallback_carrying_the_passcode(): void
     {
         config(['services.zoom.sdk_client_id' => 'zoom_client_x', 'services.zoom.sdk_client_secret' => 'zoom_secret_x']);

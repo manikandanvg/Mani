@@ -43,6 +43,11 @@
             }
         }, true);
     </script>
+    {{-- The CDN build of the embedded SDK expects React + ReactDOM as globals
+         (it throws "React is not defined" without them — the page then looked
+         like a dead SDK for two weeks). Zoom ships matching copies per version. --}}
+    <script src="https://source.zoom.us/{{ $sdkVersion }}/lib/vendor/react.min.js"></script>
+    <script src="https://source.zoom.us/{{ $sdkVersion }}/lib/vendor/react-dom.min.js"></script>
     <script src="https://source.zoom.us/{{ $sdkVersion }}/zoom-meeting-embedded-{{ $sdkVersion }}.min.js"></script>
     <script>
         (function () {
@@ -65,7 +70,10 @@
                 err.textContent = reason;
                 diag.textContent = detail || '';
                 fallback.style.display = 'inline-block';
-                setTimeout(function () { window.location.href = NATIVE_URL; }, 1200);
+                // ?debug=1 keeps the diagnostic on screen instead of leaving for Zoom.
+                if (!/[?&]debug=1/.test(window.location.search)) {
+                    setTimeout(function () { window.location.href = NATIVE_URL; }, 1200);
+                }
             }
 
             // Plain-HTTP page (dev LAN / lordicl.test): browsers only honour
