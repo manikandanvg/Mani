@@ -121,7 +121,10 @@ class MeetingController extends Controller
         }
 
         return response()->json([
-            'jwt' => $zoom->nativeSignature(),   // native SDK: appKey/iat/exp/tokenExp only
+            // Same claim set Zoom's own native samples sign (appKey/sdkKey/mn/role/iat/exp/tokenExp).
+            // A four-claim token (no mn/role) was rejected by Android SDK 7.0.5 with 5/124 even
+            // with a key the Web SDK accepted (2026-08-25).
+            'jwt' => $zoom->signature($meetingNumber),
             'client_id' => $zoom->clientId(),
             'meeting_number' => $meetingNumber,
             'passcode' => (string) ($meeting->passcode ?? ''),

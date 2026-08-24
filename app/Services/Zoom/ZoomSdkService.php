@@ -48,30 +48,6 @@ class ZoomSdkService
         return "{$header}.{$payload}." . $this->b64url($sig);
     }
 
-    /**
-     * JWT for the NATIVE Meeting SDK (Android/iOS, 2026-08-24). Zoom's native
-     * reference generators sign exactly these four claims; `mn` and `role` are
-     * Web-SDK-only. Keeping the native token to the documented minimum removes
-     * the claim set as a variable when the SDK answers AUTHRET_TOKENWRONG —
-     * what remains is the credential pair itself.
-     */
-    public function nativeSignature(): string
-    {
-        $iat = time() - 30;
-        $exp = $iat + 7200;
-
-        $header = $this->b64(['alg' => 'HS256', 'typ' => 'JWT']);
-        $payload = $this->b64([
-            'appKey' => $this->clientId(),
-            'iat' => $iat,
-            'exp' => $exp,
-            'tokenExp' => $exp,
-        ]);
-        $sig = hash_hmac('sha256', "{$header}.{$payload}", (string) config('services.zoom.sdk_client_secret'), true);
-
-        return "{$header}.{$payload}." . $this->b64url($sig);
-    }
-
     protected function b64(array $data): string
     {
         return $this->b64url((string) json_encode($data));
