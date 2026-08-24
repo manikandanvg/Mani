@@ -44,7 +44,7 @@ class MeetingAttendanceResource extends BaseResource
     {
         return $table
             ->defaultSort('joined_at', 'desc')
-            ->modifyQueryUsing(fn (Builder $q) => $q->with(['meeting', 'member']))
+            ->modifyQueryUsing(fn (Builder $query) => $query->with(['meeting', 'member']))
             ->columns([
                 Tables\Columns\TextColumn::make('joined_at')->label('Joined')->dateTime('d M Y, h:i A')->sortable(),
                 Tables\Columns\TextColumn::make('meeting.title')->label('Meeting')->limit(40)->wrap()->searchable()
