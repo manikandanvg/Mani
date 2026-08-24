@@ -121,7 +121,7 @@ class MeetingController extends Controller
         }
 
         return response()->json([
-            'jwt' => $zoom->signature($meetingNumber),
+            'jwt' => $zoom->nativeSignature(),   // native SDK: appKey/iat/exp/tokenExp only
             'client_id' => $zoom->clientId(),
             'meeting_number' => $meetingNumber,
             'passcode' => (string) ($meeting->passcode ?? ''),

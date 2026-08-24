@@ -64,7 +64,10 @@ class NativeZoomJoinTest extends TestCase
         [$h, $p, $s] = explode('.', $res->json('jwt'));
         $payload = json_decode(base64_decode(strtr($p, '-_', '+/')), true);
         $this->assertSame('zoom_client_x', $payload['appKey']);
-        $this->assertSame('9876543210', $payload['mn']);
+        // Native SDK token: the documented four claims, none of the Web-SDK extras.
+        $this->assertArrayNotHasKey('mn', $payload);
+        $this->assertArrayNotHasKey('role', $payload);
+        $this->assertGreaterThanOrEqual(1800, $payload['tokenExp'] - $payload['iat']);
         $expected = rtrim(strtr(base64_encode(hash_hmac('sha256', "{$h}.{$p}", 'zoom_secret_x', true)), '+/', '-_'), '=');
         $this->assertSame($expected, $s);
 
