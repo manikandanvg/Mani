@@ -14,7 +14,7 @@ use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
 /**
- * Mobile checkout payment: unpaid orders expose a browser pay_url when the gateway
+ * Mobile checkout payment: unpaid orders are flagged payable (native SDK) when the gateway
  * is configured, and the payment.captured webhook settles orders whose buyer never
  * returned from Razorpay Checkout to the verify page.
  */
@@ -53,7 +53,7 @@ class OrderPaymentTest extends TestCase
         ]);
     }
 
-    public function test_checkout_returns_pay_url_when_gateway_configured(): void
+    public function test_checkout_is_payable_when_gateway_configured(): void
     {
         config(['services.razorpay.key' => 'rzp_test_key', 'services.razorpay.secret' => 'rzp_test_secret']);
 
@@ -61,15 +61,15 @@ class OrderPaymentTest extends TestCase
 
         $this->assertSame('unpaid', $res->json('data.payment_status'));
         $order = Order::firstOrFail();
-        $this->assertSame(route('order.pay', $order->order_no), $res->json('data.pay_url'));
+        $this->assertTrue($res->json('data.payable'));
     }
 
-    public function test_checkout_pay_url_is_null_when_gateway_not_configured(): void
+    public function test_checkout_is_not_payable_when_gateway_not_configured(): void
     {
         config(['services.razorpay.key' => null, 'services.razorpay.secret' => null]);
 
         $res = $this->checkout()->assertOk();
-        $this->assertNull($res->json('data.pay_url'));
+        $this->assertFalse($res->json('data.payable'));
     }
 
     public function test_payment_captured_webhook_settles_the_order(): void

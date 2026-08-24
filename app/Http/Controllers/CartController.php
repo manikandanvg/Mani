@@ -154,11 +154,8 @@ class CartController extends Controller
         }
 
         $razorpay = app(RazorpayService::class);
-        if (! $order->razorpay_order_id && $razorpay->configured() && (float) $order->total > 0) {
-            if ($rzp = $razorpay->createOrder((float) $order->total, $order->order_no, ['order_no' => $order->order_no])) {
-                $order->update(['razorpay_order_id' => $rzp['id']]);
-            }
-        }
+        // Same lazy gateway-order creation the app's native intent endpoint uses.
+        app(\App\Services\Payment\OrderPaymentService::class)->ensureGatewayOrder($order);
 
         return view('storefront.pay', [
             'order' => $order,
@@ -178,67 +175,16 @@ class CartController extends Controller
         ]);
 
         $order = Order::where('order_no', $data['order_no'])->firstOrFail();
-        $razorpay = app(RazorpayService::class);
 
-        $valid = $data['razorpay_order_id'] === $order->razorpay_order_id
-            && $razorpay->verifySignature($data['razorpay_order_id'], $data['razorpay_payment_id'], $data['razorpay_signature']);
+        // Settlement (Payment row, order status, member + HQ notifications) lives in
+        // OrderPaymentService so the app's native SDK verify behaves identically.
+        $ok = app(\App\Services\Payment\OrderPaymentService::class)
+            ->verify($order, $data['razorpay_order_id'], $data['razorpay_payment_id'], $data['razorpay_signature']);
 
-        $payment = Payment::firstOrNew(['razorpay_order_id' => $data['razorpay_order_id']]);
-        $payment->fill([
-            'order_id' => $order->id, 'gateway' => 'razorpay',
-            'razorpay_payment_id' => $data['razorpay_payment_id'],
-            'razorpay_signature' => $data['razorpay_signature'],
-            'amount' => $order->total, 'currency' => 'INR',
-        ]);
-
-        if ($valid) {
-            $details = $razorpay->fetchPayment($data['razorpay_payment_id']);
-            $payment->status = 'paid';
-            $payment->method = $details['method'] ?? null;
-            $payment->email = $details['email'] ?? $order->email;
-            $payment->contact = $details['contact'] ?? $order->phone;
-            $payment->meta = $details;
-            $payment->save();
-
-            $order->update(['payment_status' => 'paid', 'status' => 'confirmed', 'paid_at' => now()]);
-
-            // Payment-successful acknowledgement (board 2026-08-11) — only members have
-            // an app inbox; guest checkouts see the on-screen confirmation instead.
-            if ($order->member_id) {
-                \App\Services\Push\Notifier::to(
-                    \App\Models\Member::find($order->member_id),
-                    'order',
-                    'Payment successful — ' . $order->order_no,
-                    \App\Support\Money::inr((float) $order->total) . ' received. Your order is confirmed and will be processed shortly.',
-                    route: '/orders/' . $order->id,
-                );
-            }
-            // HQ bell: a paid order is ready for fulfilment.
-            \App\Services\Push\Notifier::admins(
-                'Online order paid — ' . $order->order_no,
-                ($order->customer_name ?: 'A customer') . ' paid ' . \App\Support\Money::inr((float) $order->total)
-                    . '. Process it under Online Orders → Order Management.',
-                url: '/admin/order-management',
-                category: 'order',
-            );
-
+        if ($ok) {
             session()->forget('cart');
 
             return redirect()->route('order.confirmation', $order->order_no);
-        }
-
-        $payment->status = 'failed';
-        $payment->save();
-
-        // Payment-failed acknowledgement for member orders (board 2026-08-11).
-        if ($order->member_id) {
-            \App\Services\Push\Notifier::to(
-                \App\Models\Member::find($order->member_id),
-                'order',
-                'Payment failed — ' . $order->order_no,
-                'Your payment could not be verified and was not captured. Please try again; no amount will be charged twice.',
-                route: '/orders/' . $order->id,
-            );
         }
 
         return redirect()->route('order.pay', $order->order_no)

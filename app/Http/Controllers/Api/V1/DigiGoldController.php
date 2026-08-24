@@ -143,9 +143,9 @@ class DigiGoldController extends Controller
 
         return response()->json(array_filter([
             'purchase' => $this->present($purchase),
-            'pay_url' => $purchase->status === 'created'
-                ? URL::temporarySignedRoute('digigold.pay', now()->addMinutes(30), ['purchase' => $purchase->id])
-                : null,
+            // Native in-app payment (2026-08-24): Razorpay Checkout options for
+            // the app's SDK; it then POSTs purchases/{id}/verify with the result.
+            'payment' => $this->checkoutFor($purchase, $member),
             'cash_balance' => (float) ($wallet?->cash_balance ?? 0),
             'grams_balance' => (float) ($wallet?->{$this->market->gramsColumn($purchase->metal)} ?? 0),
         ], fn ($v) => $v !== null), 201);
@@ -187,10 +187,38 @@ class DigiGoldController extends Controller
         $member = $this->member($request);
         abort_unless((int) $purchase->member_id === (int) $member->id, 404);
 
-        return response()->json([
+        return response()->json(array_filter([
             'purchase' => $this->present($purchase),
+            'payment' => $this->checkoutFor($purchase, $member),
             'grams_balance' => (float) ($member->wallet()->first()?->{$this->market->gramsColumn($purchase->metal)} ?? 0),
-        ]);
+        ], fn ($v) => $v !== null));
+    }
+
+    /**
+     * Everything the native Razorpay Checkout needs for an unpaid online
+     * purchase (public key id + gateway order id; never the secret). Null once
+     * paid/failed, for wallet-funded buys, or when the gateway is off.
+     */
+    protected function checkoutFor(DigiGoldPurchase $p, Member $member): ?array
+    {
+        $razorpay = app(\App\Services\Payment\RazorpayService::class);
+        if ($p->status !== 'created' || ! $p->razorpay_order_id || ! $razorpay->configured()) {
+            return null;
+        }
+
+        return [
+            'key_id' => (string) $razorpay->keyId(),
+            'razorpay_order_id' => $p->razorpay_order_id,
+            'amount_paise' => (int) round((float) $p->amount * 100),
+            'currency' => 'INR',
+            'name' => (string) config('app.name', 'LORDICL'),
+            'description' => 'Digi ' . ucfirst($p->metal) . ' ' . number_format((float) $p->grams, 4) . ' g',
+            'prefill' => [
+                'name' => $member->name,
+                'email' => $member->email ?? null,
+                'contact' => $member->phone,
+            ],
+        ];
     }
 
     /** Validated {metal, amount|grams, direction} shared by quote/buy/withdraw. */
@@ -207,6 +235,12 @@ class DigiGoldController extends Controller
     }
 
     protected function present(DigiGoldPurchase $p): array
+    {
+        return self::presentPurchase($p);
+    }
+
+    /** Shared with PaymentController so the native verify returns the same shape. */
+    public static function presentPurchase(DigiGoldPurchase $p): array
     {
         return [
             'id' => $p->id,

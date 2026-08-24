@@ -91,6 +91,56 @@ class MeetingController extends Controller
         ]);
     }
 
+    /**
+     * GET /meetings/{meeting}/sdk-token — native in-app join (2026-08-24). Hands
+     * the app a server-signed Meeting SDK JWT (secret never leaves the server)
+     * plus exactly what joinMeeting() needs. Opening the meeting this way logs
+     * a first-party attendance row, like the signed web page did.
+     */
+    public function sdkToken(Request $request, Meeting $meeting): JsonResponse
+    {
+        $user = $request->user();
+        $zoom = app(\App\Services\Zoom\ZoomSdkService::class);
+        abort_unless($zoom->configured(), 503, 'In-app joining is not configured — use the Zoom link.');
+        abort_unless($meeting->is_published, 404);
+
+        // Same audience rules as the list: visibility level + rank gate.
+        $levels = $user instanceof Member ? ['members', 'public'] : ['public'];
+        abort_unless(in_array($meeting->visibility, $levels, true), 404);
+        $myDepth = $user instanceof Member ? (int) ($user->rank?->depth ?? 0) : 0;
+        abort_if($meeting->min_rank_depth !== null && (int) $meeting->min_rank_depth > $myDepth, 404);
+
+        $meetingNumber = preg_replace('/\D/', '', (string) $meeting->meeting_id);
+        abort_if($meetingNumber === '', 404, 'This meeting has no Zoom meeting number.');
+
+        if ($user instanceof Member) {
+            \App\Models\MeetingAttendance::firstOrCreate(
+                ['meeting_id' => $meeting->id, 'member_id' => $user->id, 'source' => 'app'],
+                ['participant_name' => $user->name, 'joined_at' => now()],
+            );
+        }
+
+        return response()->json([
+            'jwt' => $zoom->signature($meetingNumber),
+            'client_id' => $zoom->clientId(),
+            'meeting_number' => $meetingNumber,
+            'passcode' => (string) ($meeting->passcode ?? ''),
+            'display_name' => $this->displayNameFor($user),
+            'domain' => 'zoom.us',
+        ]);
+    }
+
+    /** Zoom display name; carries the member code so the participant webhook can match the row. */
+    protected function displayNameFor($user): string
+    {
+        $displayName = (string) ($user->name ?? 'LORDICL Member');
+        if ($user instanceof Member && filled($user->member_code)) {
+            $displayName .= ' · ' . $user->member_code;
+        }
+
+        return $displayName;
+    }
+
     protected function present(Meeting $m, string $displayName = 'LORDICL Member', ?int $memberId = null): array
     {
         // In-app join (2026-08-12): a signed Web-SDK page URL, minted per user so
@@ -99,7 +149,8 @@ class MeetingController extends Controller
         // The member id rides in the signed query so opening the page logs attendance.
         $zoom = app(\App\Services\Zoom\ZoomSdkService::class);
         $appJoinUrl = null;
-        if ($zoom->configured() && filled($m->meeting_id) && preg_replace('/\D/', '', (string) $m->meeting_id) !== '') {
+        $meetingNumber = preg_replace('/\D/', '', (string) $m->meeting_id);
+        if ($zoom->configured() && filled($m->meeting_id) && $meetingNumber !== '') {
             $appJoinUrl = \Illuminate\Support\Facades\URL::temporarySignedRoute(
                 'zoom.join',
                 now()->addHours(3),
@@ -118,6 +169,9 @@ class MeetingController extends Controller
             'platform' => $m->platform,
             'join_url' => $m->join_url,
             'app_join_url' => $appJoinUrl,
+            // Native Meeting SDK join (2026-08-24): the app fetches
+            // GET meetings/{id}/sdk-token and joins with Zoom's native SDK.
+            'sdk_join' => $zoom->configured() && $meetingNumber !== '',
             'meeting_id' => $m->meeting_id,
             'passcode' => $m->passcode,
             'host' => $m->host_name,

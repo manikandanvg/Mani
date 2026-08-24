@@ -13,6 +13,7 @@ use App\Http\Controllers\Api\V1\MemberBusinessController;
 use App\Http\Controllers\Api\V1\MemberDocumentController;
 use App\Http\Controllers\Api\V1\NotificationController;
 use App\Http\Controllers\Api\V1\OrderController;
+use App\Http\Controllers\Api\V1\PaymentController;
 use App\Http\Controllers\Api\V1\ShopController;
 use App\Http\Controllers\Api\V1\SupportController;
 use App\Http\Controllers\Api\V1\WalletController;
@@ -132,6 +133,9 @@ Route::prefix('v1')->group(function () {
         Route::post('checkout', [OrderController::class, 'checkout']);
         Route::get('orders', [OrderController::class, 'index']);
         Route::get('orders/{order}', [OrderController::class, 'show']);
+        // Native in-app payment (2026-08-24): Razorpay Checkout options + JSON verify.
+        Route::post('orders/{order}/payment/intent', [PaymentController::class, 'orderIntent']);
+        Route::post('orders/{order}/payment/verify', [PaymentController::class, 'orderVerify']);
 
         // My Business — distributor area (Phase 2). Member-only (403 for customers).
         Route::get('member/dashboard', [MemberBusinessController::class, 'dashboard']);
@@ -197,12 +201,15 @@ Route::prefix('v1')->group(function () {
         Route::post('digimarket/buy', [DigiGoldController::class, 'buy']);
         Route::post('digimarket/withdraw', [DigiGoldController::class, 'withdraw']);
         Route::get('digimarket/purchases/{purchase}', [DigiGoldController::class, 'purchase']);
+        Route::post('digimarket/purchases/{purchase}/verify', [PaymentController::class, 'digiVerify']);
 
         // Live & Learn (Phase 6a) — scheduled meetings (Zoom deep-link).
         Route::get('meetings', [MeetingController::class, 'index']);
         // Attendance (board phase-1, 2026-08-21): join-tap log + the member's own
         // attended-meetings list for the Training Library.
         Route::post('meetings/{meeting}/joined', [MeetingController::class, 'joined']);
+        // Native Meeting SDK join (2026-08-24): server-signed SDK JWT + join params.
+        Route::get('meetings/{meeting}/sdk-token', [MeetingController::class, 'sdkToken']);
         Route::get('member/meeting-attendance', [MeetingController::class, 'myAttendance']);
 
         // Training library (Phase 6b) — browse public drive folders/files (member-only).

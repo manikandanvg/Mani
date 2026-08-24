@@ -38,14 +38,10 @@ class OrderResource extends JsonResource
                 'line_total' => (float) $i->line_total,
             ])),
             'placed_at' => optional($this->created_at)->toIso8601String(),
-            // Browser leg of mobile payment: the web pay page (Razorpay Checkout)
-            // lazily creates the gateway order on first load, so exposing the URL
-            // is all the API needs to make an unpaid order payable from the app.
-            'pay_url' => $this->payment_status === 'unpaid'
-                && (float) $this->total > 0
-                && app(\App\Services\Payment\RazorpayService::class)->configured()
-                    ? route('order.pay', $this->order_no)
-                    : null,
+            // Native in-app payment (2026-08-24): when true the app asks
+            // POST orders/{id}/payment/intent for Razorpay Checkout options and
+            // runs the native SDK — no browser leg.
+            'payable' => app(\App\Services\Payment\OrderPaymentService::class)->payable($this->resource),
         ];
     }
 }

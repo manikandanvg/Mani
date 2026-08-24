@@ -151,8 +151,8 @@ class DigiMarketTest extends TestCase
             ->assertStatus(201);
         $this->assertSame('created', $res->json('purchase.status'));
         $this->assertSame(0.5, (float) $res->json('purchase.grams'));
-        $this->assertStringContainsString('/digigold/', (string) $res->json('pay_url'));
-        $this->assertStringContainsString('signature=', (string) $res->json('pay_url'));
+        $this->assertSame('rzp_test_key', $res->json('payment.key_id'));
+        $this->assertNotEmpty($res->json('payment.razorpay_order_id'));
 
         $purchase = DigiGoldPurchase::firstOrFail();
         $this->assertSame('order_DG_1', $purchase->razorpay_order_id);
