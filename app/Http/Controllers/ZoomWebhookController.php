@@ -108,17 +108,7 @@ class ZoomWebhookController extends Controller
      */
     protected function matchMember(string $name, string $email): ?int
     {
-        if ($name !== '' && preg_match('/(?:·|\(|-)\s*([A-Za-z0-9]{3,20})\)?\s*$/u', $name, $m)) {
-            $id = Member::whereRaw('UPPER(member_code) = ?', [strtoupper($m[1])])->value('id');
-            if ($id) {
-                return $id;
-            }
-        }
-        if ($email !== '' && ($id = Member::whereRaw('LOWER(email) = ?', [$email])->value('id'))) {
-            return $id;
-        }
-
-        return $name !== '' ? Member::where('name', $name)->value('id') : null;
+        return MeetingAttendance::matchMember($name, $email);
     }
 
     protected function time(?string $iso): Carbon

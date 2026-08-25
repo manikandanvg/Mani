@@ -26,3 +26,6 @@ Schedule::command('rates:fetch')->dailyAt('06:00')->withoutOverlapping();
 
 // "Meeting starting soon" pushes — idempotent via meetings.reminder_sent_at.
 Schedule::command('notify:meeting-reminders')->everyFifteenMinutes()->withoutOverlapping();
+// Verified minutes safety net (2026-08-25): reconcile ended Zoom meetings with
+// Zoom's participant report in case the participant webhooks did not arrive.
+Schedule::command('zoom:sync-attendance')->everyThirtyMinutes()->withoutOverlapping();

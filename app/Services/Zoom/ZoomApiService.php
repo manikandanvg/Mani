@@ -96,6 +96,52 @@ class ZoomApiService
         }
     }
 
+    /**
+     * Everyone Zoom saw in a finished meeting, all pages merged (2026-08-25).
+     * Needs the S2S scope meeting:read:list_past_participants:admin. Null when
+     * the call fails (no token, missing scope, meeting never happened).
+     * Each entry: id (participant uuid), user_id (in-meeting id — the same id
+     * the participant webhooks carry), name, user_email, join_time,
+     * leave_time, duration (seconds).
+     */
+    public function pastParticipants(string $meetingNumber): ?array
+    {
+        $token = $this->token();
+        if (! $token) {
+            return null;
+        }
+
+        $all = [];
+        $next = '';
+        do {
+            $res = $this->get($token, '/past_meetings/' . rawurlencode($meetingNumber) . '/participants',
+                array_filter(['page_size' => 300, 'next_page_token' => $next]));
+            if (! $res || $res->failed()) {
+                Log::warning('Zoom past-participants rejected', ['meeting' => $meetingNumber, 'status' => $res?->status(), 'body' => $res?->json()]);
+
+                return null;
+            }
+            $all = array_merge($all, (array) $res->json('participants', []));
+            $next = (string) $res->json('next_page_token', '');
+        } while ($next !== '');
+
+        return $all;
+    }
+
+    protected function get(string $token, string $path, array $query = []): ?\Illuminate\Http\Client\Response
+    {
+        try {
+            return Http::withOptions(['verify' => app_ca()])
+                ->withToken($token)
+                ->timeout(15)
+                ->get(self::API . $path, $query);
+        } catch (\Throwable $e) {
+            Log::warning('Zoom GET failed: ' . $e->getMessage(), ['path' => $path]);
+
+            return null;
+        }
+    }
+
     /** S2S OAuth access token, cached under its ~1h lifetime. */
     public function token(): ?string
     {
