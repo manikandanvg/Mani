@@ -52,6 +52,18 @@ class ZoomWebhookController extends Controller
             return response()->json(['ok' => true]);   // not one of ours
         }
 
+        // The subscription may carry every meeting event type; only three matter here.
+        // One line per handled event makes "did the leave ever arrive?" answerable
+        // from laravel.log on live (2026-08-25).
+        if (in_array($event, ['meeting.participant_joined', 'meeting.participant_left', 'meeting.ended'], true)) {
+            \Illuminate\Support\Facades\Log::info("Zoom webhook {$event}", [
+                'meeting' => $meeting->id,
+                'zoom' => $meeting->meeting_id,
+                'participant' => $object['participant']['user_id'] ?? null,
+                'name' => $object['participant']['user_name'] ?? null,
+            ]);
+        }
+
         // Host ended the meeting: every still-open Zoom row is closed at end_time
         // (Zoom sends no participant_left for people present at the end).
         if ($event === 'meeting.ended') {
@@ -94,6 +106,12 @@ class ZoomWebhookController extends Controller
                 $row->update([
                     'left_at' => $left,
                     'duration_min' => max(1, (int) round($row->joined_at->diffInSeconds($left) / 60)),
+                ]);
+            } else {
+                // Either the join never reached us, or zoom:sync-attendance already
+                // closed the row from Zoom's report before this event was delivered.
+                \Illuminate\Support\Facades\Log::info('Zoom participant_left with no open row', [
+                    'meeting' => $meeting->id, 'participant' => $pid, 'name' => $name,
                 ]);
             }
         }
