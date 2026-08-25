@@ -141,4 +141,19 @@ class ZoomSyncAttendanceTest extends TestCase
         $this->artisan('zoom:sync-attendance', ['--meeting' => $live->id])->assertSuccessful();
         $this->assertSame(1, MeetingAttendance::count());
     }
+
+    public function test_meeting_option_accepts_the_zoom_number_and_rejects_unknown_ids(): void
+    {
+        $this->endedMeeting();
+        $this->fakeZoom([[
+            'user_id' => '1', 'name' => 'Someone', 'join_time' => now()->subHours(3)->toIso8601String(), 'duration' => 300,
+        ]]);
+
+        $this->artisan('zoom:sync-attendance', ['--meeting' => '89748872092'])->assertSuccessful();
+        $this->assertSame(1, MeetingAttendance::count());
+
+        $this->artisan('zoom:sync-attendance', ['--meeting' => '11111111111'])
+            ->expectsOutputToContain('No meeting with id or Zoom number 11111111111')
+            ->assertFailed();
+    }
 }

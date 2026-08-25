@@ -21,7 +21,7 @@ use Illuminate\Support\Carbon;
 class ZoomSyncAttendance extends Command
 {
     protected $signature = 'zoom:sync-attendance
-        {--meeting= : only this meeting (our id), even if it has not ended yet}
+        {--meeting= : only this meeting — our id or the Zoom meeting number — even if it has not ended yet}
         {--days=3 : look back this many days for ended Zoom meetings}';
 
     protected $description = 'Reconcile meeting attendance with Zoom\'s participant report (backs up the webhooks)';
@@ -34,9 +34,19 @@ class ZoomSyncAttendance extends Command
             return self::FAILURE;
         }
 
-        $meetings = $this->option('meeting')
-            ? Meeting::query()->whereKey((int) $this->option('meeting'))->get()
-            : Meeting::query()
+        if (($want = trim((string) $this->option('meeting'))) !== '') {
+            // Our id (short) or the Zoom meeting number (9–11 digits, as shown in the admin form).
+            $meetings = Meeting::query()
+                ->when(strlen($want) >= 9, fn ($q) => $q->where('meeting_id', $want), fn ($q) => $q->whereKey((int) $want))
+                ->get();
+            if ($meetings->isEmpty()) {
+                $this->components->error("No meeting with id or Zoom number {$want} — check Admin → Meetings");
+
+                return self::FAILURE;
+            }
+        }
+
+        $meetings ??= Meeting::query()
                 ->where('platform', 'zoom')
                 ->whereNotNull('meeting_id')
                 ->where('scheduled_at', '>=', now()->subDays(max(1, (int) $this->option('days'))))
