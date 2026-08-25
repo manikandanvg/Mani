@@ -34,7 +34,17 @@ class ZoomWebhookController extends Controller
 
         $ts = (string) $request->header('x-zm-request-timestamp');
         $expected = 'v0=' . hash_hmac('sha256', "v0:{$ts}:" . $request->getContent(), $secret);
-        abort_unless($secret !== '' && hash_equals($expected, (string) $request->header('x-zm-signature')), 401);
+        if ($secret === '' || ! hash_equals($expected, (string) $request->header('x-zm-signature'))) {
+            // Almost always the Secret Token of the OTHER marketplace app (we have two):
+            // ZOOM_WEBHOOK_SECRET must be the token of the app whose Event Subscription
+            // points here. Logged so "verified minutes never appear" is diagnosable (2026-08-25).
+            \Illuminate\Support\Facades\Log::warning('Zoom webhook rejected: signature mismatch', [
+                'event' => $event,
+                'meeting' => $request->input('payload.object.id'),
+                'has_signature' => $request->hasHeader('x-zm-signature'),
+            ]);
+            abort(401);
+        }
 
         $object = (array) $request->input('payload.object', []);
         $meeting = Meeting::where('meeting_id', (string) ($object['id'] ?? ''))->first();
