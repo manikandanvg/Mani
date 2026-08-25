@@ -17,7 +17,9 @@ use Illuminate\Support\Facades\Http;
  */
 class ZoomCheck extends Command
 {
-    protected $signature = 'zoom:check {--create : also create+delete a throw-away test meeting at Zoom}';
+    protected $signature = 'zoom:check
+        {--create : also create+delete a throw-away test meeting at Zoom}
+        {--join= : print a 3-hour signed WEB join URL for a meeting id (or "latest") — open it in a desktop browser to prove Zoom accepts the SDK key}';
 
     protected $description = 'Verify the Zoom Server-to-Server app, webhook secret and Meeting SDK credentials';
 
@@ -88,14 +90,66 @@ class ZoomCheck extends Command
             $this->components->error('ZOOM_SDK_CLIENT_ID / ZOOM_SDK_CLIENT_SECRET not set — the app falls back to the external Zoom link');
             $ok = false;
         } else {
+            // Two marketplace apps, two credential sets — the classic mistake is pasting
+            // the Server-to-Server app's Client ID/Secret (or the webhook Secret Token)
+            // into the ZOOM_SDK_* slots. The SDK then answers AUTHRET_TOKENWRONG (5/124)
+            // on the phone with no hint why, so catch it here (2026-08-25).
+            $sdkId = $sdk->clientId();
+            $sdkSecret = (string) config('services.zoom.sdk_client_secret');
+            $this->components->twoColumnDetail('SDK Client ID', substr($sdkId, 0, 4) . '…' . substr($sdkId, -4) . ' (' . strlen($sdkId) . ' chars)');
+            $this->components->twoColumnDetail('SDK Client Secret', substr($sdkSecret, 0, 2) . '…' . substr($sdkSecret, -2) . ' (' . strlen($sdkSecret) . ' chars)');
+            $this->line('  → both must be copied from the GENERAL app (Meeting SDK enabled), not the Server-to-Server app');
+
+            if ($sdkId === (string) config('services.zoom.client_id')) {
+                $this->components->error('ZOOM_SDK_CLIENT_ID equals ZOOM_CLIENT_ID — that is the Server-to-Server app, it cannot sign SDK tokens');
+                $ok = false;
+            }
+            if ($sdkSecret === (string) config('services.zoom.client_secret')) {
+                $this->components->error('ZOOM_SDK_CLIENT_SECRET equals ZOOM_CLIENT_SECRET — Server-to-Server secret pasted into the SDK slot');
+                $ok = false;
+            }
+            if ($sdkSecret === (string) config('services.zoom.webhook_secret')) {
+                $this->components->error('ZOOM_SDK_CLIENT_SECRET equals ZOOM_WEBHOOK_SECRET — the webhook Secret Token is not the Client Secret');
+                $ok = false;
+            }
+
             $sig = $sdk->signature('1234567890');
             $parts = explode('.', $sig);
             $claims = count($parts) === 3 ? json_decode(base64_decode(strtr($parts[1], '-_', '+/')), true) : null;
-            $this->components->twoColumnDetail('SDK JWT', is_array($claims) && ($claims['sdkKey'] ?? null) === $sdk->clientId()
-                ? '<fg=green>signs OK</> (exp ' . date('H:i', $claims['exp']) . ')'
-                : '<fg=red>malformed</>');
+            $required = ['appKey', 'sdkKey', 'mn', 'role', 'iat', 'exp', 'tokenExp'];
+            $missing = is_array($claims) ? array_diff($required, array_keys($claims)) : $required;
+            $window = is_array($claims) ? (int) $claims['exp'] - (int) $claims['iat'] : 0;
+            $signsOk = $missing === [] && ($claims['appKey'] ?? null) === $sdkId && $window >= 1800 && $window <= 172800;
+            $this->components->twoColumnDetail('SDK JWT', $signsOk
+                ? '<fg=green>signs OK</> (claims ' . implode(',', array_keys($claims)) . '; valid ' . intdiv($window, 60) . ' min)'
+                : '<fg=red>bad</> (missing ' . implode(',', $missing) . '; window ' . $window . 's)');
+            if (! $signsOk) {
+                $ok = false;
+            }
+            $this->components->twoColumnDetail('Server clock (UTC)', gmdate('Y-m-d H:i:s') . ' — must be within ±1 min of real time or Zoom rejects iat/exp');
             $this->components->twoColumnDetail('Web SDK version', (string) config('services.zoom.web_sdk_version'));
-            $this->line('  → in the Meeting SDK app, add this origin to the allow-list: ' . url('/'));
+            $this->line('  → in the General app, add this origin to the allow-list: ' . url('/'));
+            $this->line('  → Marketplace review is NOT needed: unpublished apps may join meetings hosted by the same Zoom account,');
+            $this->line('    and every meeting here is created by our own account via the Server-to-Server app.');
+
+            // Split test for a native 5/124: the Web SDK page uses the SAME key and
+            // signer. If it joins from a desktop browser the key is good and the
+            // fault is native-only; if it also fails, the General app itself
+            // (Embed → Meeting SDK toggle, credential set) is the problem.
+            if (($want = $this->option('join')) !== null) {
+                $meeting = $want === 'latest'
+                    ? \App\Models\Meeting::query()->where('is_published', true)->whereNotNull('meeting_id')->latest('scheduled_at')->first()
+                    : \App\Models\Meeting::find((int) $want);
+                if (! $meeting || preg_replace('/\D/', '', (string) $meeting->meeting_id) === '') {
+                    $this->components->error('No published meeting with a numeric Zoom id' . ($want === 'latest' ? '' : " (id {$want})"));
+                    $ok = false;
+                } else {
+                    $url = \Illuminate\Support\Facades\URL::temporarySignedRoute('zoom.join', now()->addHours(3), ['meeting' => $meeting->id, 'name' => 'zoom-check']);
+                    $this->components->twoColumnDetail('Web join test', "#{$meeting->id} {$meeting->title} (Zoom {$meeting->meeting_id})");
+                    $this->line('  ' . $url);
+                    $this->line('  → open in Chrome; "Signature is invalid"/"Invalid signature" there = the key/app config, not the phone');
+                }
+            }
         }
 
         $this->newLine();
