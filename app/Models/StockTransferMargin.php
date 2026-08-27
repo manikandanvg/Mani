@@ -6,14 +6,15 @@ use Illuminate\Database\Eloquent\Model;
 
 /**
  * Per-catalog-item stock-transfer margin rate card. Each seller level earns a
- * different % when it passes this item one hop down the chain. Area Dealer never
- * sells onward, so it has no rate.
+ * different % when it passes this item one hop down the chain. Sub Dealer and Area
+ * Distributor never sell onward, so they have no rate.
  */
 class StockTransferMargin extends Model
 {
     protected $guarded = [];
 
     protected $casts = [
+        'regional_pct' => 'decimal:3',
         'zonal_pct' => 'decimal:3',
         'district_pct' => 'decimal:3',
         'taluk_pct' => 'decimal:3',
@@ -32,7 +33,7 @@ class StockTransferMargin extends Model
         $column = $level . '_pct';
 
         return in_array($column, [
-            'zonal_pct', 'district_pct', 'taluk_pct', 'wholesaler_pct', 'reseller_pct',
+            'regional_pct', 'zonal_pct', 'district_pct', 'taluk_pct', 'wholesaler_pct', 'reseller_pct',
         ], true) ? (float) $this->{$column} : 0.0;
     }
 }

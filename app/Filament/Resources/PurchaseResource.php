@@ -128,7 +128,9 @@ class PurchaseResource extends BaseResource
                     ->indicateUsing(fn (array $data) => $data['month'] ? 'Month: ' . \Illuminate\Support\Carbon::parse($data['month'])->format('M Y') : null),
             ])
             ->actions([
-                Tables\Actions\ViewAction::make(),
+                // No 'view' page registered (board 2026-08-26, item 2.1) — View opens the
+                // infolist below as a popup modal, the house pattern since phase-1.
+                Tables\Actions\ViewAction::make()->modalWidth('5xl'),
                 Tables\Actions\DeleteAction::make(),
             ]);
     }
@@ -145,7 +147,9 @@ class PurchaseResource extends BaseResource
                 Infolists\Components\TextEntry::make('grand_total')->baseMoney(),
             ]),
             Infolists\Components\RepeatableEntry::make('lines')->label('Items')->columns(4)->schema([
-                Infolists\Components\TextEntry::make('catalogProduct.code')->label('Product'),
+                Infolists\Components\TextEntry::make('catalogProduct.code')->label('Product')
+                    ->formatStateUsing(fn ($state, $record) => trim($state . ' — ' . (Translatable::pick($record->catalogProduct?->name) ?? '')))
+                    ->placeholder('—'),
                 Infolists\Components\TextEntry::make('material')->badge(),
                 Infolists\Components\TextEntry::make('weight')->label('Wt/Qty'),
                 Infolists\Components\TextEntry::make('purity'),
@@ -166,7 +170,7 @@ class PurchaseResource extends BaseResource
     {
         $default = Translatable::defaultLocale();
 
-        return CatalogProduct::where('is_active', true)->get()
+        return CatalogProduct::where('is_active', true)->where('is_custom_order', false)->get()
             ->mapWithKeys(fn ($p) => [
                 $p->id => $p->code . ' — ' . Translatable::pick($p->name, $default),
             ])
@@ -178,7 +182,6 @@ class PurchaseResource extends BaseResource
         return [
             'index' => Pages\ListPurchases::route('/'),
             'create' => Pages\CreatePurchase::route('/create'),
-            'view' => Pages\ViewPurchase::route('/{record}'),
         ];
     }
 }

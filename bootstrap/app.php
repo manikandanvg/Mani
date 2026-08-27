@@ -17,6 +17,9 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->validateCsrfTokens(except: ['webhooks/*']);
         // Mobile app language: X-Locale header → app locale for every API response.
         $middleware->api(append: [\App\Http\Middleware\SetApiLocale::class]);
+        // Guests hitting an auth-guarded admin route (receipt / PDF streams) go to the
+        // panel login — there is no plain "login" route, so the default would throw.
+        $middleware->redirectGuestsTo(fn () => route('filament.admin.auth.login'));
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //

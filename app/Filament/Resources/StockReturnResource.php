@@ -27,7 +27,7 @@ class StockReturnResource extends BaseResource
 
     protected static ?string $navigationGroup = 'Trade';
 
-    protected static ?int $navigationSort = 6;
+    protected static ?int $navigationSort = 7;
 
     protected static ?string $navigationLabel = 'Stock Returns';
 
@@ -148,9 +148,10 @@ class StockReturnResource extends BaseResource
         }
 
         return \App\Models\Stock::where('branch_id', $branchId)->where('quantity', '>', 0)
+            ->where('order_line_id', 0)
             ->with('catalogProduct')
             ->get()
-            ->filter(fn ($s) => $s->catalogProduct)
+            ->filter(fn ($s) => $s->catalogProduct && ! $s->catalogProduct->is_custom_order)
             ->mapWithKeys(fn ($s) => [
                 $s->catalog_product_id => $s->catalogProduct->code
                     . ' — ' . Translatable::pick($s->catalogProduct->name)

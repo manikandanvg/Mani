@@ -54,6 +54,22 @@ class SalesService
             $userId = $data['created_by'] ?? auth()->id();
             $plan = Plan::findOrFail($data['plan_id']);
 
+            // Customized order (board 2026-08-27): the requesting branch bills the delivered
+            // pieces as a G10 material sale at the FROZEN order price — one bill per metal.
+            $custom = null;
+            $customLineIds = [];
+            if (! empty($data['custom_order_id'])) {
+                $custom = \App\Models\BranchOrderRequest::with('lines')->findOrFail($data['custom_order_id']);
+                abort_unless($custom->isCustomize() && (int) $custom->branch_id === (int) $branchId, 422, 'That customized order does not belong to this branch.');
+                abort_unless(in_array($custom->status, ['delivered', 'billed'], true), 422, 'The pieces have not been delivered to this branch yet.');
+                $customLineIds = array_values(array_filter(array_map(fn ($l) => (int) ($l['order_line_id'] ?? 0), $data['cart'] ?? [])));
+                abort_if(empty($customLineIds), 422, 'Pick the customized order pieces to bill.');
+                $materials = $custom->lines->whereIn('id', $customLineIds)->pluck('material')->unique();
+                abort_unless($materials->count() === 1, 422, 'Bill one metal per invoice — gold and silver pieces go on separate G10 bills.');
+                abort_unless($plan->type === $materials->first(), 422,
+                    'Customized ' . $materials->first() . ' pieces must be billed under the G10 ' . $materials->first() . ' plan.');
+            }
+
             // Currency context for this sale: the branch's operating currency and the rate
             // (INR per 1 unit) frozen onto every document so the figures never re-derive.
             // India branch => INR / 1.0, which keeps the maths below identical to before.
@@ -148,12 +164,19 @@ class SalesService
                 'status' => 'active',
             ]);
 
+            // Dealership ladder: billing a higher dealership plan promotes the member's
+            // existing branch to that plan's level (never downgrades) — board 2026-08-26.
+            app(\App\Services\DealershipService::class)->applyPlanLevel($member, $plan);
+
             $this->scheduleCbc($bond, $member, $cbcMonthly, (int) $plan->cbc_count, $billDate);
             $this->issueInstantCommission($member, $bond, $invoice, $plan, $allocation, $billDate, $branchId);
             $this->applyNetworkDeltas($member, $plan, $allocation, $isNew);
             $this->payBillMargin($plan, $invoice, $branchId, $userId, $crossTotal, $member);
             $this->payGmMargin($cart, $invoice, $branchId, $userId, $member);
             $this->deductStock($cart, $branchId, $billDate, $userId);
+            if ($custom) {
+                app(\App\Services\CustomizeOrderService::class)->onBilled($custom, $customLineIds, $invoice, $userId);
+            }
 
             // Schema-v2 flags: only contract-bearing plans get a MemberContract, and only
             // redeemable plans get a stock QR minted (and delivered after commit).
@@ -625,8 +648,10 @@ class SalesService
             $qty = isset($line['qty']) && $line['qty'] !== null && ($line['material'] ?? $cp?->material) !== 'cash'
                 ? (float) $line['qty']                                             // pieces straight from the bill
                 : (float) ($cp?->piecesFromWeight((float) ($line['weight'] ?? 0)) ?? ($line['weight'] ?? 0));
+            // Custom pieces are keyed by their order line (board 2026-08-27); ordinary rows = 0.
             $stock = Stock::where('branch_id', $branchId)
-                ->where('catalog_product_id', $line['catalog_product_id'])->first();
+                ->where('catalog_product_id', $line['catalog_product_id'])
+                ->where('order_line_id', (int) ($line['order_line_id'] ?? 0))->first();
             if (! $stock) {
                 continue;
             }

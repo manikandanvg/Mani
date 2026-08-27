@@ -43,6 +43,11 @@ Route::get('/admin/contracts/{bond}/pdf', fn (Bond $bond) => app(ContractService
 Route::get('/admin/redemptions/{invoice}/pdf', fn (\App\Models\RedemptionInvoice $invoice) => app(\App\Services\Redeem\RedemptionInvoicePdf::class)->stream($invoice))
     ->middleware(['web', 'auth'])->name('redemption.pdf');
 
+// Admin: stream a stock-order payment receipt (auth-guarded, branch-scoped) — replaces
+// direct /storage/order-receipts links that 404 without the public/storage symlink.
+Route::get('/admin/order-attachments/{attachment}', [\App\Http\Controllers\OrderAttachmentController::class, 'show'])
+    ->middleware(['web', 'auth'])->name('order.attachment');
+
 // Admin: stream a payroll payslip as a PDF (auth-guarded).
 Route::get('/admin/payslips/{payslip}/pdf', fn (\App\Models\Payslip $payslip) => app(\App\Services\Payroll\PayslipPdf::class)->stream($payslip))
     ->middleware(['web', 'auth'])->name('payslip.pdf');

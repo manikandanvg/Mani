@@ -32,25 +32,23 @@ class BranchResource extends BaseResource
                 Forms\Components\Section::make('Branch details')->columns(2)->schema([
                     Forms\Components\TextInput::make('name')->required()->maxLength(200),
                     Forms\Components\TextInput::make('incharge')->label('In-charge')->maxLength(200),
+                    // Dealership ladder (board 2026-08-26) in Plans `hid` order; set
+                    // automatically when a dealership plan is billed, editable here.
                     Forms\Components\Select::make('level')
-                        ->label('Supply-chain level')
-                        ->options([
-                            'hq' => 'Lord (HQ / Super-admin)',
-                            'zonal' => 'Zonal Admin',
-                            'district' => 'District',
-                            'taluk' => 'Taluk',
-                            'wholesaler' => 'Wholesaler',
-                            'reseller' => 'Reseller',
-                            'area_dealer' => 'Area Dealer',
-                        ])
-                        ->native(false),
+                        ->label('Dealership level')
+                        ->options(collect(Branch::LEVELS)->mapWithKeys(fn ($l, $i) => [$l => $i . ' · ' . Branch::levelLabel($l)])->all())
+                        ->native(false)->live(),
                     Forms\Components\Select::make('source_branch_id')
                         ->label('Orders stock from (source)')
-                        ->helperText('The branch one hop up the chain this branch buys from. HQ has none.')
-                        ->options(fn (?Branch $record) => Branch::query()
-                            ->when($record, fn ($q) => $q->whereKeyNot($record->getKey()))
-                            ->orderBy('name')
-                            ->pluck('name', 'id'))
+                        ->helperText(fn (\Filament\Forms\Get $get) => $get('level') && $get('level') !== 'hq'
+                            ? 'Allowed for this level: ' . implode(', ', array_map(fn ($l) => Branch::levelLabel($l), Branch::allowedSourceLevels($get('level'))))
+                            : 'HQ has no source.')
+                        ->options(function (?Branch $record, \Filament\Forms\Get $get) {
+                            $probe = $record ? clone $record : new Branch;
+                            $probe->level = $get('level');
+
+                            return $probe->sourceCandidates(hqOverride: true)->pluck('name', 'id')->all();
+                        })
                         ->searchable(),
                     Forms\Components\TextInput::make('phone')->tel()->maxLength(20),
                     Forms\Components\TextInput::make('gst_no')->label('GST No')->maxLength(25),
@@ -121,6 +119,7 @@ class BranchResource extends BaseResource
                 Tables\Columns\TextColumn::make('name')
                     ->searchable(),
                 Tables\Columns\TextColumn::make('level')
+                    ->formatStateUsing(fn ($state) => Branch::levelLabel($state))
                     ->badge()
                     ->formatStateUsing(fn (?string $state) => $state ? str($state)->replace('_', ' ')->title() : '—')
                     ->sortable(),

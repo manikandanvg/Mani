@@ -165,12 +165,28 @@ class MemberResource extends BaseResource
             // Board spec 2026-08-09: internal ids (user/placement/left/right/stage/branch)
             // are hidden; senior + referrer render as "Name (Distributor Code)".
             ->columns([
+                // Board 2026-08-26 (1.1): column order fixed by the board — thumb photo first,
+                // identity → contact → codes → KYC → docs → bank → nominee → volumes → status.
+                Tables\Columns\ImageColumn::make('photo_path')
+                    ->label('Photo')
+                    ->getStateUsing(fn (Member $r) => $r->photo_path ? media_url($r->photo_path) : null)
+                    ->circular()->size(40)
+                    ->defaultImageUrl(asset('images/logo.png')),
+                Tables\Columns\TextColumn::make('name')
+                    ->searchable()->sortable(),
+                Tables\Columns\TextColumn::make('father_name')
+                    ->searchable()->toggleable(),
+                Tables\Columns\TextColumn::make('address')
+                    ->searchable()->toggleable()->limit(40),
+                Tables\Columns\TextColumn::make('city')
+                    ->searchable()->toggleable(),
+                Tables\Columns\TextColumn::make('pincode')
+                    ->searchable()->toggleable(),
+                Tables\Columns\TextColumn::make('phone')
+                    ->searchable(),
                 Tables\Columns\TextColumn::make('member_code')
                     ->label('Distributor Code')
-                    ->searchable(),
-                Tables\Columns\TextColumn::make('joined_on')
-                    ->date()
-                    ->sortable(),
+                    ->searchable()->sortable(),
                 Tables\Columns\TextColumn::make('upline.name')
                     ->label('Senior Distributor')
                     ->formatStateUsing(fn ($state, Member $record) => $record->upline
@@ -189,6 +205,10 @@ class MemberResource extends BaseResource
                         'referrer',
                         fn ($q) => $q->where('name', 'like', "%{$search}%")->orWhere('member_code', 'like', "%{$search}%")
                     )),
+                Tables\Columns\TextColumn::make('joined_on')
+                    ->label('Joined on')
+                    ->date()
+                    ->sortable(),
                 // Green KYC badge (board 2026-08-12 item 1) — shown wherever members list.
                 Tables\Columns\TextColumn::make('kyc_verified')
                     ->label('KYC')
@@ -200,45 +220,30 @@ class MemberResource extends BaseResource
                         'Verified' => 'success', 'Partial' => 'warning', default => 'gray',
                     })
                     ->icon(fn (string $state) => $state === 'Verified' ? 'heroicon-m-check-badge' : null),
-                Tables\Columns\TextColumn::make('name')
-                    ->searchable(),
-                Tables\Columns\TextColumn::make('phone')
-                    ->searchable(),
                 Tables\Columns\TextColumn::make('email')
-                    ->searchable(),
+                    ->searchable()->toggleable(),
                 Tables\Columns\TextColumn::make('dob')
-                    ->date()
-                    ->sortable(),
-                Tables\Columns\TextColumn::make('father_name')
-                    ->searchable(),
-                Tables\Columns\TextColumn::make('address')
-                    ->searchable(),
-                Tables\Columns\TextColumn::make('city')
-                    ->searchable(),
-                Tables\Columns\TextColumn::make('pincode')
-                    ->searchable(),
+                    ->date()->sortable()->toggleable(),
                 Tables\Columns\TextColumn::make('country')
-                    ->searchable(),
+                    ->searchable()->toggleable(),
                 Tables\Columns\TextColumn::make('pan')
-                    ->searchable(),
+                    ->searchable()->toggleable(),
                 Tables\Columns\TextColumn::make('aadhaar')
-                    ->searchable(),
+                    ->searchable()->toggleable(),
                 Tables\Columns\TextColumn::make('bank_name')
-                    ->searchable(),
+                    ->searchable()->toggleable(),
                 Tables\Columns\TextColumn::make('bank_acno')
-                    ->searchable(),
+                    ->searchable()->toggleable(),
                 Tables\Columns\TextColumn::make('ifsc')
-                    ->searchable(),
+                    ->searchable()->toggleable(),
                 Tables\Columns\TextColumn::make('upi')
-                    ->searchable(),
+                    ->searchable()->toggleable(),
                 Tables\Columns\TextColumn::make('nominee_name')
-                    ->searchable(),
+                    ->searchable()->toggleable(),
                 Tables\Columns\TextColumn::make('nominee_relation')
-                    ->searchable(),
+                    ->searchable()->toggleable(),
                 Tables\Columns\TextColumn::make('nominee_phone')
-                    ->searchable(),
-                Tables\Columns\TextColumn::make('photo_path')
-                    ->searchable(),
+                    ->searchable()->toggleable(),
                 Tables\Columns\TextColumn::make('bv')
                     ->label('Business Volume (BV)')
                     ->numeric()
@@ -259,7 +264,9 @@ class MemberResource extends BaseResource
                     ->label('Team size')
                     ->numeric()
                     ->sortable(),
-                Tables\Columns\TextColumn::make('status'),
+                Tables\Columns\TextColumn::make('status')
+                    ->badge()
+                    ->color(fn ($state) => $state === 'active' ? 'success' : 'gray'),
                 Tables\Columns\TextColumn::make('created_at')
                     ->dateTime()
                     ->sortable()
@@ -274,8 +281,30 @@ class MemberResource extends BaseResource
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
-                //
+                // Board 2026-08-26 (1.2): Date of Join between two dates.
+                Tables\Filters\Filter::make('joined_on')
+                    ->label('Date of Join')
+                    ->form([
+                        Forms\Components\DatePicker::make('joined_from')->label('Joined from')->native(false),
+                        Forms\Components\DatePicker::make('joined_until')->label('Joined until')->native(false),
+                    ])
+                    ->columns(2)
+                    ->query(fn (Builder $query, array $data) => $query
+                        ->when($data['joined_from'] ?? null, fn (Builder $q, $d) => $q->whereDate('joined_on', '>=', $d))
+                        ->when($data['joined_until'] ?? null, fn (Builder $q, $d) => $q->whereDate('joined_on', '<=', $d)))
+                    ->indicateUsing(function (array $data) {
+                        $parts = [];
+                        if ($data['joined_from'] ?? null) {
+                            $parts[] = 'Joined from ' . \Illuminate\Support\Carbon::parse($data['joined_from'])->format('d M Y');
+                        }
+                        if ($data['joined_until'] ?? null) {
+                            $parts[] = 'Joined until ' . \Illuminate\Support\Carbon::parse($data['joined_until'])->format('d M Y');
+                        }
+
+                        return $parts;
+                    }),
             ])
+            ->filtersFormWidth('md')
             ->actions([
                 Tables\Actions\EditAction::make(),
             ])

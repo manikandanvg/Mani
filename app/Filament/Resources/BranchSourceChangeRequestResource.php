@@ -66,7 +66,13 @@ class BranchSourceChangeRequestResource extends BaseResource
                 ->live(),
             Forms\Components\Select::make('requested_source_branch_id')
                 ->label('New supplier (order source)')
-                ->helperText('Only branches above you in the chain — plus Head Office — can be your supplier.')
+                ->helperText(function (Get $get) {
+                    $branch = Branch::find($get('branch_id') ?? auth()->user()?->branch_id);
+
+                    return $branch
+                        ? 'Allowed for a ' . Branch::levelLabel($branch->level) . ': ' . implode(', ', array_map(fn ($l) => Branch::levelLabel($l), Branch::allowedSourceLevels($branch->level)))
+                        : 'Pick your branch first.';
+                })
                 ->options(function (Get $get) {
                     $branch = Branch::find($get('branch_id') ?? auth()->user()?->branch_id);
 

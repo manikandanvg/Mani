@@ -26,7 +26,7 @@ class StockResource extends BaseResource
 
     protected static ?string $navigationIcon = 'heroicon-o-archive-box';
 
-    protected static ?int $navigationSort = 5;
+    protected static ?int $navigationSort = 6;
 
     public static function canCreate(): bool
     {
@@ -55,9 +55,12 @@ class StockResource extends BaseResource
                 Tables\Columns\TextColumn::make('branch.name')->label('Branch')->sortable(),
                 Tables\Columns\TextColumn::make('catalogProduct.code')->label('Code')->searchable(),
                 Tables\Columns\TextColumn::make('catalogProduct.name')->label('Product')
-                    ->getStateUsing(fn ($record) => $record->catalogProduct
-                        ? Translatable::pick($record->catalogProduct->name, $default)
-                        : '—'),
+                    // custom pieces show their own label — "Gold 15 g necklace (ORD-000123)"
+                    ->getStateUsing(fn ($record) => $record->isCustomPiece()
+                        ? $record->label
+                        : ($record->catalogProduct ? Translatable::pick($record->catalogProduct->name, $default) : '—'))
+                    ->description(fn ($record) => $record->isCustomPiece() ? 'Customized order piece — transfer only, billed via Sales → Customized order' : null)
+                    ->searchable(query: fn ($query, string $search) => $query->where('label', 'like', "%{$search}%")),
                 Tables\Columns\TextColumn::make('catalogProduct.material')->label('Material')->badge(),
                 Tables\Columns\TextColumn::make('quantity')->label('Pieces / ₹')->numeric(4)->sortable()
                     ->color(fn ($state) => $state > 0 ? 'success' : 'danger')
@@ -82,9 +85,11 @@ class StockResource extends BaseResource
                     ->placeholder('—')
                     ->color(fn (Stock $record) => $record->is_low ? 'danger' : null),
                 Tables\Columns\TextColumn::make('weight_equiv')->label('Weight (g)')
-                    ->getStateUsing(fn ($record) => $record->catalogProduct && $record->catalogProduct->material !== 'cash'
-                        ? number_format($record->catalogProduct->gramsFromPieces((float) $record->quantity), 3)
-                        : '—'),
+                    ->getStateUsing(fn ($record) => $record->isCustomPiece()
+                        ? number_format((float) ($record->orderLine?->weight ?? 0) * (float) $record->quantity, 3)
+                        : ($record->catalogProduct && $record->catalogProduct->material !== 'cash'
+                            ? number_format($record->catalogProduct->gramsFromPieces((float) $record->quantity), 3)
+                            : '—')),
                 Tables\Columns\TextColumn::make('purity'),
                 Tables\Columns\TextColumn::make('last_rate')->baseMoney(),
                 Tables\Columns\TextColumn::make('updated_at')->since()->label('Updated'),
@@ -103,11 +108,41 @@ class StockResource extends BaseResource
             // Head Office only: ONE button sets both the stock and its minimum
             // (board 2026-08-13). Dealers see their figures but change nothing.
             ->actions([
+                // Customized-order piece held here: send it one hop DOWN the road to the
+                // ordering branch (board 2026-08-27, 3.4 — "forward" on the stock row).
+                Tables\Actions\Action::make('forward')
+                    ->label('Forward')
+                    ->icon('heroicon-m-arrow-down-on-square')
+                    ->color('primary')
+                    ->requiresConfirmation()
+                    ->modalDescription(fn (Stock $record) => 'Send "' . $record->label . '" to the next branch on its road towards '
+                        . ($record->orderLine?->order?->branch?->name ?? 'the ordering branch') . '?')
+                    ->visible(function (Stock $record) {
+                        if (! $record->isCustomPiece() || (float) $record->quantity <= 0) {
+                            return false;
+                        }
+                        $order = $record->orderLine?->order;
+                        $u = auth()->user();
+
+                        return $order && (int) $order->current_branch_id === (int) $record->branch_id && $u
+                            && ($u->isDistributor() ? (int) $u->branch_id === (int) $record->branch_id : (int) $record->branch_id === \App\Services\CustomizeOrderService::hqBranchId());
+                    })
+                    ->action(function (Stock $record) {
+                        try {
+                            $order = app(\App\Services\CustomizeOrderService::class)->deliver($record->orderLine->order);
+                        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
+                            \Filament\Notifications\Notification::make()->danger()->title('Cannot forward')->body($e->getMessage())->send();
+
+                            return;
+                        }
+                        \Filament\Notifications\Notification::make()->success()
+                            ->title($order->request_no . ' pieces sent to ' . ($order->currentBranch?->name ?? 'the next branch'))->send();
+                    }),
                 Tables\Actions\Action::make('adjust')
                     ->label('Adjust stock')
                     ->icon('heroicon-m-adjustments-horizontal')
                     ->color('warning')
-                    ->visible(fn () => ! auth()->user()?->isDistributor())
+                    ->visible(fn (Stock $record) => ! auth()->user()?->isDistributor() && ! $record->isCustomPiece())
                     ->modalHeading(fn (Stock $record) => 'Adjust stock — ' . ($record->branch?->name ?? 'Branch'))
                     ->modalSubmitActionLabel('Save')
                     ->form([

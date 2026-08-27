@@ -21,10 +21,21 @@ class BranchOrderAttachment extends Model
         return $this->belongsTo(User::class, 'uploaded_by');
     }
 
-    /** Request-host URL (NOT Storage::url/APP_URL) so LAN and live viewers both load it. */
+    /**
+     * Auth-guarded streaming URL (board 2026-08-26). Receipts are no longer reached via
+     * public/storage — the live server's missing symlink 404'd every receipt — but are
+     * served by OrderAttachmentController from whichever disk holds the file. Request-host
+     * based (NOT APP_URL) so LAN and live viewers both load it.
+     */
     public function url(): string
     {
-        return url('storage/' . ltrim($this->path, '/'));
+        return url('admin/order-attachments/' . $this->getKey());
+    }
+
+    /** The disk this file was stored on (legacy rows = public; new uploads = private local). */
+    public function diskName(): string
+    {
+        return $this->disk ?: 'public';
     }
 
     public function isImage(): bool

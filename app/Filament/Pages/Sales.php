@@ -228,13 +228,32 @@ class Sales extends Page implements HasForms
                     Hidden::make('branch_id'),
                     Placeholder::make('branch_display')->label('Branch (this session)')
                         ->content(fn (Get $get) => self::branchBanner($get('branch_id'))),
+                    // Customized order (board 2026-08-27): pick a delivered order → the
+                    // customer and the pieces fill in at the FROZEN order price, one bill
+                    // per metal under the G10 plan. The cart is locked while one is picked.
+                    Select::make('custom_order')->label('Customized order to bill (optional)')
+                        ->options(fn (Get $get) => self::customOrderOptions($get('branch_id')))
+                        ->placeholder('— none: normal billing —')
+                        ->native(false)->live()
+                        ->afterStateUpdated(fn ($state, Set $set) => $this->applyCustomOrder($state, $set))
+                        ->helperText(fn (Get $get) => self::customOrderHint($get('custom_order'))),
                     Repeater::make('cart')->label('')
                         ->live()
                         ->addActionLabel('Add item')
+                        ->addable(fn (Get $get) => blank($get('custom_order')))
+                        ->deletable(fn (Get $get) => blank($get('custom_order')))
                         ->columns(12)
                         ->schema([
+                            Hidden::make('order_line_id'),
+                            Hidden::make('description'),
                             Select::make('catalog_product_id')->label('Stock (Product)')->columnSpan(4)
+                                ->disabled(fn (Get $get) => filled($get('order_line_id')))
+                                ->dehydrated()
                                 ->options(function (Get $get) {
+                                    if (filled($get('order_line_id'))) {
+                                        // locked custom piece — show its label, nothing else to pick
+                                        return [$get('catalog_product_id') => (string) $get('description')];
+                                    }
                                     $cart = $get('../../cart') ?? [];
                                     $taken = collect($cart)->pluck('catalog_product_id')->filter()->all();
                                     // keep this row's own selection visible; hide items chosen elsewhere
@@ -248,6 +267,7 @@ class Sales extends Page implements HasForms
                             // count, grams follow from the product's per-piece weight.
                             TextInput::make('qty')->label('Qty (pcs)')->numeric()->columnSpan(1)
                                 ->default(1)->minValue(1)->integer()->step(1)->live(onBlur: true)
+                                ->readOnly(fn (Get $get) => filled($get('order_line_id')))
                                 ->hidden(fn (Get $get) => $get('material') === 'cash')
                                 ->afterStateUpdated(function ($state, Set $set, Get $get) {
                                     // snap the typed value to whole pieces (rules only fire on submit)
@@ -264,7 +284,7 @@ class Sales extends Page implements HasForms
                                 ->required()
                                 ->rules(['numeric', 'min:0'])
                                 // auto-derived from Qty × per-piece grams; only cash (an amount) is typed
-                                ->readOnly(fn (Get $get) => $get('material') !== 'cash' && (float) $get('unit_weight') > 0)
+                                ->readOnly(fn (Get $get) => filled($get('order_line_id')) || ($get('material') !== 'cash' && (float) $get('unit_weight') > 0))
                                 // Cash lines echo the typed amount in words (EN + TA) so the
                                 // operator confirms the denomination before billing.
                                 ->helperText(function (Get $get) {
@@ -281,7 +301,9 @@ class Sales extends Page implements HasForms
                                         . '<span style="color:#e6ad46;font-weight:600">' . e(amount_words($amt, 'ta', $cur)) . '</span>'
                                     );
                                 }),
-                            TextInput::make('rate')->label('Price /g')->numeric()->columnSpan(2)->live(onBlur: true),
+                            TextInput::make('rate')->label('Price /g')->numeric()->columnSpan(2)->live(onBlur: true)
+                                // frozen order price for a custom piece — never re-priced live
+                                ->readOnly(fn (Get $get) => filled($get('order_line_id'))),
                             TextInput::make('purity')->label('Purity')->columnSpan(1),
                             Placeholder::make('line_total')->label('Grand')->columnSpan(2)
                                 ->content(fn (Get $get) => Number::format(self::lineCalc([
@@ -373,13 +395,22 @@ class Sales extends Page implements HasForms
         $data['silver_rate'] = $rate->silver ?? 0;
         $data['diamond_rate'] = $rate->diamond ?? 0;
         $data['created_by'] = auth()->id();
+        if (! empty($data['custom_order'])) {
+            $data['custom_order_id'] = (int) explode(':', (string) $data['custom_order'])[0];
+        }
 
         // carry the KYC verification outcome so it is stored on the member
         $data['customer']['pan_verified'] = ($this->panResult['match'] ?? '') === 'exact';
         $data['customer']['pan_verified_name'] = $this->panResult['registered_name'] ?? null;
         $data['customer']['aadhaar_verified'] = (bool) ($this->aadhaarResult['valid'] ?? false);
 
-        $invoice = app(SalesService::class)->generateInvoice($data);
+        try {
+            $invoice = app(SalesService::class)->generateInvoice($data);
+        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
+            Notification::make()->title('Bill not generated')->body($e->getMessage())->danger()->persistent()->send();
+
+            return;
+        }
 
         Notification::make()
             ->title('Sales saved successfully')
@@ -389,10 +420,78 @@ class Sales extends Page implements HasForms
         $this->form->fill([
             'mode' => 'new', 'branch_id' => $data['branch_id'],
             'bill_date' => now()->toDateString(), 'payment_type' => 'cash', 'cart' => [],
-            'customer' => ['phone_country_code' => '+91'],
+            'customer' => ['phone_country_code' => '+91'], 'custom_order' => null,
         ]);
         $this->panResult = null;
         $this->aadhaarResult = null;
+    }
+
+    // ---------------- customized orders (board 2026-08-27) ----------------
+
+    /** Delivered, unbilled customized pieces at this branch — one option per order + metal. */
+    protected static function customOrderOptions($branchId): array
+    {
+        if (! $branchId) {
+            return [];
+        }
+        $out = [];
+        foreach (app(\App\Services\CustomizeOrderService::class)->billableGroups((int) $branchId) as $key => $g) {
+            $out[$key] = $g['order']->request_no . ' · ' . ucfirst($g['material']) . ' (' . $g['lines']->count() . ' pc) · ' . $g['order']->customerName();
+        }
+
+        return $out;
+    }
+
+    protected static function customOrderHint($key): ?HtmlString
+    {
+        if (blank($key)) {
+            return null;
+        }
+        $order = \App\Models\BranchOrderRequest::find((int) explode(':', (string) $key)[0]);
+        if (! $order) {
+            return null;
+        }
+        $bits = ['Pieces are billed at the frozen order price under the G10 ' . explode(':', (string) $key)[1] . ' plan.'];
+        if ((float) $order->quote_extra > 0) {
+            $bits[] = '<b style="color:#ab222f">Head Office extra quote ₹' . \App\Support\Money::group((float) $order->quote_extra)
+                . ' will be debited from your branch wallet on this bill' . ($order->quote_debited_at ? ' (already debited)' : '') . '.</b>';
+        }
+        if ((float) $order->coin_credit > 0) {
+            $bits[] = 'Customer coins credit ₹' . \App\Support\Money::group((float) $order->coin_credit) . ' was already applied on the order.';
+        }
+
+        return new HtmlString(implode(' ', $bits));
+    }
+
+    /** Fill the customer (existing member or the captured new customer) and lock the cart to the order's pieces. */
+    protected function applyCustomOrder($key, Set $set): void
+    {
+        if (blank($key)) {
+            $set('cart', []);
+            $set('plan_id', null);
+
+            return;
+        }
+        [$orderId, $material] = explode(':', (string) $key) + [null, null];
+        $order = \App\Models\BranchOrderRequest::with(['lines', 'member'])->find((int) $orderId);
+        if (! $order) {
+            return;
+        }
+        if ($order->member_id) {
+            $set('mode', 'existing');
+            $set('customer.member_id', $order->member_id);
+            $this->fillExisting($order->member_id, $set);
+        } else {
+            $set('mode', 'new');
+            $set('customer.member_id', null);
+            $c = (array) $order->customer_details;
+            foreach (['name', 'phone', 'email', 'address', 'city', 'pincode'] as $f) {
+                $set('customer.' . $f, $c[$f] ?? null);
+            }
+            $set('customer.phone_country_code', '+91');
+        }
+        $set('cart', app(\App\Services\CustomizeOrderService::class)->cartFor($order, (string) $material));
+        $set('plan_id', null);
     }
 
     public function verifyPan(?string $pan, ?string $name, ?string $dob = null): void
@@ -648,6 +747,7 @@ class Sales extends Page implements HasForms
         $default = Translatable::defaultLocale();
 
         return Stock::with('catalogProduct')->where('branch_id', $branchId)->where('quantity', '>', 0)
+            ->where('order_line_id', 0)   // custom pieces bill only via the customized-order picker
             ->when($exclude, fn ($q) => $q->whereNotIn('catalog_product_id', $exclude))
             ->get()
             ->mapWithKeys(function ($s) use ($default) {
@@ -905,13 +1005,13 @@ class Sales extends Page implements HasForms
             . '<div><div style="font-size:.65rem;color:#9ca3af">PAID + GST</div>'
             . '<div style="font-weight:800;color:#111827;font-size:1.05rem">' . $sym . Number::format((float) $totals['grand'], 2) . '</div></div></div>';
 
-        $cb = $card('CB Coupon', $sym . Number::format($cbTotal, 2),
+        $cb = $card('Promotional Incentive (CBC)', $sym . Number::format($cbTotal, 2),
             $cbCount > 0
                 ? 'Cashback ' . $pctTxt($p->cbc_value) . '% · ' . $sym . Number::format($cbMonthly, 2) . '/month × ' . $cbCount . ' months'
                 : 'No cashback coupon on this scheme',
             '', '#16a34a');
 
-        $icCard = $card('Promotional Incentive (IC)', $sym . Number::format($icTotal, 2),
+        $icCard = $card('Sales Incentive (IC)', $sym . Number::format($icTotal, 2),
             'Instant · paid one-time across up to ' . count(array_filter($ic)) . ' placement layers', $grid($ic), '#e6ad46');
 
         $lvlCard = $card('Turnover-based Salary (GAP)', $sym . Number::format($lvlTotal, 2),

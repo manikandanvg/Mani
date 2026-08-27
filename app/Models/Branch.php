@@ -11,11 +11,78 @@ class Branch extends Model
 
     protected $guarded = [];
 
-    /** Supply-chain levels, top → bottom. 'area_dealer' is a free-sourcing leaf. */
-    public const LEVELS = ['hq', 'zonal', 'district', 'taluk', 'wholesaler', 'reseller', 'area_dealer'];
+    /**
+     * Dealership ladder (board 2026-08-26) — the Plans `hid` order, top → bottom:
+     *   0 hq · 1 regional · 2 zonal · 3 district · 4 taluk · 5 reseller (G5 Retailer) ·
+     *   6 sub_dealer · 7 wholesaler (G24) · 8 area_dealer.
+     * HQ → … → Taluka is the distributor chain; Taluka is its last node — the offline
+     * showroom branch that runs the L-BOX. Below it sits the retail tier.
+     */
+    public const LEVELS = ['hq', 'regional', 'zonal', 'district', 'taluk', 'reseller', 'sub_dealer', 'wholesaler', 'area_dealer'];
 
-    /** Seller levels that earn a stock-transfer margin (HQ earns none; area dealers don't sell on). */
-    public const SELLER_LEVELS = ['zonal', 'district', 'taluk', 'wholesaler', 'reseller'];
+    public const LEVEL_LABELS = [
+        'hq' => 'Lord (HQ / Super-admin)',
+        'regional' => 'Regional Dealership',
+        'zonal' => 'Zonal Dealership',
+        'district' => 'District Dealership',
+        'taluk' => 'Taluka Dealership (showroom / L-BOX)',
+        'reseller' => 'G5 Retailer',
+        'sub_dealer' => 'Sub Dealer',
+        'wholesaler' => 'G24 Wholesaler',
+        'area_dealer' => 'Area Distributor',
+    ];
+
+    /** Plans.hid → branch level (0 = HQ itself, never assigned to a dealer). */
+    public const HID_LEVELS = [1 => 'regional', 2 => 'zonal', 3 => 'district', 4 => 'taluk', 5 => 'reseller', 6 => 'sub_dealer', 7 => 'wholesaler', 8 => 'area_dealer'];
+
+    /**
+     * Who each level may order stock FROM — the board's FINAL matrix (2026-08-26):
+     *
+     *   Buyer            HQ  Regional Zonal District Taluka Retailer Wholesaler
+     *   1 Regional        ✓
+     *   2 Zonal           ✓    ✓
+     *   3 District        ✓    ✓       ✓
+     *   4 Taluka          ✓    ✓       ✓      ✓
+     *   5 G5 Retailer     ✓    ✓       ✓      ✓        ✓
+     *   6 Sub Dealer      ✓                            ✓       ✓        ✓
+     *   7 G24 Wholesaler  ✓                            ✓       ✓
+     *   8 Area Distrib.   ✓    ✓       ✓      ✓        ✓       ✓        ✓
+     */
+    public const ALLOWED_SOURCES = [
+        'regional' => ['hq'],
+        'zonal' => ['hq', 'regional'],
+        'district' => ['hq', 'regional', 'zonal'],
+        'taluk' => ['hq', 'regional', 'zonal', 'district'],
+        'reseller' => ['hq', 'regional', 'zonal', 'district', 'taluk'],
+        'sub_dealer' => ['hq', 'taluk', 'reseller', 'wholesaler'],
+        'wholesaler' => ['hq', 'taluk', 'reseller'],
+        'area_dealer' => ['hq', 'regional', 'zonal', 'district', 'taluk', 'reseller', 'wholesaler'],
+    ];
+
+    /** Seller levels that earn a stock-transfer margin (HQ earns none; Sub Dealer / Area Distributor never sell on). */
+    public const SELLER_LEVELS = ['regional', 'zonal', 'district', 'taluk', 'reseller', 'wholesaler'];
+
+    public static function levelLabel(?string $level): string
+    {
+        return self::LEVEL_LABELS[$level] ?? ($level ? ucfirst(str_replace('_', ' ', $level)) : '—');
+    }
+
+    /** Branch level a dealership plan confers, from its hid (null for non-dealership plans). */
+    public static function levelForHid(int|string|null $hid): ?string
+    {
+        return $hid === null || $hid === '' ? null : (self::HID_LEVELS[(int) $hid] ?? null);
+    }
+
+    /** Allowed source levels for a level; unknown / unset level → the levels above it (legacy rule). */
+    public static function allowedSourceLevels(?string $level): array
+    {
+        if (isset(self::ALLOWED_SOURCES[$level])) {
+            return self::ALLOWED_SOURCES[$level];
+        }
+        $own = static::levelIndex($level);
+
+        return array_values(array_filter(array_slice(self::LEVELS, 0, $own), fn ($l) => $l === 'hq' || in_array($l, self::SELLER_LEVELS, true)));
+    }
 
     protected $casts = [
         'order_limit' => 'decimal:2',
@@ -94,22 +161,21 @@ class Branch extends Model
     }
 
     /**
-     * Branches that may act as THIS branch's supplier (order source): any active branch at a
-     * level strictly ABOVE this one in the chain — i.e. Head Office + the upper seller levels
-     * (zonal…reseller), never a peer/lower level. Used to constrain the source dropdown.
+     * Branches that may act as THIS branch's supplier (order source): active branches at
+     * the levels in this level's allow-list (ALLOWED_SOURCES). Every level may buy from HQ
+     * in the final matrix; $hqOverride is kept so the HQ Branch form always offers Head
+     * Office even for a level whose list might later drop it.
      */
-    public function sourceCandidates()
+    public function sourceCandidates(bool $hqOverride = false)
     {
-        $own = static::levelIndex($this->level);
-        $valid = array_merge(['hq'], self::SELLER_LEVELS);                 // hq + zonal…reseller
-        $above = array_values(array_filter(
-            array_slice(self::LEVELS, 0, $own),
-            fn ($l) => in_array($l, $valid, true),
-        ));
+        $levels = static::allowedSourceLevels($this->level);
+        if ($hqOverride && ! in_array('hq', $levels, true)) {
+            $levels[] = 'hq';
+        }
 
         return static::query()
             ->whereKeyNot($this->getKey())
-            ->whereIn('level', $above)
+            ->whereIn('level', $levels)
             ->where('is_active', true)
             ->orderBy('name');
     }

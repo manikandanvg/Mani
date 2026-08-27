@@ -405,13 +405,16 @@ class RedemptionService
         if ($existing) {
             $branchId = $existing->branch_id;
         } else {
+            // Level = the dealership plan's rung on the ladder (board 2026-08-26); a
+            // non-dealership plan still opens a plain Retailer branch.
+            $planLevel = app(\App\Services\DealershipService::class)->levelForPlan($invoice->bond?->plan);
             $branch = Branch::create([
                 'name' => $dealer['branch_name'] ?? ($member->name . ' — Dealer'),
                 'city' => $member->city,
                 'address' => $member->address,
                 'phone' => $member->phone,
                 'gst_no' => $dealer['gst_no'] ?? null,
-                'level' => 'reseller',
+                'level' => $planLevel ?? 'reseller',
                 'is_active' => true,
             ]);
             $branchId = $branch->id;

@@ -41,7 +41,7 @@ class RdCollection extends Page implements HasForms
 
     protected static ?string $navigationLabel = 'RD Collection Entry';
 
-    protected static ?int $navigationSort = 7;
+    protected static ?int $navigationSort = 9;
 
     protected static ?string $title = 'RD / Gold-Saving Collection';
 

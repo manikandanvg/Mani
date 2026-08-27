@@ -197,22 +197,31 @@ class OrderForm extends Page implements HasForms
                         ->helperText(fn () => 'Digi cash available: ₹'
                             . \App\Support\Money::group((float) (auth()->user()?->branch?->digi_cash_balance ?? 0))),
                     Textarea::make('payment_remarks')->label('Payment remarks')->rows(2),
-                    // Payment proof (board phase-1, 2026-08-21): transaction receipt,
-                    // screenshot or bank slip — HQ sees these on the approval screen.
-                    FileUpload::make('attachments')
-                        ->label('Payment receipt (photo / PDF)')
-                        ->helperText('Transaction receipt, screenshot or bank slip — up to 5 files, 8 MB each.')
-                        ->multiple()->maxFiles(5)->maxSize(8192)
-                        ->disk('public')->directory('order-receipts')
-                        ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/webp', 'application/pdf'])
-                        ->storeFileNamesIn('attachment_names')
-                        ->columnSpanFull(),
                     Placeholder::make('summary')
                         ->label('')
                         ->content(fn (Get $get) => $this->summary($get('lines') ?? []))
                         ->columnSpanFull(),
                     Hidden::make('branch_id'),
                 ]),
+                // Payment proof (board phase-1, 2026-08-21; reworked 2026-08-26 item 2.2):
+                // its own section with image previews. Files go to the PRIVATE disk and
+                // are streamed through an auth-guarded route, so they open for HQ / the
+                // supplier on any host — no dependence on the public/storage symlink.
+                Section::make('Payment proof')
+                    ->icon('heroicon-o-paper-clip')
+                    ->description('Attach the transaction receipt, screenshot or bank slip for this payment — your supplier checks it on the approval screen. Up to 5 files (JPG, PNG, WebP or PDF), 8 MB each.')
+                    ->schema([
+                        FileUpload::make('attachments')
+                            ->hiddenLabel()
+                            ->multiple()->maxFiles(5)->maxSize(8192)->appendFiles()
+                            ->disk('local')->directory('order-receipts')->visibility('private')
+                            ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/webp', 'application/pdf'])
+                            ->previewable()
+                            ->panelLayout('grid')->imagePreviewHeight('120')
+                            ->uploadingMessage('Uploading receipt…')
+                            ->storeFileNamesIn('attachment_names')
+                            ->columnSpanFull(),
+                    ]),
             ])
             ->statePath('data');
     }
@@ -238,6 +247,7 @@ class OrderForm extends Page implements HasForms
         $locale = Translatable::defaultLocale();
 
         return CatalogProduct::where('is_active', true)
+            ->where('is_custom_order', false)
             ->orderBy('code')
             ->get()
             ->mapWithKeys(fn (CatalogProduct $p) => [

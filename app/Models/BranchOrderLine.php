@@ -16,6 +16,7 @@ class BranchOrderLine extends Model
         'hallmark_charge' => 'decimal:2',
         'gst_pct' => 'decimal:3',
         'line_total' => 'decimal:2',
+        'billed_at' => 'datetime',
     ];
 
     public function order()
@@ -26,5 +27,11 @@ class BranchOrderLine extends Model
     public function catalogProduct()
     {
         return $this->belongsTo(CatalogProduct::class);
+    }
+
+    /** The G10 invoice this custom piece was finally billed on. */
+    public function salesInvoice()
+    {
+        return $this->belongsTo(SalesInvoice::class);
     }
 }

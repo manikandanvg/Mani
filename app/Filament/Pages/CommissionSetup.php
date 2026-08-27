@@ -52,6 +52,12 @@ class CommissionSetup extends Page implements HasForms
             $fill[$type] = ['tds' => $tds, 'service' => $svc];
         }
         $fill['digi_market_fee'] = \App\Services\Wallet\DigiMarketService::platformFeePct();
+        $fill['customize'] = [
+            'gold_margin_per_g' => \App\Support\CustomizeOrderPricing::marginPerGram('gold'),
+            'silver_margin_per_g' => \App\Support\CustomizeOrderPricing::marginPerGram('silver'),
+            'gst_pct' => \App\Support\CustomizeOrderPricing::gstPct(),
+            'coin_product_id' => \App\Support\CustomizeOrderPricing::coinProduct()?->id,
+        ];
         $this->form->fill($fill);
     }
 
@@ -97,6 +103,28 @@ class CommissionSetup extends Page implements HasForms
                     ->numeric()->minValue(0)->maxValue(30)->required()->suffix('%'),
             ]);
 
+        // Board 2026-08-26: distributor Customize Order Form pricing — price per gram =
+        // live rate + this marginal cost + the distributor's own cost, GST on top.
+        $sections[] = Forms\Components\Section::make(__('Customize Order pricing'))
+            ->compact()
+            ->columns(2)
+            ->description(__('Marginal cost added per gram on the distributor Customize Order Form (on top of the live rate); making/wastage come from the Charge Brackets for the weight, then GST. The coin item is what RD customers hand back as part-payment.'))
+            ->schema([
+                Forms\Components\TextInput::make('customize.gold_margin_per_g')
+                    ->label('Gold marginal cost (₹/g)')
+                    ->numeric()->minValue(0)->required()->prefix('₹'),
+                Forms\Components\TextInput::make('customize.silver_margin_per_g')
+                    ->label('Silver marginal cost (₹/g)')
+                    ->numeric()->minValue(0)->required()->prefix('₹'),
+                Forms\Components\TextInput::make('customize.gst_pct')
+                    ->label('GST %')
+                    ->numeric()->minValue(0)->maxValue(30)->required()->suffix('%'),
+                Forms\Components\Select::make('customize.coin_product_id')
+                    ->label('RD coin catalog item')
+                    ->options(fn () => \App\Support\CustomizeOrderPricing::coinProductOptions())
+                    ->searchable()->native(false),
+            ]);
+
         return $form->schema([
             Forms\Components\Grid::make(2)->schema($sections),
         ])->statePath('data');
@@ -120,6 +148,13 @@ class CommissionSetup extends Page implements HasForms
             ['group' => 'digi_market', 'key' => 'platform_fee_pct'],
             ['value' => (string) (float) $d['digi_market_fee'], 'type' => 'float'],
         );
+
+        \App\Support\CustomizeOrderPricing::save([
+            'gold_margin_per_g' => (float) ($d['customize']['gold_margin_per_g'] ?? 0),
+            'silver_margin_per_g' => (float) ($d['customize']['silver_margin_per_g'] ?? 0),
+            'gst_pct' => (float) ($d['customize']['gst_pct'] ?? \App\Support\CustomizeOrderPricing::DEFAULT_GST_PCT),
+            'coin_product_id' => $d['customize']['coin_product_id'] ?? null,
+        ]);
 
         Notification::make()->success()
             ->title(__('Commission charges saved'))

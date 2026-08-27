@@ -165,13 +165,22 @@ class StockTransferTest extends TestCase
         sort($expected);
         $this->assertEquals($expected, $ids);
 
-        // An area dealer (free-sourcing leaf) may source from every level above it.
+        // Board ladder 2026-08-26 (final matrix): an Area Distributor may source from every
+        // level except a Sub Dealer (and itself); a Sub Dealer from HQ, Taluka, Retailer, Wholesaler.
+        $retailer = Branch::create(['name' => 'Retailer A', 'country' => 'IN', 'level' => 'reseller', 'is_active' => true]);
+        $sub = Branch::create(['name' => 'Sub A', 'country' => 'IN', 'level' => 'sub_dealer', 'is_active' => true]);
         $area = Branch::create(['name' => 'Area', 'country' => 'IN', 'level' => 'area_dealer', 'is_active' => true]);
         $areaIds = $area->sourceCandidates()->pluck('id')->all();
-        foreach ([$hq->id, $zonal->id, $district->id, $taluk->id] as $id) {
+        foreach ([$hq->id, $zonal->id, $district->id, $taluk->id, $retailer->id] as $id) {
             $this->assertContains($id, $areaIds);
         }
+        $this->assertNotContains($sub->id, $areaIds);
         $this->assertNotContains($area->id, $areaIds);
+        $subIds = $sub->sourceCandidates()->pluck('id')->all();
+        sort($subIds);
+        $exp = [$hq->id, $taluk->id, $retailer->id];
+        sort($exp);
+        $this->assertEquals($exp, $subIds);
     }
 
     /** Approving a source-change request re-points the branch's source. */

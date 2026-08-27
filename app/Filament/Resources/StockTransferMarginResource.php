@@ -44,11 +44,12 @@ class StockTransferMarginResource extends BaseResource
             Forms\Components\Fieldset::make('Margin % by seller level')
                 ->columns(3)
                 ->schema([
+                    Forms\Components\TextInput::make('regional_pct')->label('Regional %')->numeric()->default(0)->suffix('%'),
                     Forms\Components\TextInput::make('zonal_pct')->label('Zonal %')->numeric()->default(0)->suffix('%'),
                     Forms\Components\TextInput::make('district_pct')->label('District %')->numeric()->default(0)->suffix('%'),
                     Forms\Components\TextInput::make('taluk_pct')->label('Taluk %')->numeric()->default(0)->suffix('%'),
                     Forms\Components\TextInput::make('wholesaler_pct')->label('Wholesaler %')->numeric()->default(0)->suffix('%'),
-                    Forms\Components\TextInput::make('reseller_pct')->label('Reseller %')->numeric()->default(0)->suffix('%'),
+                    Forms\Components\TextInput::make('reseller_pct')->label('Retailer (G5) %')->numeric()->default(0)->suffix('%'),
                 ]),
         ]);
     }
@@ -61,11 +62,12 @@ class StockTransferMarginResource extends BaseResource
                 Tables\Columns\TextColumn::make('catalogProduct.name')->label('Name')
                     ->getStateUsing(fn ($record) => Translatable::pick($record->catalogProduct?->name, Translatable::defaultLocale())),
                 Tables\Columns\TextColumn::make('catalogProduct.material')->label('Material')->badge(),
+                Tables\Columns\TextColumn::make('regional_pct')->label('Regional')->suffix('%'),
                 Tables\Columns\TextColumn::make('zonal_pct')->label('Zonal')->suffix('%'),
                 Tables\Columns\TextColumn::make('district_pct')->label('District')->suffix('%'),
                 Tables\Columns\TextColumn::make('taluk_pct')->label('Taluk')->suffix('%'),
                 Tables\Columns\TextColumn::make('wholesaler_pct')->label('Wholesaler')->suffix('%'),
-                Tables\Columns\TextColumn::make('reseller_pct')->label('Reseller')->suffix('%'),
+                Tables\Columns\TextColumn::make('reseller_pct')->label('Retailer')->suffix('%'),
             ])
             ->actions([Tables\Actions\EditAction::make()])
             ->bulkActions([Tables\Actions\BulkActionGroup::make([Tables\Actions\DeleteBulkAction::make()])]);

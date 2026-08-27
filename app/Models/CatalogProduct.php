@@ -24,6 +24,7 @@ class CatalogProduct extends Model
         'hallmark_charge' => 'decimal:2',
         'gst_pct' => 'decimal:3',
         'is_active' => 'boolean',
+        'is_custom_order' => 'boolean',
     ];
 
     public function category() { return $this->belongsTo(Category::class, 'category_id'); }

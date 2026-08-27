@@ -418,8 +418,9 @@ class RedeemQr extends Page implements HasForms
         return \App\Models\Stock::with('catalogProduct')
             ->where('branch_id', $branchId)
             ->where('quantity', '>', 0)
+            ->where('order_line_id', 0)
             ->get()
-            ->filter(fn ($s) => $s->catalogProduct?->is_active)
+            ->filter(fn ($s) => $s->catalogProduct?->is_active && ! $s->catalogProduct->is_custom_order)
             ->sortBy(fn ($s) => $s->catalogProduct->code)
             ->mapWithKeys(function ($s) use ($default) {
                 $p = $s->catalogProduct;

@@ -31,6 +31,14 @@ class Stock extends Model
 
     public function branch() { return $this->belongsTo(Branch::class); }
     public function catalogProduct() { return $this->belongsTo(CatalogProduct::class); }
+
+    /** Customized-order piece this row carries (order_line_id 0 = ordinary stock). */
+    public function orderLine() { return $this->belongsTo(BranchOrderLine::class, 'order_line_id'); }
+
+    public function isCustomPiece(): bool
+    {
+        return (int) $this->order_line_id > 0;
+    }
     public function movements()
     {
         return $this->hasMany(StockMovement::class, 'catalog_product_id', 'catalog_product_id')
