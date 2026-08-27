@@ -33,14 +33,15 @@ class CommissionApprovalService
     /**
      * UI dropdown — the commission streams in display order.
      * Display names follow the 2026-07 board/auditor terminology: IC is shown as
-     * "Promotional Incentive" (legacy Sales Profit) and GAP as "Turnover-based
+     * "Sales Incentive" (legacy Sales Profit; board correction 2026-08-27 — CBC is the
+     * "Promotional Incentive") and GAP as "Turnover-based
      * Salary" (legacy Level Income). Internal keys are unchanged. RD Renewal Margin
      * (2026-07) was carved out of Gold Margin, which it used to share an id with.
      */
     public const TYPES = [
-        'IC' => 'Promotional Incentive (IC)',
+        'IC' => 'Sales Incentive (IC)',
         'GAP' => 'Turnover-based Salary (GAP)',
-        'CBC' => 'Cash Back Coupon (CBC)',
+        'CBC' => 'Promotional Incentive (CBC)',
         'BILL_MARGIN' => 'Billing Margin',
         'GOLD_MARGIN' => 'Gold Margin',
         'SILVER_MARGIN' => 'Silver Margin',

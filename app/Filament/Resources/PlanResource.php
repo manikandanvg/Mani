@@ -71,14 +71,14 @@ class PlanResource extends BaseResource
                     Forms\Components\TextInput::make('rank_factor')->label('Rank BV %')->numeric()->default(100)
                         ->helperText('% of billed value counted as pure/ranking BV'),
                 ]),
-                Forms\Components\Section::make('Cashback (CBC)')->columns(2)->schema([
+                Forms\Components\Section::make('Promotional Incentive (CBC)')->columns(2)->schema([
                     Forms\Components\TextInput::make('cbc_value')->label('Cashback %')->numeric()->default(0),
                     Forms\Components\TextInput::make('cbc_count')->label('Cashback months')->numeric()->default(0),
                 ]),
                 Forms\Components\Section::make('Commissions')->columns(2)->schema([
                     Forms\Components\TagsInput::make('ic_schedule')
-                        ->label('Promotional Incentive (IC) schedule (10 placement layers)')
-                        ->helperText('Promotional Incentive % per placement layer, e.g. 10, 3, 2, 1.5, 0.75, ...'),
+                        ->label('Sales Incentive (IC) schedule (10 placement layers)')
+                        ->helperText('Sales Incentive % per placement layer, e.g. 10, 3, 2, 1.5, 0.75, ...'),
                     Forms\Components\TagsInput::make('level_schedule')
                         ->label('Turnover-based Salary (GAP) schedule')
                         ->helperText('Turnover-based Salary % per placement layer depth, e.g. 1.25, 0.5, 0.25, ...'),

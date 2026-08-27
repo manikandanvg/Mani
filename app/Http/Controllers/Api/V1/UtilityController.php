@@ -26,6 +26,7 @@ class UtilityController extends Controller
         $rates = ['gold' => (float) ($live->gold ?? 0), 'silver' => (float) ($live->silver ?? 0)];
 
         $rows = CatalogProduct::where('is_active', true)
+            ->where('is_custom_order', false)   // system items carrying customized-order pieces are not for sale
             ->whereIn('material', ['gold', 'silver'])
             ->orderBy('material')
             ->orderBy('default_weight')
@@ -174,7 +175,7 @@ class UtilityController extends Controller
         if ((float) $plan->cbc_value > 0 && (int) $plan->cbc_count > 0) {
             $monthlyCbc = round($amount * (float) $plan->cbc_value / 100 / max(1, (int) $plan->cbc_count), 2);
             $rows[] = [
-                'label' => "Cash Back Coupon {$inr($monthlyCbc)} × {$plan->cbc_count} months",
+                'label' => "Promotional Incentive (CBC) {$inr($monthlyCbc)} × {$plan->cbc_count} months",
                 'value' => $inr($monthlyCbc * (int) $plan->cbc_count),
             ];
         }
