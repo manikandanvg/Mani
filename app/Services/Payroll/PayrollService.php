@@ -148,7 +148,10 @@ class PayrollService
         $payableDays = min($daysPresent, $workingDays);
 
         $monthlySalary = (float) $employee->monthly_salary;
-        $grossAmount = round($monthlySalary * $payableDays / max($workingDays, 1), 2);
+        // Monthly Tasks score (board 2026-08-29): payroll gross is scaled by the member's
+        // task score for the month (1.0 when no tasks were assigned).
+        $taskFactor = \App\Models\TaskScore::factorFor((int) $employee->member_id, $start);
+        $grossAmount = round($monthlySalary * $payableDays / max($workingDays, 1) * $taskFactor, 2);
         $basic = round($grossAmount * (float) $employee->basic_pct / 100, 2);
 
         $pfEmployee = $pfEmployer = 0.0;
@@ -196,6 +199,7 @@ class PayrollService
                 'tds_mode' => $tdsMode,
                 'tds_pct' => $tdsMode === 'flat' ? $tdsPct : null,
                 'working_days' => $workingDays,
+                'task_score_pct' => round($taskFactor * 100, 2),
             ],
         ]);
     }

@@ -229,5 +229,17 @@
     "Attachments": "附件",
     "Photo / files": "照片 / 文件",
     "Files": "文件",
-    "Customized — no restock": "定制 — 不补货"
+    "Customized — no restock": "定制 — 不补货",
+    "Monthly Tasks": "每月任务",
+    "Task Types": "任务类型",
+    "Task Targets": "任务目标",
+    "Monthly Progress": "每月进度",
+    "Proof Queue": "证明队列",
+    "Scorecard": "计分卡",
+    "Stock Tracking": "库存跟踪",
+    "Monthly tasks": "每月任务",
+    "Add task": "添加任务",
+    "Roll month": "开启月份",
+    "Measure now": "立即测量",
+    "In-person (L-BOX arena)": "线下（L-BOX 会场）"
 }

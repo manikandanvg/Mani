@@ -52,6 +52,10 @@ Route::get('/admin/order-attachments/{attachment}', [\App\Http\Controllers\Order
 Route::get('/admin/ticket-attachments/{ticket}/{index}', [\App\Http\Controllers\TicketAttachmentController::class, 'show'])
     ->whereNumber('index')->middleware(['web', 'auth'])->name('ticket.attachment');
 
+// Admin: stream a monthly-task proof photo (auth-guarded).
+Route::get('/admin/task-proof/{submission}', [\App\Http\Controllers\TaskProofController::class, 'show'])
+    ->middleware(['web', 'auth'])->name('task.proof');
+
 // Admin: stream a payroll payslip as a PDF (auth-guarded).
 Route::get('/admin/payslips/{payslip}/pdf', fn (\App\Models\Payslip $payslip) => app(\App\Services\Payroll\PayslipPdf::class)->stream($payslip))
     ->middleware(['web', 'auth'])->name('payslip.pdf');

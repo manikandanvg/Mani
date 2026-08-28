@@ -16,6 +16,14 @@ Schedule::command('engine:run --only=recompute')->dailyAt('02:00')->withoutOverl
 Schedule::command('engine:run --only=gap')->monthlyOn(1, '03:00')->withoutOverlapping();
 Schedule::command('engine:run --only=cbc')->monthlyOn(1, '03:30')->withoutOverlapping();
 Schedule::command('engine:run --only=settlement')->dailyAt('04:00')->withoutOverlapping();
+
+// Monthly Tasks engine (board 2026-08-29). Order on the 1st matters: LOCK last month's
+// scores (02:40) BEFORE gap (03:00) reads them; then ROLL the new month (02:50).
+Schedule::command('tasks:run --only=lock')->monthlyOn(1, '02:40')->withoutOverlapping();
+Schedule::command('tasks:run --only=roll')->monthlyOn(1, '02:50')->withoutOverlapping();
+Schedule::command('tasks:run --only=measure')->dailyAt('02:30')->withoutOverlapping();
+// 8 PM: branches that never tapped close are closed; stock vs Opening snapshot for the day.
+Schedule::command('tasks:run --only=close')->dailyAt('20:05')->withoutOverlapping();
 // NOTE: --only=statements is deliberately NOT scheduled. The payout-statement system is
 // retired; the manual admin/commission-approval gate is the only path that releases
 // earnings, and the statements job would silently flip pending ledger rows to approved.

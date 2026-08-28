@@ -115,7 +115,8 @@ class RankResource extends BaseResource
     public static function getRelations(): array
     {
         return [
-            //
+            // Board 2026-08-29: monthly tasks are set per TBP stage right here.
+            RelationManagers\TaskTargetsRelationManager::class,
         ];
     }
 

@@ -39,15 +39,26 @@ class MeetingResource extends BaseResource
                 ->placeholder('https://zoom.us/j/...')
                 // Zoom + API configured → the meeting is created AT Zoom on save
                 // and this fills itself; otherwise the URL must be pasted in.
-                ->required(fn (Forms\Get $get) => ! ($get('platform') === 'zoom'
-                    && app(\App\Services\Zoom\ZoomApiService::class)->configured()))
+                ->required(fn (Forms\Get $get) => ! in_array($get('platform'), ['lbox', 'other'], true)
+                    && ! ($get('platform') === 'zoom' && app(\App\Services\Zoom\ZoomApiService::class)->configured()))
                 ->helperText(fn (Forms\Get $get) => $get('platform') === 'zoom'
                     && app(\App\Services\Zoom\ZoomApiService::class)->configured()
                         ? __('Leave blank — saving creates the meeting at Zoom and fills the link, ID and passcode automatically.')
                         : null),
             Forms\Components\Section::make()->columns(3)->schema([
                 Forms\Components\Select::make('platform')
-                    ->options(['zoom' => 'Zoom', 'meet' => 'Google Meet', 'other' => 'Other'])->default('zoom')->live(),
+                    ->options(['zoom' => 'Zoom', 'meet' => 'Google Meet', 'lbox' => 'In-person (L-BOX arena)', 'other' => 'Other'])
+                    ->default('zoom')->live(),
+                // Board 2026-08-29: a general meeting is held at an L-BOX; RFID taps on that box
+                // around the meeting time count as attendance (Monthly Tasks → GENERAL_MEETINGS).
+                Forms\Components\Select::make('device_id')
+                    ->label('L-BOX (arena)')
+                    ->options(fn () => \App\Models\Device::orderBy('name')->get()
+                        ->mapWithKeys(fn ($d) => [$d->id => $d->name . ' · ' . $d->serial_no . ($d->branch ? ' — ' . $d->branch->name : ' — arena')])->all())
+                    ->searchable()
+                    ->visible(fn (Forms\Get $get) => $get('platform') === 'lbox')
+                    ->required(fn (Forms\Get $get) => $get('platform') === 'lbox')
+                    ->helperText('Attendance = RFID tap at this box within 2 hours of the meeting.'),
                 Forms\Components\TextInput::make('meeting_id')->maxLength(60),
                 Forms\Components\TextInput::make('passcode')->maxLength(60),
                 Forms\Components\DateTimePicker::make('scheduled_at')->required()->seconds(false),

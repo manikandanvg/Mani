@@ -13,4 +13,7 @@ class Rank extends Model
         'tier_template' => 'array',
         'is_active' => 'boolean',
     ];
+
+    /** Monthly task rules for employees at this TBP stage (board 2026-08-29). */
+    public function taskTargets() { return $this->hasMany(TaskTarget::class); }
 }

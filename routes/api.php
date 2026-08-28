@@ -142,6 +142,10 @@ Route::prefix('v1')->group(function () {
         Route::get('member/status', [MemberBusinessController::class, 'status']);
         Route::get('member/downline', [MemberBusinessController::class, 'downline']);
         Route::get('member/genealogy', [MemberBusinessController::class, 'genealogy']);
+        // Monthly Tasks (board 2026-08-29): My Status → tasks, stock chart, proof submissions.
+        Route::get('member/tasks', [\App\Http\Controllers\Api\V1\TaskController::class, 'index']);
+        Route::get('member/tasks/stock-chart', [\App\Http\Controllers\Api\V1\TaskController::class, 'stockChart']);
+        Route::post('member/tasks/{assignment}/submit', [\App\Http\Controllers\Api\V1\TaskController::class, 'submit']);
         Route::get('member/earnings/summary', [MemberBusinessController::class, 'earningsSummaryEndpoint']);
         Route::get('member/earnings/gap-details', [MemberBusinessController::class, 'gapDetails']);
         Route::get('member/earnings', [MemberBusinessController::class, 'earnings']);

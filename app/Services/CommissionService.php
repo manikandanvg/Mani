@@ -124,9 +124,12 @@ class CommissionService
                                 continue;
                             }
                             // EP gate + cap (board 2026-08-11) — same rule as IC
+                            // Monthly Tasks score (board 2026-08-29): the salary for the month
+                            // just ended is scaled by that month's task score. CBC is exempt.
+                            $factor = \App\Models\TaskScore::factorFor($upline->id, $period->copy()->subMonth());
                             $amount = $this->capByEp(
                                 $upline,
-                                round((float) $bond->value * $pct / 100, 2),
+                                round((float) $bond->value * $pct / 100 * $factor, 2),
                                 $period->toDateString(),
                             );
                             if ($amount <= 0) {

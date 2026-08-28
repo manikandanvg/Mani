@@ -86,6 +86,8 @@ class Member extends Model implements AuthenticatableContract
     public function branch() { return $this->belongsTo(Branch::class); }
     public function wallet() { return $this->hasOne(MemberWallet::class); }
     public function employeeProfile() { return $this->hasOne(EmployeeProfile::class); }
+    /** GBV / BV baseline per month (Monthly Tasks engine). */
+    public function monthSnapshots() { return $this->hasMany(MemberMonthSnapshot::class); }
     public function bonds() { return $this->hasMany(Bond::class); }
     public function user() { return $this->belongsTo(User::class); }
 
