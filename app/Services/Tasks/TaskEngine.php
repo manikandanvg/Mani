@@ -103,6 +103,32 @@ class TaskEngine
         return true;
     }
 
+    /**
+     * Push ONE rule into an already-rolled month: creates missing assignments for every
+     * matching member / branch and refreshes target / per-day / weight on the rule-sourced,
+     * unlocked ones (the wizard's "apply to the current month now"). Returns rows touched.
+     */
+    public function syncRule(TaskTarget $rule, ?Carbon $month = null, ?int $userId = null): int
+    {
+        $month = self::monthOf($month);
+        $n = 0;
+        $subjects = $rule->rank_id
+            ? Member::where('status', 'active')->where('rank_id', $rule->rank_id)->pluck('id')->map(fn ($id) => ['member', (int) $id])
+            : Branch::where('is_active', true)->where('level', $rule->branch_level)->pluck('id')->map(fn ($id) => ['branch', (int) $id]);
+        foreach ($subjects as [$type, $id]) {
+            $row = TaskAssignment::forMonth($month)->forSubject($type, $id)->where('task_type_id', $rule->task_type_id)->first();
+            if (! $row) {
+                $this->assign($type, $id, $rule, $month, $userId);
+                $n++;
+            } elseif ($row->source === 'rule' && ! $row->isLocked()) {
+                $row->update(['target' => $rule->target, 'per_day' => $rule->per_day, 'weight' => $rule->weight]);
+                $n++;
+            }
+        }
+
+        return $n;
+    }
+
     /** GBV / BV / directs baseline on the 1st (only members missing one for the month). */
     public function snapshotMembers(?Carbon $month = null): int
     {

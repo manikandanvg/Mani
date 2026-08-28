@@ -257,6 +257,20 @@ class BranchOrderResource extends BaseResource
                     ->action(fn (BranchOrderRequest $r) => static::notify(
                         fn () => app(CustomizeOrderService::class)->deliver($r, auth()->user()),
                         $r->request_no . ' pieces sent down the chain')),
+                // The ordering branch pulls the pieces the rest of the way (user 2026-08-29:
+                // "how does the receiving dealer receive?") — every hop still records its margin.
+                Tables\Actions\Action::make('receive')
+                    ->label('Receive')
+                    ->icon('heroicon-m-inbox-arrow-down')->color('success')->requiresConfirmation()
+                    ->modalDescription(fn (BranchOrderRequest $r) => 'The pieces of ' . $r->request_no . ' are with '
+                        . ($r->currentBranch?->name ?? 'another branch') . '. Receive them into ' . ($r->branch?->name ?? 'the ordering branch')
+                        . ' now? Each branch on the way still earns its transfer margin.')
+                    ->visible(fn (BranchOrderRequest $r) => $r->isCustomize() && in_array($r->status, ['approved', 'in_transit'], true)
+                        && (int) $r->current_branch_id !== (int) $r->branch_id
+                        && (static::hqApprover() || (int) auth()->user()?->branch_id === (int) $r->branch_id))
+                    ->action(fn (BranchOrderRequest $r) => static::notify(
+                        fn () => app(CustomizeOrderService::class)->receive($r, auth()->user()),
+                        $r->request_no . ' received — the pieces are now in ' . ($r->branch?->name ?? 'the ordering branch') . "'s stock")),
                 Tables\Actions\Action::make('coins')
                     ->label('Coin captured')
                     ->icon('heroicon-m-circle-stack')->color('warning')

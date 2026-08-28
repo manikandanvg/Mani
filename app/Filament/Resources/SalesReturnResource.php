@@ -146,7 +146,8 @@ class SalesReturnResource extends BaseResource
                     ->icon('heroicon-o-hand-thumb-up')->color('success')->requiresConfirmation()
                     ->modalDescription(fn (SalesReturn $r) => 'Confirm you have received ' . rtrim(rtrim(number_format((float) $r->quantity, 4), '0'), '.')
                         . ' coin(s) (' . number_format((float) $r->grams, 3) . ' g) from the customer. They will be counted into your branch stock.')
-                    ->visible(fn (SalesReturn $r) => $r->status === SalesReturn::STATUS_PENDING && static::canAct($r))
+                    // User 2026-08-29: the confirmation is an ADMIN act — distributors only see the state.
+                    ->visible(fn (SalesReturn $r) => $r->status === SalesReturn::STATUS_PENDING && static::isHq())
                     ->action(function (SalesReturn $r) {
                         try {
                             app(SalesReturnService::class)->markCollected($r, auth()->id());

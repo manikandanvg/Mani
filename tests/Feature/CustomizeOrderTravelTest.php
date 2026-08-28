@@ -23,6 +23,7 @@ use App\Support\CustomizeOrderPricing;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Spatie\Permission\Models\Role;
 use Symfony\Component\HttpKernel\Exception\HttpException;
+use Livewire\Livewire;
 use Tests\TestCase;
 
 /**
@@ -340,5 +341,36 @@ class CustomizeOrderTravelTest extends TestCase
         } catch (HttpException $e) {
             $this->assertStringContainsString('does not belong to this branch', $e->getMessage());
         }
+    }
+
+    /** User 2026-08-29: the ordering branch can RECEIVE — pulls the pieces through every remaining hop. */
+    public function test_ordering_branch_receives_and_pulls_the_pieces_through_the_hops(): void
+    {
+        $svc = app(CustomizeOrderService::class);
+        $order = $svc->accept($svc->forward($this->place(0), $this->districtUser), ['delivery_date' => '2026-09-10'], $this->admin);
+        $order = $svc->deliver($order, $this->admin);              // HQ → District
+        $this->assertSame('in_transit', $order->status);
+        $this->assertSame($this->district->id, (int) $order->current_branch_id);
+        $line = $order->lines->first();
+
+        // Another dealer cannot pull it.
+        try {
+            $svc->receive($order, $this->districtUser);
+            $this->fail('district must not receive');
+        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
+            $this->assertSame(403, $e->getStatusCode());
+        }
+
+        $order = $svc->receive($order, $this->talukUser);
+
+        $this->assertSame('delivered', $order->status);
+        $this->assertSame($this->taluk->id, (int) $order->current_branch_id);
+        $this->assertEquals(1, $this->customStock($this->taluk->id, $line->id));
+        $this->assertEquals(0, $this->customStock($this->district->id, $line->id));
+        // The pulled hop still logged a delivery and the district still earned its transfer margin row.
+        $this->assertSame(2, $order->events()->where('action', 'delivered')->count());
+
+        Livewire::actingAs($this->talukUser)->test(\App\Filament\Resources\BranchOrderResource\Pages\ListBranchOrders::class)
+            ->assertTableActionHidden('receive', $order);
     }
 }

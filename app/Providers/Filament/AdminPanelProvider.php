@@ -55,6 +55,12 @@ class AdminPanelProvider extends PanelProvider
                     . @filemtime(public_path('css/premium.css')) . '">'
                 )
             )
+            // Sidebar navigation search (user 2026-08-29: "lots of navigation — search required").
+            // Filters the menu as you type; groups holding a match open, others hide.
+            ->renderHook(
+                'panels::sidebar.nav.start',
+                fn (): \Illuminate\Contracts\View\View => view('filament.sidebar-search')
+            )
             // Enter moves to the next field instead of submitting (prevents accidental saves).
             ->renderHook(
                 'panels::body.end',
@@ -99,6 +105,7 @@ class AdminPanelProvider extends PanelProvider
                 \Filament\Navigation\NavigationGroup::make('Community')->label(fn () => __('Community')),
                 \Filament\Navigation\NavigationGroup::make('Master')->label(fn () => __('Master')),
                 \Filament\Navigation\NavigationGroup::make('Support & Track')->label(fn () => __('Support & Track')),
+                \Filament\Navigation\NavigationGroup::make('Monthly Tasks')->label(fn () => __('Monthly Tasks')),
                 \Filament\Navigation\NavigationGroup::make('System')->label(fn () => __('System')),
                 \Filament\Navigation\NavigationGroup::make('Report')->label(fn () => __('Report')),
             ])

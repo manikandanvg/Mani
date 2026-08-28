@@ -211,16 +211,18 @@ class CustomizeOrderService
      * Every hop is a stock transfer: the sender earns its level's margin on grams × the
      * frozen price per gram. Reaching the requestor marks the order delivered.
      */
-    public function deliver(BranchOrderRequest $order, ?User $user = null, ?string $note = null): BranchOrderRequest
+    public function deliver(BranchOrderRequest $order, ?User $user = null, ?string $note = null, bool $pulled = false): BranchOrderRequest
     {
         $user ??= auth()->user();
 
-        return DB::transaction(function () use ($order, $user, $note) {
+        return DB::transaction(function () use ($order, $user, $note, $pulled) {
             $order = BranchOrderRequest::whereKey($order->id)->lockForUpdate()->firstOrFail();
             abort_unless($order->isCustomize(), 422, 'Only customized orders travel this way.');
             abort_unless(in_array($order->status, ['approved', 'in_transit'], true), 422, 'The order must be accepted by Head Office before delivery.');
             $holder = (int) $order->current_branch_id;
-            $this->assertActsFor($user, $holder);
+            if (! $pulled) {
+                $this->assertActsFor($user, $holder);
+            }
             $next = $this->nextHopDown($order, $holder);
             abort_if($next === null, 422, 'The pieces are already with the ordering branch.');
 
@@ -275,6 +277,33 @@ class CustomizeOrderService
                 $from->name . ' sent the pieces for ' . $order->customerName() . ($arrived ? ' — bill them to the customer from Sales.' : ' — forward them to the next branch.'), $order);
 
             return $order->fresh();
+        });
+    }
+
+    /**
+     * "Receive" (user 2026-08-29): the ORDERING branch (or HQ on its behalf) pulls the pieces
+     * the rest of the way down — every remaining hop is delivered in turn, each sender still
+     * earning its transfer margin, so an intermediate dealer who never logs in cannot strand
+     * the order. Ends with status delivered.
+     */
+    public function receive(BranchOrderRequest $order, ?User $user = null, ?string $note = null): BranchOrderRequest
+    {
+        $user ??= auth()->user();
+        abort_unless($user, 403);
+        abort_unless($order->isCustomize(), 422, 'Only customized orders travel this way.');
+        abort_unless(in_array($order->status, ['approved', 'in_transit'], true), 422, 'Nothing to receive — the order is ' . $order->status . '.');
+        if ($user->isDistributor()) {
+            abort_unless((int) $user->branch_id === (int) $order->branch_id, 403, 'Only the ordering branch can receive this order.');
+        }
+
+        return DB::transaction(function () use ($order, $user, $note) {
+            $hops = 0;
+            while (in_array($order->status, ['approved', 'in_transit'], true) && $hops < 12) {
+                $order = $this->deliver($order, $user, $note ?: 'Received by the ordering branch (pulled through)', pulled: true);
+                $hops++;
+            }
+
+            return $order;
         });
     }
 
