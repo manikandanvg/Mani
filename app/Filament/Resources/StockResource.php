@@ -75,12 +75,12 @@ class StockResource extends BaseResource
                                     'stock.quantity * COALESCE(catalog_products.default_weight, 0)'
                                 )), 3) . ' g'),
                     ]),
-                // Minimum level — editable straight in the grid (the resource has no
+                // Opening level (board phase 2: "minimum" is called "opening" everywhere) — editable straight in the grid (the resource has no
                 // edit page because quantity itself is movement-driven, read-only).
                 // Read-only everywhere. Both this and the quantity are changed ONLY by
                 // Head Office through the "Adjust stock" button (board 2026-08-13).
                 Tables\Columns\TextColumn::make('min_qty')
-                    ->label('Minimum')
+                    ->label('Opening')
                     ->numeric(4)
                     ->placeholder('—')
                     ->color(fn (Stock $record) => $record->is_low ? 'danger' : null),
@@ -105,7 +105,7 @@ class StockResource extends BaseResource
                         ? null
                         : (auth()->user()?->branch_id ?? \App\Services\SalesService::HQ_BRANCH_ID)),
             ])
-            // Head Office only: ONE button sets both the stock and its minimum
+            // Head Office only: ONE button sets both the stock and its opening level
             // (board 2026-08-13). Dealers see their figures but change nothing.
             ->actions([
                 // Customized-order piece held here: send it one hop DOWN the road to the
@@ -155,10 +155,10 @@ class StockResource extends BaseResource
                             ->default(fn (Stock $record) => (float) $record->quantity)
                             ->helperText('The corrected count. Any difference is logged as an adjustment.'),
                         \Filament\Forms\Components\TextInput::make('min_qty')
-                            ->label('Minimum stock')
+                            ->label('Opening stock')
                             ->numeric()->minValue(0)
                             ->default(fn (Stock $record) => $record->min_qty === null ? null : (float) $record->min_qty)
-                            ->helperText('The row turns red once stock reaches this level. Leave empty for no minimum.'),
+                            ->helperText('The row turns red once stock falls to this opening level. Leave empty for no opening level.'),
                         \Filament\Forms\Components\TextInput::make('note')
                             ->label('Reason')->maxLength(200)
                             ->placeholder('Physical count, damage, correction…'),
@@ -172,7 +172,7 @@ class StockResource extends BaseResource
                             $record->update(['quantity' => $new, 'min_qty' => $min]);
 
                             // A quantity change must leave an audit trail — the stock
-                            // ledger has to keep reconciling. Minimum is a setting,
+                            // ledger has to keep reconciling. Opening level is a setting,
                             // not a movement, so it never writes one.
                             if ($change != 0.0) {
                                 \App\Models\StockMovement::create([
@@ -191,7 +191,7 @@ class StockResource extends BaseResource
 
                         \Filament\Notifications\Notification::make()
                             ->title($change == 0.0
-                                ? 'Minimum stock updated'
+                                ? 'Opening stock updated'
                                 : sprintf('Saved — stock %s%s', $change > 0 ? '+' : '', rtrim(rtrim(number_format($change, 4), '0'), '.')))
                             ->success()->send();
                     }),

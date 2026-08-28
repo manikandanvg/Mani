@@ -15,7 +15,35 @@ class Meeting extends Model
         'scheduled_at' => 'datetime',
         'duration_min' => 'integer',
         'is_published' => 'boolean',
+        'audience_ranks' => 'array',
     ];
+
+    /**
+     * Multi-select audience (board phase 2, 2026-08-28): the exact TBP rank depths
+     * this meeting is for — e.g. [1, 4] = Taluk Admin AND State Admin. NULL / empty
+     * = every distributor. Replaces the old "minimum rank & above" gate.
+     */
+    public function audienceDepths(): array
+    {
+        return array_values(array_unique(array_map('intval', (array) ($this->audience_ranks ?? []))));
+    }
+
+    public function isForDepth(int $depth): bool
+    {
+        $depths = $this->audienceDepths();
+
+        return $depths === [] || in_array($depth, $depths, true);
+    }
+
+    /** Meetings visible to a member of the given rank depth (untargeted ones included). */
+    public function scopeForDepth($query, int $depth)
+    {
+        return $query->where(function ($q) use ($depth) {
+            $q->whereNull('audience_ranks')
+                ->orWhereJsonLength('audience_ranks', 0)
+                ->orWhereJsonContains('audience_ranks', $depth);
+        });
+    }
 
     public function attendances()
     {

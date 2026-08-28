@@ -23,6 +23,8 @@ class MeetingResource extends BaseResource
 
     protected static ?string $navigationGroup = 'Community';
 
+    protected static ?int $navigationSort = 1;
+
     protected static ?string $navigationLabel = 'Live Meetings';
 
     protected static ?string $navigationIcon = 'heroicon-o-video-camera';
@@ -53,23 +55,28 @@ class MeetingResource extends BaseResource
                 Forms\Components\TextInput::make('host_name')->label('Host'),
                 Forms\Components\Select::make('visibility')
                     ->options(['members' => 'Distributors only', 'public' => 'Everyone'])->default('members')->required()->live(),
-                // Board 2026-08-12 item 7: optionally narrow the audience to a TBP stage
-                // and above. The app list AND the schedule push both honour this.
-                Forms\Components\Select::make('min_rank_depth')
-                    ->label('Minimum rank (audience)')
-                    ->options([
-                        1 => 'Taluk Admin & above',
-                        2 => 'District Admin & above',
-                        3 => 'Zonal Admin & above',
-                        4 => 'State Admin & above',
-                        5 => 'Corporate Admin only',
-                    ])
+                // Board phase 2 (2026-08-28): the audience is a MULTI-select of exact ranks —
+                // e.g. Taluk Admin AND State Admin in the same meeting. Empty = every
+                // distributor. The app list AND the schedule push both honour this.
+                Forms\Components\Select::make('audience_ranks')
+                    ->label('Audience (ranks)')
+                    ->multiple()
+                    ->options(fn () => static::rankOptions())
                     ->placeholder('All distributors')
                     ->visible(fn (Forms\Get $get) => $get('visibility') === 'members')
-                    ->helperText('Leave empty for every distributor. The schedule notification goes only to this audience.'),
+                    ->helperText('Pick one or more ranks; leave empty for every distributor. The schedule notification goes only to this audience.')
+                    ->columnSpan(2),
                 Forms\Components\Toggle::make('is_published')->default(true),
             ]),
         ]);
+    }
+
+    /** Rank depth → name, from the ranks master (depth 0 = plain Distributor). */
+    public static function rankOptions(): array
+    {
+        return \App\Models\Rank::orderBy('depth')->get()
+            ->mapWithKeys(fn ($r) => [(int) $r->depth => \App\Support\Translatable::pick($r->name) ?: ('Rank ' . $r->depth)])
+            ->all();
     }
 
     public static function table(Table $table): Table
@@ -82,6 +89,11 @@ class MeetingResource extends BaseResource
                 Tables\Columns\TextColumn::make('scheduled_at')->dateTime()->sortable(),
                 Tables\Columns\TextColumn::make('duration_min')->label('Min')->numeric(),
                 Tables\Columns\TextColumn::make('visibility')->badge(),
+                Tables\Columns\TextColumn::make('audience_ranks')->label('Audience')
+                    ->state(fn (Meeting $r) => $r->audienceDepths())
+                    ->formatStateUsing(fn ($state) => static::rankOptions()[(int) $state] ?? $state)
+                    ->badge()->color('gray')
+                    ->placeholder('All distributors'),
                 // Distinct people, not rows: a member with both an app-join row and a
                 // Zoom row counts once; unmatched Zoom participants count by name.
                 Tables\Columns\TextColumn::make('attended')

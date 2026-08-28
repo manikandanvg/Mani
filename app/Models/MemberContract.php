@@ -18,4 +18,12 @@ class MemberContract extends Model
     public function member() { return $this->belongsTo(Member::class); }
     public function plan() { return $this->belongsTo(Plan::class); }
     public function branch() { return $this->belongsTo(Branch::class); }
+
+    /** Admin-generated settlements (board phase 2, 2026-08-28) — at most one per contract. */
+    public function settlements() { return $this->hasMany(ContractSettlement::class); }
+
+    public function isExpired(): bool
+    {
+        return \App\Services\ContractSettlementService::isExpired($this);
+    }
 }

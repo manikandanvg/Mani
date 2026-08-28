@@ -263,7 +263,7 @@ class CustomizeOrderForm extends Page implements HasForms
         if (! $rate) {
             return new HtmlString('<span style="color:#ab222f">Live rate not set — customised orders cannot be priced.</span>');
         }
-        $chip = fn (string $label, string $material, string $color) => '<span style="margin-right:1.5rem;font-weight:600">'
+        $chip = fn (string $label, string $material, string $color) => '<span style="display:inline-block;margin-right:1.5rem;font-weight:600">'
             . '<span style="color:' . $color . '">● ' . $label . '</span> ₹' . Money::group(CustomizeOrderPricing::liveRate($material, $rate)) . '/g'
             . ' <span style="color:#e5e7eb;font-weight:400">+ margin ₹' . Money::group(CustomizeOrderPricing::marginPerGram($material)) . '/g</span></span>';
 

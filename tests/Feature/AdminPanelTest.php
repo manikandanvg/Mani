@@ -53,7 +53,7 @@ class AdminPanelTest extends TestCase
             // system
             'live-rates', 'settings',
             // community modules
-            'conversations', 'messages', 'drive-folders', 'drive-files',
+            'memos', 'drive-folders', 'drive-files',
             'social-posts', 'social-comments',
         ];
 

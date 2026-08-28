@@ -7,6 +7,7 @@ use App\Filament\Resources\MemberContractResource\Pages;
 use App\Models\MemberContract;
 use App\Support\Translatable;
 use Filament\Resources\Resource;
+use Filament\Forms;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
@@ -49,7 +50,7 @@ class MemberContractResource extends BaseResource
 
     public static function getEloquentQuery(): Builder
     {
-        $query = parent::getEloquentQuery()->with(['member', 'plan', 'branch']);
+        $query = parent::getEloquentQuery()->with(['member', 'plan', 'branch', 'settlements']);
 
         // Branch scope: a distributor login sees only its own branch's contracts.
         $user = auth()->user();
@@ -83,10 +84,24 @@ class MemberContractResource extends BaseResource
                         'closed' => 'gray',
                         default => 'gray',
                     }),
+                // Board phase 2 (2026-08-28): the admin-entered settlement credited to the wallet.
+                Tables\Columns\TextColumn::make('settlement_amount')
+                    ->label('Settlement')
+                    ->state(fn (MemberContract $r) => $r->settlements->sum('amount') ?: null)
+                    ->formatStateUsing(fn ($state) => $state ? '₹' . \App\Support\Money::group((float) $state) : null)
+                    ->placeholder(fn (MemberContract $r) => $r->isExpired() ? __('Expired — not settled') : '—')
+                    ->color('success'),
             ])
             ->filters([
                 Tables\Filters\SelectFilter::make('status')
                     ->options(['active' => 'Active', 'matured' => 'Matured (needs decision)', 'closed' => 'Closed']),
+                Tables\Filters\Filter::make('expired')
+                    ->label('Expired, awaiting settlement')
+                    ->toggle()
+                    ->query(fn (Builder $q) => $q
+                        ->where(fn ($w) => $w->where('status', 'matured')
+                            ->orWhere(fn ($x) => $x->where('status', '!=', 'closed')->whereDate('end_date', '<', now()->toDateString())))
+                        ->whereDoesntHave('settlements')),
                 Tables\Filters\SelectFilter::make('plan_id')
                     ->label('Scheme')
                     ->relationship('plan', 'code'),
@@ -97,6 +112,44 @@ class MemberContractResource extends BaseResource
                     ->icon('heroicon-o-document-text')
                     ->url(fn (MemberContract $record) => route('contract.pdf', $record->bond_id), shouldOpenInNewTab: true)
                     ->visible(fn (MemberContract $record) => $record->bond_id !== null),
+                // Board phase 2 (2026-08-28): once a contract has EXPIRED, Head Office types the
+                // settlement value; it goes straight to the distributor's cash wallet.
+                Tables\Actions\Action::make('generate_settlement')
+                    ->label('Generate settlement')
+                    ->icon('heroicon-o-banknotes')
+                    ->color('warning')
+                    ->modalHeading(fn (MemberContract $record) => 'Generate settlement — ' . $record->contract_no)
+                    ->modalDescription(fn (MemberContract $record) => ($record->member?->name ?? 'Distributor')
+                        . ' · ' . ($record->plan?->code ?? '') . ' · contract value ₹' . \App\Support\Money::group((float) $record->amount)
+                        . ' · ended ' . ($record->end_date?->format('d M Y') ?? '—')
+                        . '. The value entered below is credited to the distributor\'s cash wallet immediately.')
+                    ->modalWidth('md')
+                    ->form([
+                        Forms\Components\TextInput::make('amount')
+                            ->label('Settlement value (₹)')
+                            ->numeric()->minValue(0.01)->required()
+                            ->default(fn (MemberContract $record) => (float) $record->amount ?: null)
+                            ->prefix('₹'),
+                        Forms\Components\TextInput::make('note')->label('Note (optional)')->maxLength(255),
+                    ])
+                    ->visible(fn (MemberContract $record) => ! auth()->user()?->isDistributor()
+                        && \App\Services\ContractSettlementService::canGenerate($record))
+                    ->action(function (MemberContract $record, array $data) {
+                        try {
+                            $row = app(\App\Services\ContractSettlementService::class)
+                                ->generate($record, (float) $data['amount'], $data['note'] ?? null, auth()->id());
+                        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
+                            \Filament\Notifications\Notification::make()->danger()
+                                ->title('Could not generate settlement')->body($e->getMessage())->send();
+
+                            return;
+                        }
+                        \Filament\Notifications\Notification::make()->success()
+                            ->title('Settlement credited')
+                            ->body('₹' . \App\Support\Money::group((float) $row->amount) . ' added to '
+                                . ($record->member?->name ?? 'the distributor') . "'s wallet.")
+                            ->send();
+                    }),
             ])
             ->bulkActions([]);
     }

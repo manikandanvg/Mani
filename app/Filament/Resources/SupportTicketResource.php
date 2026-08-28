@@ -120,6 +120,38 @@ class SupportTicketResource extends BaseResource
                     )
                     ->native(false),
             ]),
+            // Board phase 2 (2026-08-28): a ticket cannot be raised without at least one
+            // photo / file. Private disk; served through /admin/ticket-attachments (auth).
+            Forms\Components\Section::make('Attachments')
+                ->description('Attach a photo or file that shows the issue — required to submit the ticket.')
+                ->schema([
+                    Forms\Components\FileUpload::make('attachments')
+                        ->label('Photo / files')
+                        ->multiple()
+                        ->disk('local')
+                        ->directory('ticket-attachments')
+                        ->visibility('private')
+                        ->maxSize(10240)
+                        ->maxFiles(5)
+                        ->acceptedFileTypes(['image/*', 'application/pdf', 'video/mp4', 'audio/*', 'text/plain',
+                            'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                            'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'])
+                        ->required()
+                        ->validationMessages(['required' => 'Attach at least one photo or file to submit the ticket.'])
+                        ->downloadable(false)
+                        ->openable(false)
+                        ->reorderable()
+                        ->appendFiles()
+                        ->columnSpanFull(),
+                    Forms\Components\Placeholder::make('attachment_links')
+                        ->label('Open')
+                        ->visible(fn (?SupportTicket $record) => $record && count($record->attachments ?? []) > 0)
+                        ->content(fn (?SupportTicket $record) => new \Illuminate\Support\HtmlString(collect($record?->attachments ?? [])
+                            ->map(fn ($path, $i) => '<a href="' . e(route('ticket.attachment', [$record->id, $i])) . '" target="_blank" '
+                                . 'style="display:inline-block;margin:.15rem .5rem .15rem 0;color:#ab222f;text-decoration:underline">'
+                                . e(basename((string) $path)) . '</a>')
+                            ->implode(''))),
+                ]),
         ]);
     }
 
@@ -144,6 +176,9 @@ class SupportTicketResource extends BaseResource
                 Tables\Columns\TextColumn::make('status')->badge()
                     ->color(fn (?string $state) => $state === 'open' ? 'warning' : 'success'),
                 Tables\Columns\TextColumn::make('assignee.name')->label('Assigned')->toggleable(),
+                Tables\Columns\TextColumn::make('attachments')->label('Files')
+                    ->state(fn (SupportTicket $r) => count($r->attachments ?? []))
+                    ->icon('heroicon-m-paper-clip')->alignCenter(),
                 Tables\Columns\TextColumn::make('replies_count')->counts('replies')->label('Replies'),
                 Tables\Columns\TextColumn::make('created_at')->dateTime('d M Y H:i')->sortable(),
             ])

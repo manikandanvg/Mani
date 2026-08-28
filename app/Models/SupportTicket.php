@@ -17,6 +17,7 @@ class SupportTicket extends Model
 
     protected $casts = [
         'closed_at' => 'datetime',
+        'attachments' => 'array',
     ];
 
     public const CATEGORIES = [

@@ -853,7 +853,7 @@ class Sales extends Page implements HasForms
             $sym = \App\Support\Money::currency($fxCode)?->symbol ?? '';
             $conv = \App\Support\Money::convert((float) $t['grand'], $fxCode);
             $fxLine =
-                '<div style="display:flex;justify-content:space-between;padding:.45rem .9rem;background:#fff;font-size:.78rem;color:#6b7280">'
+                '<div style="display:flex;flex-wrap:wrap;gap:.25rem .75rem;justify-content:space-between;padding:.45rem .9rem;background:#fff;font-size:.78rem;color:#6b7280">'
                 . '<span>Approx. in ' . strtoupper($fxCode) . '</span>'
                 . '<span style="font-weight:700;color:#111827;font-variant-numeric:tabular-nums">' . $sym . ' ' . Number::format($conv, 2) . '</span></div>';
         }
@@ -987,7 +987,8 @@ class Sales extends Page implements HasForms
                     . '<div style="font-weight:700;font-size:.8rem;color:#111827">' . self::sym() . Number::format($amt, 2) . '</div></div>';
             }
 
-            return '<div style="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:.35rem;margin-top:.4rem">' . $cells . '</div>';
+            // auto-fit: 5 across on a desktop, 2–3 across on a phone (board phase 2: responsive).
+            return '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(6.5rem,1fr));gap:.35rem;margin-top:.4rem">' . $cells . '</div>';
         };
 
         $card = fn (string $title, string $total, string $sub, string $body, string $accent) =>

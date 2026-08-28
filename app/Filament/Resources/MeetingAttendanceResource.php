@@ -27,6 +27,8 @@ class MeetingAttendanceResource extends BaseResource
 
     protected static ?string $navigationGroup = 'Community';
 
+    protected static ?int $navigationSort = 2;
+
     protected static ?string $navigationLabel = 'Meeting Participation';
 
     protected static ?string $navigationIcon = 'heroicon-o-user-group';

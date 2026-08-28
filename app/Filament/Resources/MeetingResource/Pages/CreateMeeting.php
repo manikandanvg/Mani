@@ -37,11 +37,11 @@ class CreateMeeting extends CreateRecord
             return;
         }
 
-        // Board 2026-08-12 item 7: the announcement goes only to the selected
-        // audience — everyone, all distributors, or a minimum TBP stage & above.
+        // Board phase 2 (2026-08-28): the announcement goes only to the selected
+        // audience — everyone, all distributors, or the exact ranks picked (multi).
         $audience = \App\Models\Member::query();
-        if ($meeting->min_rank_depth) {
-            $audience->whereHas('rank', fn ($q) => $q->where('depth', '>=', (int) $meeting->min_rank_depth));
+        if ($depths = $meeting->audienceDepths()) {
+            $audience->whereHas('rank', fn ($q) => $q->whereIn('depth', $depths));
         }
 
         $n = \App\Services\Push\Notifier::toQuery(

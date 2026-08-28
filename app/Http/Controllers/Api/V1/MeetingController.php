@@ -26,12 +26,12 @@ class MeetingController extends Controller
         if ($user instanceof Member && filled($user->member_code)) {
             $displayName .= ' · ' . $user->member_code;
         }
-        // Rank-targeted meetings (item 7): only visible from the required TBP stage up.
+        // Rank-targeted meetings (board phase 2): visible only to the ranks picked.
         $myDepth = $user instanceof Member ? (int) ($user->rank?->depth ?? 0) : 0;
 
         $meetings = Meeting::published()
             ->whereIn('visibility', $levels)
-            ->where(fn ($q) => $q->whereNull('min_rank_depth')->orWhere('min_rank_depth', '<=', $myDepth))
+            ->forDepth($myDepth)
             ->where('scheduled_at', '>=', now()->subDays(7))
             ->orderBy('scheduled_at')
             ->get()
@@ -108,7 +108,7 @@ class MeetingController extends Controller
         $levels = $user instanceof Member ? ['members', 'public'] : ['public'];
         abort_unless(in_array($meeting->visibility, $levels, true), 404);
         $myDepth = $user instanceof Member ? (int) ($user->rank?->depth ?? 0) : 0;
-        abort_if($meeting->min_rank_depth !== null && (int) $meeting->min_rank_depth > $myDepth, 404);
+        abort_unless($meeting->isForDepth($myDepth), 404);
 
         $meetingNumber = preg_replace('/\D/', '', (string) $meeting->meeting_id);
         abort_if($meetingNumber === '', 404, 'This meeting has no Zoom meeting number.');

@@ -23,6 +23,8 @@ class SocialCommentResource extends BaseResource
 
     protected static ?string $navigationGroup = 'Community';
 
+    protected static ?int $navigationSort = 5;
+
     protected static ?string $navigationIcon = 'heroicon-o-chat-bubble-oval-left';
 
     public static function form(Form $form): Form

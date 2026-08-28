@@ -485,8 +485,8 @@ class RedeemQr extends Page implements HasForms
             return '<em>No metal lines found on the original sale.</em>';
         }
 
-        return '<table style="width:100%;border-collapse:collapse">'
+        return '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:20rem">'
             . '<thead><tr><th style="text-align:left;padding:4px 8px">Item</th><th style="text-align:right;padding:4px 8px">Qty</th><th style="text-align:right;padding:4px 8px">Amount</th></tr></thead>'
-            . '<tbody>' . $rows . '</tbody></table>';
+            . '<tbody>' . $rows . '</tbody></table></div>';
     }
 }

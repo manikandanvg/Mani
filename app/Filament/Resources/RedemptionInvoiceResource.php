@@ -38,7 +38,7 @@ class RedemptionInvoiceResource extends BaseResource
 
     public static function getEloquentQuery(): Builder
     {
-        $query = parent::getEloquentQuery()->with(['member', 'branch', 'restockOrder']);
+        $query = parent::getEloquentQuery()->with(['member', 'branch', 'restockOrder', 'lines.catalogProduct']);
 
         // Branch scope: a distributor login sees only its own branch's invoices.
         $user = auth()->user();
@@ -118,7 +118,19 @@ class RedemptionInvoiceResource extends BaseResource
     /** A restock (re-order) can be raised for any redemption that hasn't been re-ordered yet. */
     protected static function canRestock(RedemptionInvoice $record): bool
     {
-        return $record->restockOrder === null;
+        return $record->restockOrder === null && ! static::isCustomized($record);
+    }
+
+    /**
+     * Board phase 2 (2026-08-28): a QR from a customized-order sale (pieces carried by the
+     * CUSTOM-AU / CUSTOM-AG system items) redeems as a plain G10 metal plan and is NEVER
+     * restocked — the pieces were made to order, there is nothing to re-order.
+     */
+    public static function isCustomized(RedemptionInvoice $record): bool
+    {
+        $record->loadMissing('lines.catalogProduct');
+
+        return $record->lines->contains(fn ($l) => (bool) $l->catalogProduct?->is_custom_order);
     }
 
     /** Preview of the lines + value the restock order will request (priced at the live rate). */
@@ -173,6 +185,10 @@ class RedemptionInvoiceResource extends BaseResource
     /** Badge text for the restock column. */
     protected static function restockState(RedemptionInvoice $record): string
     {
+        if ($record->restockOrder === null && static::isCustomized($record)) {
+            return 'Customized — no restock';
+        }
+
         return match ($record->restockOrder?->status) {
             'approved' => 'Re-Stocked',
             'pending' => 'Pending',

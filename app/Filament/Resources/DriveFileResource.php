@@ -23,6 +23,8 @@ class DriveFileResource extends BaseResource
 
     protected static ?string $navigationGroup = 'Community';
 
+    protected static ?int $navigationSort = 7;
+
     protected static ?string $navigationIcon = 'heroicon-o-document';
 
     public static function form(Form $form): Form

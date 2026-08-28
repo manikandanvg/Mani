@@ -48,6 +48,10 @@ Route::get('/admin/redemptions/{invoice}/pdf', fn (\App\Models\RedemptionInvoice
 Route::get('/admin/order-attachments/{attachment}', [\App\Http\Controllers\OrderAttachmentController::class, 'show'])
     ->middleware(['web', 'auth'])->name('order.attachment');
 
+// Admin: stream a support-ticket attachment (auth-guarded, branch-scoped) — private disk.
+Route::get('/admin/ticket-attachments/{ticket}/{index}', [\App\Http\Controllers\TicketAttachmentController::class, 'show'])
+    ->whereNumber('index')->middleware(['web', 'auth'])->name('ticket.attachment');
+
 // Admin: stream a payroll payslip as a PDF (auth-guarded).
 Route::get('/admin/payslips/{payslip}/pdf', fn (\App\Models\Payslip $payslip) => app(\App\Services\Payroll\PayslipPdf::class)->stream($payslip))
     ->middleware(['web', 'auth'])->name('payslip.pdf');

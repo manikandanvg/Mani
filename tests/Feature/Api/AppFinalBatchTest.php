@@ -87,12 +87,12 @@ class AppFinalBatchTest extends TestCase
         Meeting::create([
             'title' => 'District strategy call', 'join_url' => 'https://zoom.us/j/1',
             'platform' => 'zoom', 'scheduled_at' => now()->addDay(), 'duration_min' => 60,
-            'visibility' => 'members', 'min_rank_depth' => 2, 'is_published' => true,
+            'visibility' => 'members', 'audience_ranks' => [2, 4], 'is_published' => true,
         ]);
         Meeting::create([
             'title' => 'All-hands', 'join_url' => 'https://zoom.us/j/2',
             'platform' => 'zoom', 'scheduled_at' => now()->addDay(), 'duration_min' => 60,
-            'visibility' => 'members', 'min_rank_depth' => null, 'is_published' => true,
+            'visibility' => 'members', 'audience_ranks' => null, 'is_published' => true,
         ]);
 
         // Depth-0 distributor sees only the untargeted meeting…
@@ -101,7 +101,7 @@ class AppFinalBatchTest extends TestCase
         $this->assertTrue($titles->contains('All-hands'));
         $this->assertFalse($titles->contains('District strategy call'));
 
-        // …a District Admin (depth 2) sees both.
+        // …a District Admin (depth 2) — one of the picked ranks — sees both.
         $district = $this->makeMember('FB2', '9000000802', 2);
         Sanctum::actingAs($district, ['*']);
         $titles = collect($this->getJson('/api/v1/meetings')->assertOk()->json('upcoming'))->pluck('title');

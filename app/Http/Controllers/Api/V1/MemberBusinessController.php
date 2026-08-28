@@ -139,6 +139,21 @@ class MemberBusinessController extends Controller
                     'reference' => $r->code,
                     'paid_on' => optional($r->paid_on)->toDateString(),
                 ]),
+            // Board phase 2 (2026-08-28): admin-generated contract settlements, credited
+            // to the cash wallet on entry — the app's "Contract Settlement" tab.
+            'SETTLEMENT' => \App\Models\ContractSettlement::where('member_id', $member->id)
+                ->with('contract.plan')->latest('paid_on')->latest('id')->paginate(20)
+                ->through(fn (\App\Models\ContractSettlement $r) => [
+                    'stream' => 'SETTLEMENT',
+                    'date' => optional($r->paid_on)->toDateString(),
+                    'amount' => (float) $r->amount,
+                    'net' => (float) $r->amount,
+                    'status' => 'paid',
+                    'reference' => $r->contract?->contract_no,
+                    'from' => $r->contract?->plan?->code,
+                    'note' => $r->note,
+                    'paid_on' => optional($r->paid_on)->toDateString(),
+                ]),
             'RESELLER' => $this->resellerQuery($member)
                 ->when($marginType !== false, fn ($q) => $q->where('com_type_id', $marginType))
                 ->latest('bill_date')->paginate(20)
@@ -414,6 +429,14 @@ class MemberBusinessController extends Controller
                 'total' => round((float) $this->resellerQuery($member)->sum('com_value'), 2),
                 'paid' => round((float) (clone $this->resellerQuery($member))->where('status', 'paid')->sum('com_value'), 2),
             ],
+            // Settlements are paid the moment they are entered, so total = paid; the
+            // app pairs this with wallet.cash_balance ("accumulated wallet").
+            'settlement' => (function () use ($member) {
+                $sum = round((float) \App\Models\ContractSettlement::where('member_id', $member->id)->sum('amount'), 2);
+
+                return ['total' => $sum, 'paid' => $sum, 'pending' => 0.0,
+                    'count' => (int) \App\Models\ContractSettlement::where('member_id', $member->id)->count()];
+            })(),
         ];
     }
 

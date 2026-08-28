@@ -16,14 +16,14 @@ class Stock extends Model
 
     /**
      * Low stock (board 2026-08-13): quantity has fallen to or below the branch's
-     * minimum for this product. NULL min_qty = no minimum set, never low.
+     * opening level for this product. NULL min_qty = no opening level set, never low.
      */
     public function getIsLowAttribute(): bool
     {
         return $this->min_qty !== null && (float) $this->quantity <= (float) $this->min_qty;
     }
 
-    /** Rows at or below their minimum — drives the highlight, filter and alert. */
+    /** Rows at or below their opening level — drives the highlight, filter and alert. */
     public function scopeLow($query)
     {
         return $query->whereNotNull('min_qty')->whereColumn('quantity', '<=', 'min_qty');

@@ -16,7 +16,7 @@ class ListStock extends ListRecords
 
     /**
      * Low-stock alert (board 2026-08-13): when any product in the visible scope has
-     * fallen to or below its minimum, a danger notification pops up naming the worst
+     * fallen to or below its opening level, a danger notification pops up naming the worst
      * offenders, with a link that filters the table down to just those rows.
      */
     public function mount(): void
@@ -45,7 +45,7 @@ class ListStock extends ListRecords
                 : ($s->catalogProduct?->code ?? 'Item');
 
             return sprintf(
-                '• %s — %s left (min %s)%s',
+                '• %s — %s left (opening %s)%s',
                 $name,
                 rtrim(rtrim(number_format((float) $s->quantity, 4), '0'), '.'),
                 rtrim(rtrim(number_format((float) $s->min_qty, 4), '0'), '.'),
@@ -54,7 +54,7 @@ class ListStock extends ListRecords
         })->implode('<br>');
 
         Notification::make()
-            ->title($total === 1 ? '1 product is at its minimum stock' : "{$total} products are at minimum stock")
+            ->title($total === 1 ? '1 product is at its opening stock' : "{$total} products are at opening stock")
             ->body($lines . ($total > $low->count() ? '<br><em>…and ' . ($total - $low->count()) . ' more</em>' : ''))
             ->danger()
             ->icon('heroicon-o-exclamation-triangle')

@@ -23,6 +23,8 @@ class SocialPostResource extends BaseResource
 
     protected static ?string $navigationGroup = 'Community';
 
+    protected static ?int $navigationSort = 4;
+
     protected static ?string $navigationLabel = 'Community Posts';
 
     protected static ?string $navigationIcon = 'heroicon-o-megaphone';
