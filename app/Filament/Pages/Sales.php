@@ -102,7 +102,7 @@ class Sales extends Page implements HasForms
                                     ->orWhere('member_code', 'like', "%{$search}%"))
                                 ->limit(50)->get()
                                 ->mapWithKeys(fn ($m) => [$m->id => "{$m->name} ({$m->member_code})"])->all())
-                            ->getOptionLabelUsing(fn ($v) => ($m = Member::find($v)) ? "{$m->name} ({$m->member_code})" : null)
+                            ->getOptionLabelUsing(fn ($value) => ($m = Member::find($value)) ? "{$m->name} ({$m->member_code})" : null)
                             ->live()
                             ->afterStateUpdated(fn ($state, Set $set) => $this->fillExisting($state, $set)),
                         TextInput::make('referrer_code')->label('Referred Distributor User ID')->required()

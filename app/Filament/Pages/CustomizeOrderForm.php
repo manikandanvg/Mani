@@ -125,7 +125,7 @@ class CustomizeOrderForm extends Page implements HasForms
                                     ->orWhere('phone', 'like', "%{$search}%"))
                                 ->limit(50)->get()
                                 ->mapWithKeys(fn ($m) => [$m->id => "{$m->name} ({$m->member_code}) · {$m->phone}"])->all())
-                            ->getOptionLabelUsing(fn ($v) => ($m = Member::find($v)) ? "{$m->name} ({$m->member_code}) · {$m->phone}" : null)
+                            ->getOptionLabelUsing(fn ($value) => ($m = Member::find($value)) ? "{$m->name} ({$m->member_code}) · {$m->phone}" : null)
                             ->columnSpan(3),
                         TextInput::make('customer.name')->label('Name')
                             ->visible(fn (Get $get) => $get('customer_mode') === 'new')

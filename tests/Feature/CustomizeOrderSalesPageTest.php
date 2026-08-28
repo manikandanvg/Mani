@@ -168,4 +168,31 @@ class CustomizeOrderSalesPageTest extends TestCase
 
         return $m->invoke(null, $branchId, []);
     }
+
+    /**
+     * Regression (user 2026-08-29): picking a customized order for an EXISTING member fills
+     * "Select distributor"; Filament then resolves its label through getOptionLabelUsing, whose
+     * closure must take `$value` — `$v` threw "closure … [$v] was unresolvable" (HTTP 500).
+     */
+    public function test_sales_picker_for_an_existing_member_resolves_the_distributor_label(): void
+    {
+        $member = \App\Models\Member::create(['member_code' => 'LJW-EXIST', 'name' => 'Existing Kumar', 'phone' => '9555555555',
+            'joined_on' => now(), 'placement' => 'level', 'status' => 'active', 'rank_id' => \App\Models\Rank::query()->value('id')]);
+        $order = app(BranchOrderService::class)->submitCustomize([
+            'branch_id' => $this->dealerBranch->id, 'requested_by' => $this->dealer->id,
+            'customer_mode' => 'existing', 'member_id' => $member->id,
+            'lines' => [['material' => 'gold', 'description' => 'Gold bangle', 'grams' => 2]],
+            'pay_cash' => 0, 'pay_wallet' => 11783.20,
+        ]);
+        $svc = app(CustomizeOrderService::class);
+        $order = $svc->deliver($svc->accept($order, ['delivery_date' => '2026-09-10'], $this->admin), $this->admin);
+
+        $page = Livewire::actingAs($this->dealer)->test(Sales::class)
+            ->fillForm(['custom_order' => $order->id . ':gold'])
+            ->assertFormSet(['mode' => 'existing', 'customer.member_id' => $member->id]);
+
+        $label = $page->call('getFormSelectOptionLabel', 'data.customer.member_id')->get('data.customer.member_id');
+        $this->assertSame($member->id, (int) $label);
+        $page->assertHasNoErrors()->assertSee('Existing Kumar');
+    }
 }

@@ -81,7 +81,7 @@ class SalesReturnResource extends BaseResource
                             ->orWhere('phone', 'like', "%{$search}%"))
                         ->limit(50)->get()
                         ->mapWithKeys(fn ($m) => [$m->id => "{$m->name} ({$m->member_code})"])->all())
-                    ->getOptionLabelUsing(fn ($v) => ($m = Member::find($v)) ? "{$m->name} ({$m->member_code})" : null),
+                    ->getOptionLabelUsing(fn ($value) => ($m = Member::find($value)) ? "{$m->name} ({$m->member_code})" : null),
                 Forms\Components\Select::make('catalog_product_id')->label('Coin / item returned')
                     ->options(fn () => CustomizeOrderPricing::coinProductOptions())
                     ->default(fn () => CustomizeOrderPricing::coinProduct()?->id)
