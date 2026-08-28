@@ -66,6 +66,15 @@ Route::get('/admin/order-attachments/{attachment}', [\App\Http\Controllers\Order
 Route::get('/admin/ticket-attachments/{ticket}/{index}', [\App\Http\Controllers\TicketAttachmentController::class, 'show'])
     ->whereNumber('index')->middleware(['web', 'auth'])->name('ticket.attachment');
 
+// Admin: open a Training Library file (auth-guarded; the app uses signed /api/v1/library/files).
+Route::get('/admin/library-files/{file}', function (\App\Models\DriveFile $file) {
+    abort_unless(auth()->check() && ! auth()->user()->isDistributor(), 403);
+    $disk = \Illuminate\Support\Facades\Storage::disk($file->disk ?: 'local');
+    abort_unless($disk->exists($file->path), 404, 'File not found on the server.');
+
+    return $disk->response($file->path, $file->name);
+})->middleware(['web', 'auth'])->name('library.file.admin');
+
 // Admin: stream a monthly-task proof photo (auth-guarded).
 Route::get('/admin/task-proof/{submission}', [\App\Http\Controllers\TaskProofController::class, 'show'])
     ->middleware(['web', 'auth'])->name('task.proof');

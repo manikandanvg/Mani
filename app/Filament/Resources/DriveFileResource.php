@@ -23,6 +23,12 @@ class DriveFileResource extends BaseResource
 
     protected static ?string $navigationGroup = 'Community';
 
+    /** Files are managed inside Training Library folders (user 2026-08-29); this raw list stays URL-only. */
+    public static function shouldRegisterNavigation(): bool
+    {
+        return false;
+    }
+
     protected static ?int $navigationSort = 7;
 
     protected static ?string $navigationIcon = 'heroicon-o-document';
