@@ -72,8 +72,8 @@ class PlanResource extends BaseResource
                         ->helperText('% of billed value counted as pure/ranking BV'),
                 ]),
                 Forms\Components\Section::make('Promotional Incentive (CBC)')->columns(2)->schema([
-                    Forms\Components\TextInput::make('cbc_value')->label('Cashback %')->numeric()->default(0),
-                    Forms\Components\TextInput::make('cbc_count')->label('Cashback months')->numeric()->default(0),
+                    Forms\Components\TextInput::make('cbc_value')->label('Promotional Incentive (CBC) %')->numeric()->default(0),
+                    Forms\Components\TextInput::make('cbc_count')->label('Promotional Incentive (CBC) months')->numeric()->default(0),
                 ]),
                 Forms\Components\Section::make('Commissions')->columns(2)->schema([
                     Forms\Components\TagsInput::make('ic_schedule')

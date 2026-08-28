@@ -127,7 +127,7 @@ class ContractContentBuilder
         $h .= $this->dealershipIncome([
             'Monthly Self Sales Limit & Profit: 100 grams x Rs.100/- = Rs.10,000/- x 24 months — Total Rs.2,40,000/- + Rs.50,000/- worth Gold in Hand',
             'Monthly Company Group sales profit: Rs.' . $this->n($cbc) . '/- x 24 months (Monthly income Rs.' . $this->n($cbc / 2) . '/- + savings Rs.' . $this->n($sav) . '/- + TDS/SC Rs.' . $this->n($tds) . '/-)',
-            'Promotional Incentive : 2% | Bonus Incentive : 1% | AD Onboarding : 5% (BM) | Gold Saving Monthly 10% / renewal 10%',
+            'Sales Incentive : 2% | Bonus Incentive : 1% | AD Onboarding : 5% (BM) | Gold Saving Monthly 10% / renewal 10%',
         ]);
 
         return $h . $this->incomeBreakup24($cbc, $sav, $tds);
@@ -157,7 +157,7 @@ class ContractContentBuilder
         $h .= $this->dealershipIncome([
             'Monthly Self Sales Limit & Profit: 200 grams x Rs.100/- = Rs.20,000/- x 12 months — Total Rs.2,40,000/-',
             'Monthly Company sales profit: Rs.' . $this->n($cbc) . '/- x 12 months (Monthly income Rs.' . $this->n($cbc / 2) . '/- + savings Rs.' . $this->n($sav) . '/- + TDS/SC Rs.' . $this->n($tds) . '/-)',
-            'Promotional Incentive : 2% | Bonus Incentive : 5.5% | Gold Saving Monthly 10% / renewal 10%',
+            'Sales Incentive : 2% | Bonus Incentive : 5.5% | Gold Saving Monthly 10% / renewal 10%',
         ]);
 
         return $h . $this->breakup([

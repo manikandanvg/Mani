@@ -45,6 +45,12 @@ class Meeting extends Model
         });
     }
 
+    /** The L-BOX (arena box) an in-person meeting is held at — RFID taps there count as attendance. */
+    public function device()
+    {
+        return $this->belongsTo(Device::class);
+    }
+
     public function attendances()
     {
         return $this->hasMany(MeetingAttendance::class);

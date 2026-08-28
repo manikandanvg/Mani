@@ -170,6 +170,12 @@ class MeetingController extends Controller
                 : false,
             'description' => $m->description,
             'platform' => $m->platform,
+            // In-person L-BOX meeting (board 2026-08-29): no link — the app shows the venue
+            // and the person taps the arena box with their RFID card to be counted.
+            'in_person' => $m->platform === 'lbox',
+            'venue' => $m->platform === 'lbox'
+                ? trim(($m->device?->name ?? 'L-BOX') . ($m->device?->branch ? ' — ' . $m->device->branch->name : ''))
+                : null,
             'join_url' => $m->join_url,
             'app_join_url' => $appJoinUrl,
             // Native Meeting SDK join (2026-08-24): the app fetches

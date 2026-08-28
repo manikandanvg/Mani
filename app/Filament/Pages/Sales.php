@@ -1008,7 +1008,7 @@ class Sales extends Page implements HasForms
 
         $cb = $card('Promotional Incentive (CBC)', $sym . Number::format($cbTotal, 2),
             $cbCount > 0
-                ? 'Cashback ' . $pctTxt($p->cbc_value) . '% · ' . $sym . Number::format($cbMonthly, 2) . '/month × ' . $cbCount . ' months'
+                ? 'Promotional Incentive ' . $pctTxt($p->cbc_value) . '% · ' . $sym . Number::format($cbMonthly, 2) . '/month × ' . $cbCount . ' months'
                 : 'No cashback coupon on this scheme',
             '', '#16a34a');
 

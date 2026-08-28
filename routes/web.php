@@ -43,6 +43,20 @@ Route::get('/admin/contracts/{bond}/pdf', fn (Bond $bond) => app(ContractService
 Route::get('/admin/redemptions/{invoice}/pdf', fn (\App\Models\RedemptionInvoice $invoice) => app(\App\Services\Redeem\RedemptionInvoicePdf::class)->stream($invoice))
     ->middleware(['web', 'auth'])->name('redemption.pdf');
 
+// Public-disk fallback (user 2026-08-29: photos / attachments show locally, not on live).
+// The web server serves public/storage/... directly when the `storage:link` symlink exists;
+// where it is missing the request falls through to Laravel and this route streams the same
+// file from storage/app/public. Public-disk content is public by design (member photos,
+// product images, selfies the admin shows) — no auth, but the path is confined to that disk.
+Route::get('/storage/{path}', function (string $path) {
+    $disk = \Illuminate\Support\Facades\Storage::disk('public');
+    $path = ltrim(str_replace('\\', '/', $path), '/');
+    abort_if($path === '' || str_contains($path, '..'), 404);
+    abort_unless($disk->exists($path), 404);
+
+    return $disk->response($path, null, ['Cache-Control' => 'public, max-age=86400']);
+})->where('path', '.*')->name('storage.fallback');
+
 // Admin: stream a stock-order payment receipt (auth-guarded, branch-scoped) — replaces
 // direct /storage/order-receipts links that 404 without the public/storage symlink.
 Route::get('/admin/order-attachments/{attachment}', [\App\Http\Controllers\OrderAttachmentController::class, 'show'])

@@ -33,7 +33,10 @@ return [
         'local' => [
             'driver' => 'local',
             'root' => storage_path('app/private'),
-            'serve' => true,
+            // Off: Laravel's built-in storage/{path} route would claim the URL for the
+            // PRIVATE disk (403) ahead of the public-disk fallback in routes/web.php.
+            // Nothing here uses temporaryUrl() on the local disk.
+            'serve' => false,
             'throw' => false,
             'report' => false,
         ],
