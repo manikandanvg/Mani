@@ -32,8 +32,9 @@ class LboxController extends Controller
         $data = $request->validate([
             'serial_no' => ['required', 'string', 'max:40'],
             'pairing_code' => ['required', 'string', 'max:16'],
-            'board_type' => ['nullable', 'in:lite,pro'],
+            'board_type' => ['nullable', 'in:lite,pro,standard'],
             'firmware_version' => ['nullable', 'string', 'max:24'],
+            'mac' => ['nullable', 'string', 'max:17'],
         ]);
 
         try {
@@ -85,6 +86,10 @@ class LboxController extends Controller
             // Boxes older than fw 1.0.12 ignore the key AND cannot do TLS, so never
             // publish an https base until every box has taken that update.
             'api_url' => config('lbox.device_api_url') ?: null,
+            // Wi-Fi pushed from the app / Devices page (install flow 2026-09-05): a Pro
+            // online over 4G joins the branch router without a site visit; a box whose
+            // router changed picks the new one up as soon as it can reach us at all.
+            'wifi' => $device->wifiPayload(),
         ]);
     }
 

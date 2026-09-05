@@ -36,6 +36,7 @@ class DeviceService
             'last_seen_at' => Carbon::now(),
             'firmware_version' => $info['firmware_version'] ?? $device->firmware_version,
             'board_type' => $info['board_type'] ?? $device->board_type,
+            'mac' => isset($info['mac']) ? strtoupper($info['mac']) : $device->mac,
         ]);
 
         return [$device->fresh(), $token];

@@ -28,6 +28,9 @@ return [
      */
     'device_api_url' => env('LBOX_DEVICE_API_URL'),
 
+    // Handed to a box during app install (blank = standby mic off on that box).
+    'wake_host' => env('LBOX_WAKE_HOST'),
+
     'tts' => [
         'enabled' => env('LBOX_TTS_ENABLED', true),
 

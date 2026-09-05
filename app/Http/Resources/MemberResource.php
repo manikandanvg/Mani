@@ -48,6 +48,9 @@ class MemberResource extends JsonResource
             ],
             // Payroll (2026-07): drives the app's Attendance/Payslip cards.
             'is_employee' => (bool) ($this->employeeProfile && $this->employeeProfile->status === 'active'),
+            // Branch this member RUNS (branch in-charge / HQ) — gates Install L-BOX in the app.
+            'runs_branch' => ($rb = \App\Services\Tasks\TaskEngine::branchRunBy($this->resource))
+                ? ['id' => $rb->id, 'name' => $rb->name, 'level' => $rb->level] : null,
             'wallet' => $wallet ? [
                 'currency_code' => $wallet->currency_code ?: 'INR',
                 'cash_balance' => (float) $wallet->cash_balance,

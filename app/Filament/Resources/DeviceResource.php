@@ -74,6 +74,18 @@ class DeviceResource extends BaseResource
                     ->default('provisioned')->required(),
                 Forms\Components\TextInput::make('notes'),
             ]),
+            // Install flow (2026-09-05): Wi-Fi pushed to the box in its next heartbeat. A Pro
+            // online over 4G joins the branch router this way; the app's Install L-BOX
+            // screen writes the same fields when the installer sets Wi-Fi from the phone.
+            Forms\Components\Section::make('Wi-Fi push (applied on the next heartbeat)')->columns(3)->schema([
+                Forms\Components\TextInput::make('wifi_ssid')->label('Wi-Fi network (SSID)')->maxLength(64),
+                Forms\Components\TextInput::make('wifi_pass')->label('Wi-Fi password')->password()->revealable()->maxLength(64)
+                    ->dehydrated(fn ($state) => filled($state)),
+                Forms\Components\Placeholder::make('wifi_state')->label('Installed')
+                    ->content(fn (?Device $record) => $record?->installed_at
+                        ? $record->installed_at->format('d M Y H:i') . ($record->installedBy ? ' by ' . $record->installedBy->name : '')
+                        : '—'),
+            ])->collapsible()->collapsed(fn (?Device $record) => ! $record?->wifi_ssid),
         ]);
     }
 

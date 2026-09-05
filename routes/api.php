@@ -146,6 +146,12 @@ Route::prefix('v1')->group(function () {
         Route::get('member/tasks', [\App\Http\Controllers\Api\V1\TaskController::class, 'index']);
         Route::get('member/tasks/stock-chart', [\App\Http\Controllers\Api\V1\TaskController::class, 'stockChart']);
         Route::post('member/tasks/{assignment}/submit', [\App\Http\Controllers\Api\V1\TaskController::class, 'submit']);
+        // Install L-BOX (board 2026-08-23 items 1-5): the phone bridges a box over BLE.
+        Route::get('member/lbox/devices', [\App\Http\Controllers\Api\V1\LboxInstallController::class, 'index']);
+        Route::post('member/lbox/install/start', [\App\Http\Controllers\Api\V1\LboxInstallController::class, 'start']);
+        Route::get('member/lbox/devices/{device}/status', [\App\Http\Controllers\Api\V1\LboxInstallController::class, 'status']);
+        Route::post('member/lbox/devices/{device}/complete', [\App\Http\Controllers\Api\V1\LboxInstallController::class, 'complete']);
+        Route::post('member/lbox/devices/{device}/wifi', [\App\Http\Controllers\Api\V1\LboxInstallController::class, 'wifi']);
         Route::get('member/earnings/summary', [MemberBusinessController::class, 'earningsSummaryEndpoint']);
         Route::get('member/earnings/gap-details', [MemberBusinessController::class, 'gapDetails']);
         Route::get('member/earnings', [MemberBusinessController::class, 'earnings']);
