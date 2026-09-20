@@ -41,6 +41,27 @@ class VoiceRenderServiceTest extends TestCase
             && $process->input === $text . "\n");
     }
 
+    public function test_cached_empty_wav_is_rendered_again(): void
+    {
+        Storage::fake('public');
+        config(['lbox.tts.enabled' => true, 'lbox.tts.engines.ta' => 'espeak', 'lbox.tts.espeak.bin' => 'espeak-ng']);
+        $text = 'வணக்கம்';
+        $cached = 'lbox-voice/' . sha1("espeak|ta|{$text}") . '.wav';
+        Storage::disk('public')->put($cached, str_repeat('x', 44));   // a failed render from before
+
+        Process::fake(function ($process) {
+            preg_match("/-w '([^']+)'/", $process->command, $m) || preg_match('/-w "([^"]+)"/', $process->command, $m);
+            @mkdir(dirname($m[1]), 0775, true);
+            file_put_contents($m[1], str_repeat('x', 900));
+
+            return Process::result('');
+        });
+
+        $this->assertSame($cached, app(VoiceRenderService::class)->render($text, 'ta'));
+        Process::assertRanTimes(fn ($p) => str_contains($p->command, '--stdin'), 1);
+        $this->assertSame(900, Storage::disk('public')->size($cached));
+    }
+
     public function test_empty_wav_counts_as_no_audio(): void
     {
         Storage::fake('public');

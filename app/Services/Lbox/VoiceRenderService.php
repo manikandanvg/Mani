@@ -31,7 +31,12 @@ class VoiceRenderService
 
         $path = 'lbox-voice/' . sha1("{$engine}|{$lang}|{$text}") . '.wav';
         if (Storage::disk(self::DISK)->exists($path)) {
-            return $path;
+            // A cached header-only file is a failed render from before the
+            // stdin fix — drop it and render again instead of serving silence.
+            if (Storage::disk(self::DISK)->size($path) > 44) {
+                return $path;
+            }
+            Storage::disk(self::DISK)->delete($path);
         }
 
         $absolute = Storage::disk(self::DISK)->path($path);
