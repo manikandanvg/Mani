@@ -62,6 +62,28 @@ class VoiceRenderServiceTest extends TestCase
         $this->assertSame(900, Storage::disk('public')->size($cached));
     }
 
+    public function test_missing_piper_falls_back_to_espeak_for_english(): void
+    {
+        Storage::fake('public');
+        config([
+            'lbox.tts.enabled' => true,
+            'lbox.tts.engines.en' => 'piper',
+            'lbox.tts.piper.voices.en' => '/nowhere/en.onnx',   // not installed on live
+            'lbox.tts.espeak.bin' => 'espeak-ng',
+        ]);
+
+        Process::fake(function ($process) {
+            preg_match("/-w '([^']+)'/", $process->command, $m) || preg_match('/-w "([^"]+)"/', $process->command, $m);
+            @mkdir(dirname($m[1]), 0775, true);
+            file_put_contents($m[1], str_repeat('x', 700));
+
+            return Process::result('');
+        });
+
+        $this->assertNotNull(app(VoiceRenderService::class)->render('Test announcement from Head Office', 'en'));
+        Process::assertRan(fn ($p) => str_contains($p->command, 'espeak-ng') && str_contains($p->command, '-v en-us'));
+    }
+
     public function test_empty_wav_counts_as_no_audio(): void
     {
         Storage::fake('public');

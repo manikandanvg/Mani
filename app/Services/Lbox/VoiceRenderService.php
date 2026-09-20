@@ -42,16 +42,14 @@ class VoiceRenderService
         $absolute = Storage::disk(self::DISK)->path($path);
         @mkdir(dirname($absolute), 0775, true);
 
-        try {
-            $ok = match ($engine) {
-                'piper' => $this->piper($text, $lang, $absolute),
-                'espeak' => $this->espeak($text, $lang, $absolute),
-                'command' => $this->command($text, $lang, $absolute),
-                default => false,
-            };
-        } catch (\Throwable $e) {
-            Log::warning("[lbox-tts] {$engine}/{$lang} render failed: {$e->getMessage()}");
-            $ok = false;
+        $ok = $this->run($engine, $text, $lang, $absolute);
+
+        // The configured engine is missing or broke (live 2026-09-20: Piper is
+        // not installed there, so every English line came back "TEXT ONLY").
+        // eSpeak speaks every language we ship, so it is the safety net.
+        if (! $ok && $engine !== 'espeak' && config('lbox.tts.espeak.bin')) {
+            Log::warning("[lbox-tts] {$engine}/{$lang} failed - falling back to espeak");
+            $ok = $this->run('espeak', $text, $lang, $absolute);
         }
 
         if ($ok && is_file($absolute) && filesize($absolute) <= 44) {
@@ -62,6 +60,23 @@ class VoiceRenderService
         }
 
         return $ok && is_file($absolute) && filesize($absolute) > 44 ? $path : null;
+    }
+
+    protected function run(string $engine, string $text, string $lang, string $out): bool
+    {
+        try {
+            $ok = match ($engine) {
+                'piper' => $this->piper($text, $lang, $out),
+                'espeak' => $this->espeak($text, $lang, $out),
+                'command' => $this->command($text, $lang, $out),
+                default => false,
+            };
+        } catch (\Throwable $e) {
+            Log::warning("[lbox-tts] {$engine}/{$lang} render failed: {$e->getMessage()}");
+            $ok = false;
+        }
+
+        return $ok && is_file($out) && filesize($out) > 44;
     }
 
     protected function piper(string $text, string $lang, string $out): bool
