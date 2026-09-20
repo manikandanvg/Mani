@@ -36,7 +36,8 @@ class VoiceRenderServiceTest extends TestCase
 
         $this->assertNotNull($path);
         Process::assertRan(fn ($process) => str_contains($process->command, '--stdin')
-            && str_contains($process->command, '-v ta')
+            && str_contains($process->command, '-v ta+f3')
+            && str_contains($process->command, '-a 75 -p 60')
             && ! str_contains($process->command, $text)
             && $process->input === $text . "\n");
     }
@@ -46,7 +47,7 @@ class VoiceRenderServiceTest extends TestCase
         Storage::fake('public');
         config(['lbox.tts.enabled' => true, 'lbox.tts.engines.ta' => 'espeak', 'lbox.tts.espeak.bin' => 'espeak-ng']);
         $text = 'வணக்கம்';
-        $cached = 'lbox-voice/' . sha1("espeak|ta|{$text}") . '.wav';
+        $cached = app(VoiceRenderService::class)->cachePath('espeak', 'ta', $text);
         Storage::disk('public')->put($cached, str_repeat('x', 44));   // a failed render from before
 
         Process::fake(function ($process) {

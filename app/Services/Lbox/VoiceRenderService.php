@@ -29,7 +29,7 @@ class VoiceRenderService
             return null;
         }
 
-        $path = 'lbox-voice/' . sha1("{$engine}|{$lang}|{$text}") . '.wav';
+        $path = $this->cachePath($engine, $lang, $text);
         if (Storage::disk(self::DISK)->exists($path)) {
             // A cached header-only file is a failed render from before the
             // stdin fix — drop it and render again instead of serving silence.
@@ -60,6 +60,28 @@ class VoiceRenderService
         }
 
         return $ok && is_file($absolute) && filesize($absolute) > 44 ? $path : null;
+    }
+
+    /**
+     * Content-addressed cache path. The voice settings are part of the key, so
+     * changing the eSpeak variant/pitch/amplitude re-renders every line
+     * instead of replaying the old voice forever.
+     */
+    public function cachePath(string $engine, string $lang, string $text): string
+    {
+        $voice = $engine === 'espeak'
+            ? implode(',', [
+                config("lbox.tts.espeak.voices.{$lang}", $lang),
+                config('lbox.tts.espeak.speed_wpm', 150),
+                config('lbox.tts.espeak.amplitude', 100),
+                config('lbox.tts.espeak.pitch', 50),
+            ])
+            : '';
+        // No voice signature = the original key, so files rendered before this
+        // change (Piper English lines) stay valid.
+        $key = $voice === '' ? "{$engine}|{$lang}|{$text}" : "{$engine}|{$lang}|{$voice}|{$text}";
+
+        return 'lbox-voice/' . sha1($key) . '.wav';
     }
 
     protected function run(string $engine, string $text, string $lang, string $out): bool
@@ -99,13 +121,15 @@ class VoiceRenderService
         $bin = config('lbox.tts.espeak.bin');
         $voice = config("lbox.tts.espeak.voices.{$lang}", $lang);
         $speed = (int) config('lbox.tts.espeak.speed_wpm', 150);
+        $amp = (int) config('lbox.tts.espeak.amplitude', 100);
+        $pitch = (int) config('lbox.tts.espeak.pitch', 50);
 
         // Text goes in over STDIN (--stdin), never as a shell argument: with a
         // non-UTF-8 process locale escapeshellarg() silently DROPS every
         // multibyte character, so a Tamil line reached eSpeak as an empty
         // string and the box received no audio (live, 2026-09-20).
         $result = Process::timeout(60)->input($text . "\n")->run(
-            escapeshellarg($bin) . " -v {$voice} -s {$speed} --stdin -w " . escapeshellarg($out),
+            escapeshellarg($bin) . " -v {$voice} -s {$speed} -a {$amp} -p {$pitch} --stdin -w " . escapeshellarg($out),
         );
         if (! $result->successful()) {
             Log::warning("[lbox-tts] espeak/{$lang} exit {$result->exitCode()}: " . trim($result->errorOutput()));

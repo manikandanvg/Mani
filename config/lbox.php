@@ -50,9 +50,19 @@ return [
 
         'espeak' => [
             'bin' => env('LBOX_ESPEAK_BIN', 'C:\\Program Files\\eSpeak NG\\espeak-ng.exe'),
-            // language code => espeak voice
-            'voices' => ['ta' => 'ta', 'en' => 'en-us'],
-            'speed_wpm' => 150,
+            // language code => espeak voice. "+f3" = eSpeak's female variant 3
+            // (board 2026-09-20: the default male robot voice was rejected);
+            // f1-f5 / m1-m7 are the stock variants shipped with espeak-ng.
+            'voices' => [
+                'ta' => env('LBOX_ESPEAK_VOICE_TA', 'ta+f3'),
+                'en' => env('LBOX_ESPEAK_VOICE_EN', 'en-us+f3'),
+            ],
+            'speed_wpm' => (int) env('LBOX_ESPEAK_SPEED', 140),
+            // 0-200, default 100 = near full-scale: at the box's top volume that
+            // clips on the MAX98357A. 75 leaves headroom.
+            'amplitude' => (int) env('LBOX_ESPEAK_AMPLITUDE', 75),
+            // 0-99, default 50; a little higher suits the female variant
+            'pitch' => (int) env('LBOX_ESPEAK_PITCH', 60),
         ],
 
         // Free-form escape hatch: {text} {out} placeholders (e.g. AI4Bharat wrapper script)
