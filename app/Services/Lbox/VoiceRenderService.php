@@ -134,8 +134,8 @@ class VoiceRenderService
             $tts = Process::timeout(60)->run(
                 config('lbox.tts.edge.command', 'edge-tts')
                 . ' --voice ' . escapeshellarg($voice)
-                . ' --rate=' . escapeshellarg(config('lbox.tts.edge.rate', '+0%'))
-                . ' --volume=' . escapeshellarg(config('lbox.tts.edge.volume', '+0%'))
+                . ' --rate=' . $this->pct(config('lbox.tts.edge.rate', '+0%'))
+                . ' --volume=' . $this->pct(config('lbox.tts.edge.volume', '+0%'))
                 . ' -f ' . escapeshellarg($txt)
                 . ' --write-media ' . escapeshellarg($mp3),
             );
@@ -161,6 +161,16 @@ class VoiceRenderService
             @unlink($txt);
             @unlink($mp3);
         }
+    }
+
+    /**
+     * "+0%" / "-5%" for edge-tts, validated instead of shell-quoted: on
+     * Windows escapeshellarg() replaces '%' with a space, which turned
+     * --rate="-5%" into --rate="-5 ".
+     */
+    protected function pct(string $v): string
+    {
+        return preg_match('/^[+-]\d{1,3}%$/', $v) ? $v : '+0%';
     }
 
     protected function piper(string $text, string $lang, string $out): bool

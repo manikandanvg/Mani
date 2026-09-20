@@ -88,7 +88,8 @@ class VoiceRenderServiceTest extends TestCase
     public function test_edge_neural_voice_renders_tamil_through_ffmpeg(): void
     {
         Storage::fake('public');
-        config(['lbox.tts.enabled' => true, 'lbox.tts.engines.ta' => 'edge', 'lbox.tts.fallbacks' => ['espeak']]);
+        config(['lbox.tts.enabled' => true, 'lbox.tts.engines.ta' => 'edge', 'lbox.tts.fallbacks' => ['espeak'],
+            'lbox.tts.edge.command' => 'edge-tts', 'lbox.tts.edge.rate' => '-5%']);   // .env on the dev PC sets its own command
         $text = 'கிளை திறக்கப்பட்டது';
 
         Process::fake(function ($process) use ($text) {
@@ -119,7 +120,8 @@ class VoiceRenderServiceTest extends TestCase
 
         $this->assertNotNull($path);
         $this->assertSame(3000, Storage::disk('public')->size($path));
-        Process::assertRan(fn ($p) => str_contains($p->command, '--voice') && str_contains($p->command, 'ta-IN-PallaviNeural'));
+        Process::assertRan(fn ($p) => str_contains($p->command, '--voice') && str_contains($p->command, 'ta-IN-PallaviNeural')
+            && str_contains($p->command, '--rate=-5%'));
         Process::assertRan(fn ($p) => str_contains($p->command, 'ffmpeg') && str_contains($p->command, '-ar 22050 -ac 1'));
         Process::assertNotRan(fn ($p) => str_contains($p->command, 'espeak'));
     }
@@ -128,7 +130,7 @@ class VoiceRenderServiceTest extends TestCase
     {
         Storage::fake('public');
         config(['lbox.tts.enabled' => true, 'lbox.tts.engines.ta' => 'edge', 'lbox.tts.fallbacks' => ['espeak'],
-            'lbox.tts.espeak.bin' => 'espeak-ng']);
+            'lbox.tts.edge.command' => 'edge-tts', 'lbox.tts.espeak.bin' => 'espeak-ng']);
 
         Process::fake(function ($process) {
             $cmd = $process->command;
