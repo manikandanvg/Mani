@@ -180,8 +180,10 @@ class LboxDeviceApiTest extends TestCase
         $this->assertSame('1.0.1', $res->json('update.version'));
         $this->assertSame(hash('sha256', 'BINARY-CONTENT'), $res->json('update.sha256'));
 
-        $this->get('/api/device/v1/ota/download/' . $fw->id, ['Accept' => 'application/json'])
-            ->assertOk();
+        $dl = $this->get('/api/device/v1/ota/download/' . $fw->id, ['Accept' => 'application/json']);
+        $dl->assertOk();
+        // the Pro's modem HTTP stack needs an explicit length (no chunked replies)
+        $this->assertSame((string) strlen('BINARY-CONTENT'), $dl->headers->get('Content-Length'));
 
         // a device already on the active version gets nothing
         $this->device->update(['firmware_version' => '1.0.1']);

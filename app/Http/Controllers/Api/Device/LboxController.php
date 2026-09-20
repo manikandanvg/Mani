@@ -220,7 +220,13 @@ class LboxController extends Controller
 
         abort_unless(Storage::disk('local')->exists($fw->path), 404, 'Firmware binary missing.');
 
-        return Storage::disk('local')->download($fw->path, "lbox-{$fw->board_type}-{$fw->version}.bin");
+        // Explicit Content-Length: download() is a StreamedResponse with no
+        // length, so Apache chunks it, and the Pro's SIM7600 HTTP stack cannot
+        // follow chunked replies — it reported a fragment's size, the box began
+        // an Update of that size and failed (live, pro 1.3.10, 2026-09-21).
+        return Storage::disk('local')->download($fw->path, "lbox-{$fw->board_type}-{$fw->version}.bin", [
+            'Content-Length' => (string) Storage::disk('local')->size($fw->path),
+        ]);
     }
 
     /**
