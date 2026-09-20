@@ -239,8 +239,18 @@ class DeviceResource extends BaseResource
                             ->default('Test announcement from Head Office')->required(),
                     ])
                     ->action(function (Device $record, array $data) {
-                        app(AnnouncementService::class)->queue($record, 'test', $data['message']);
-                        Notification::make()->title('Queued — the box speaks it on its next poll')->success()->send();
+                        $line = app(AnnouncementService::class)->queue($record, 'test', $data['message']);
+                        if ($line->audio_path) {
+                            Notification::make()->title('Queued — the box speaks it on its next poll')->success()->send();
+                        } else {
+                            // No WAV = the box will only show the text (Pro has no buzzer).
+                            // Say so here instead of letting HQ wonder why the box is silent.
+                            Notification::make()
+                                ->title('Queued as TEXT ONLY — no audio was rendered')
+                                ->body('The server could not render speech for this line (language "' . ($record->language ?? 'en')
+                                    . '"). Check the TTS engine on the server: storage/logs/laravel.log, tag [lbox-tts].')
+                                ->warning()->persistent()->send();
+                        }
                     }),
                 ])->icon('heroicon-m-ellipsis-vertical')->tooltip('Device actions'),
             ]);

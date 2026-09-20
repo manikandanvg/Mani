@@ -49,6 +49,13 @@ class VoiceRenderService
             $ok = false;
         }
 
+        if ($ok && is_file($absolute) && filesize($absolute) <= 44) {
+            // A bare WAV header = the engine spoke nothing. Seen on live for a
+            // Tamil line when the text was lost between PHP and the shell.
+            Log::warning("[lbox-tts] {$engine}/{$lang} produced an empty WAV for: {$text}");
+            $ok = false;
+        }
+
         return $ok && is_file($absolute) && filesize($absolute) > 44 ? $path : null;
     }
 
@@ -73,9 +80,16 @@ class VoiceRenderService
         $voice = config("lbox.tts.espeak.voices.{$lang}", $lang);
         $speed = (int) config('lbox.tts.espeak.speed_wpm', 150);
 
-        $result = Process::timeout(60)->run(
-            escapeshellarg($bin) . " -v {$voice} -s {$speed} -w " . escapeshellarg($out) . ' ' . escapeshellarg($text),
+        // Text goes in over STDIN (--stdin), never as a shell argument: with a
+        // non-UTF-8 process locale escapeshellarg() silently DROPS every
+        // multibyte character, so a Tamil line reached eSpeak as an empty
+        // string and the box received no audio (live, 2026-09-20).
+        $result = Process::timeout(60)->input($text . "\n")->run(
+            escapeshellarg($bin) . " -v {$voice} -s {$speed} --stdin -w " . escapeshellarg($out),
         );
+        if (! $result->successful()) {
+            Log::warning("[lbox-tts] espeak/{$lang} exit {$result->exitCode()}: " . trim($result->errorOutput()));
+        }
 
         return $result->successful();
     }
