@@ -6,9 +6,13 @@
  * TTS: free, self-hosted, per-language engines. The server renders each voice
  * line to a cached WAV; the box streams it (MAX98357). If an engine is missing
  * the announcement still delivers as text and the box falls back to beeps.
+ *   - edge    : Microsoft neural voices via the free `edge-tts` CLI (pip install
+ *               edge-tts) + ffmpeg to WAV. Natural Tamil (ta-IN-Pallavi, female) and
+ *               Indian English. Needs internet from the server; no key, no account.
+ *               (Board 2026-09-20: "natural neural Tamil voice".) Falls back below.
  *   - piper   : neural TTS, natural English (https://github.com/rhasspy/piper via pip piper-tts)
- *   - espeak  : eSpeak-NG, robotic but tiny and speaks Tamil TODAY
- * Upgrade path for premium Tamil: AI4Bharat Indic-TTS behind the 'command' engine.
+ *   - espeak  : eSpeak-NG, robotic but tiny, offline, speaks every language we ship
+ * Fully self-hosted premium Tamil later: AI4Bharat Indic-TTS behind the 'command' engine.
  */
 return [
     // A box reporting GPS beyond this distance from its installation anchor is
@@ -36,8 +40,22 @@ return [
 
         // language code => engine key below
         'engines' => [
-            'en' => env('LBOX_TTS_ENGINE_EN', 'piper'),
-            'ta' => env('LBOX_TTS_ENGINE_TA', 'espeak'),
+            'en' => env('LBOX_TTS_ENGINE_EN', 'edge'),
+            'ta' => env('LBOX_TTS_ENGINE_TA', 'edge'),
+        ],
+        // Tried in order when the configured engine fails (missing binary, no
+        // internet, empty output). eSpeak last: it always produces something.
+        'fallbacks' => ['piper', 'espeak'],
+
+        'edge' => [
+            'command' => env('LBOX_EDGE_CMD', 'edge-tts'),      // full path if the web user's PATH lacks it
+            'ffmpeg' => env('LBOX_FFMPEG_BIN', 'ffmpeg'),
+            'voices' => [
+                'ta' => env('LBOX_EDGE_VOICE_TA', 'ta-IN-PallaviNeural'),   // female; ta-IN-ValluvarNeural = male
+                'en' => env('LBOX_EDGE_VOICE_EN', 'en-IN-NeerjaNeural'),    // Indian English, female
+            ],
+            'rate' => env('LBOX_EDGE_RATE', '-5%'),     // a touch slower than default for announcements
+            'volume' => env('LBOX_EDGE_VOLUME', '+0%'),
         ],
 
         'piper' => [

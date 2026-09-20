@@ -44,12 +44,15 @@ class VoiceRenderService
 
         $ok = $this->run($engine, $text, $lang, $absolute);
 
-        // The configured engine is missing or broke (live 2026-09-20: Piper is
-        // not installed there, so every English line came back "TEXT ONLY").
-        // eSpeak speaks every language we ship, so it is the safety net.
-        if (! $ok && $engine !== 'espeak' && config('lbox.tts.espeak.bin')) {
-            Log::warning("[lbox-tts] {$engine}/{$lang} failed - falling back to espeak");
-            $ok = $this->run('espeak', $text, $lang, $absolute);
+        // The configured engine is missing or broke (live 2026-09-20: Piper was
+        // not installed, every English line came back "TEXT ONLY"; edge needs
+        // internet). Walk the fallback list; eSpeak last always produces sound.
+        foreach ((array) config('lbox.tts.fallbacks', ['espeak']) as $fallback) {
+            if ($ok || $fallback === $engine) {
+                continue;
+            }
+            Log::warning("[lbox-tts] {$engine}/{$lang} failed - trying {$fallback}");
+            $ok = $this->run($fallback, $text, $lang, $absolute);
         }
 
         if ($ok && is_file($absolute) && filesize($absolute) <= 44) {
@@ -69,14 +72,20 @@ class VoiceRenderService
      */
     public function cachePath(string $engine, string $lang, string $text): string
     {
-        $voice = $engine === 'espeak'
-            ? implode(',', [
+        $voice = match ($engine) {
+            'espeak' => implode(',', [
                 config("lbox.tts.espeak.voices.{$lang}", $lang),
                 config('lbox.tts.espeak.speed_wpm', 150),
                 config('lbox.tts.espeak.amplitude', 100),
                 config('lbox.tts.espeak.pitch', 50),
-            ])
-            : '';
+            ]),
+            'edge' => implode(',', [
+                config("lbox.tts.edge.voices.{$lang}", ''),
+                config('lbox.tts.edge.rate', '+0%'),
+                config('lbox.tts.edge.volume', '+0%'),
+            ]),
+            default => '',
+        };
         // No voice signature = the original key, so files rendered before this
         // change (Piper English lines) stay valid.
         $key = $voice === '' ? "{$engine}|{$lang}|{$text}" : "{$engine}|{$lang}|{$voice}|{$text}";
@@ -88,6 +97,7 @@ class VoiceRenderService
     {
         try {
             $ok = match ($engine) {
+                'edge' => $this->edge($text, $lang, $out),
                 'piper' => $this->piper($text, $lang, $out),
                 'espeak' => $this->espeak($text, $lang, $out),
                 'command' => $this->command($text, $lang, $out),
@@ -99,6 +109,56 @@ class VoiceRenderService
         }
 
         return $ok && is_file($out) && filesize($out) > 44;
+    }
+
+    /**
+     * Microsoft neural voices through the `edge-tts` CLI. The text travels in a
+     * temp file (-f), never on the command line (see espeak()). edge-tts only
+     * writes MP3, so ffmpeg turns it into the 22.05 kHz 16-bit mono WAV the
+     * box plays.
+     */
+    protected function edge(string $text, string $lang, string $out): bool
+    {
+        $voice = config("lbox.tts.edge.voices.{$lang}");
+        if (! $voice) {
+            return false;
+        }
+
+        $txt = $out . '.txt';
+        $mp3 = $out . '.mp3';
+        file_put_contents($txt, $text);
+
+        try {
+            $tts = Process::timeout(60)->run(
+                escapeshellarg(config('lbox.tts.edge.command', 'edge-tts'))
+                . ' --voice ' . escapeshellarg($voice)
+                . ' --rate=' . escapeshellarg(config('lbox.tts.edge.rate', '+0%'))
+                . ' --volume=' . escapeshellarg(config('lbox.tts.edge.volume', '+0%'))
+                . ' -f ' . escapeshellarg($txt)
+                . ' --write-media ' . escapeshellarg($mp3),
+            );
+            if (! $tts->successful() || ! is_file($mp3) || filesize($mp3) < 100) {
+                Log::warning("[lbox-tts] edge/{$lang} exit {$tts->exitCode()}: " . trim($tts->errorOutput()));
+
+                return false;
+            }
+
+            $conv = Process::timeout(60)->run(
+                escapeshellarg(config('lbox.tts.edge.ffmpeg', 'ffmpeg'))
+                . ' -y -loglevel error -i ' . escapeshellarg($mp3)
+                . ' -ar 22050 -ac 1 -sample_fmt s16 ' . escapeshellarg($out),
+            );
+            if (! $conv->successful()) {
+                Log::warning("[lbox-tts] ffmpeg exit {$conv->exitCode()}: " . trim($conv->errorOutput()));
+
+                return false;
+            }
+
+            return true;
+        } finally {
+            @unlink($txt);
+            @unlink($mp3);
+        }
     }
 
     protected function piper(string $text, string $lang, string $out): bool

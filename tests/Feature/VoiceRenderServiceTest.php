@@ -85,6 +85,67 @@ class VoiceRenderServiceTest extends TestCase
         Process::assertRan(fn ($p) => str_contains($p->command, 'espeak-ng') && str_contains($p->command, '-v en-us'));
     }
 
+    public function test_edge_neural_voice_renders_tamil_through_ffmpeg(): void
+    {
+        Storage::fake('public');
+        config(['lbox.tts.enabled' => true, 'lbox.tts.engines.ta' => 'edge', 'lbox.tts.fallbacks' => ['espeak']]);
+        $text = 'கிளை திறக்கப்பட்டது';
+
+        Process::fake(function ($process) use ($text) {
+            $cmd = $process->command;
+            if (str_contains($cmd, 'edge-tts')) {
+                // text must arrive via the -f file, not on the command line
+                preg_match("/-f '([^']+)'/", $cmd, $m) || preg_match('/-f "([^"]+)"/', $cmd, $m);
+                if (file_get_contents($m[1]) !== $text || str_contains($cmd, $text)) {
+                    return Process::result('', 'bad text handoff', 1);
+                }
+                preg_match("/--write-media '([^']+)'/", $cmd, $w) || preg_match('/--write-media "([^"]+)"/', $cmd, $w);
+                @mkdir(dirname($w[1]), 0775, true);
+                file_put_contents($w[1], str_repeat('m', 2000));
+
+                return Process::result('');
+            }
+            if (str_contains($cmd, 'ffmpeg')) {
+                preg_match("/-sample_fmt s16 '([^']+)'/", $cmd, $o) || preg_match('/-sample_fmt s16 "([^"]+)"/', $cmd, $o);
+                file_put_contents($o[1], str_repeat('w', 3000));
+
+                return Process::result('');
+            }
+
+            return Process::result('', 'unexpected', 1);
+        });
+
+        $path = app(VoiceRenderService::class)->render($text, 'ta');
+
+        $this->assertNotNull($path);
+        $this->assertSame(3000, Storage::disk('public')->size($path));
+        Process::assertRan(fn ($p) => str_contains($p->command, '--voice') && str_contains($p->command, 'ta-IN-PallaviNeural'));
+        Process::assertRan(fn ($p) => str_contains($p->command, 'ffmpeg') && str_contains($p->command, '-ar 22050 -ac 1'));
+        Process::assertNotRan(fn ($p) => str_contains($p->command, 'espeak'));
+    }
+
+    public function test_edge_unreachable_falls_back_to_espeak(): void
+    {
+        Storage::fake('public');
+        config(['lbox.tts.enabled' => true, 'lbox.tts.engines.ta' => 'edge', 'lbox.tts.fallbacks' => ['espeak'],
+            'lbox.tts.espeak.bin' => 'espeak-ng']);
+
+        Process::fake(function ($process) {
+            $cmd = $process->command;
+            if (str_contains($cmd, 'edge-tts')) {
+                return Process::result('', 'No internet', 1);
+            }
+            preg_match("/-w '([^']+)'/", $cmd, $m) || preg_match('/-w "([^"]+)"/', $cmd, $m);
+            @mkdir(dirname($m[1]), 0775, true);
+            file_put_contents($m[1], str_repeat('x', 800));
+
+            return Process::result('');
+        });
+
+        $this->assertNotNull(app(VoiceRenderService::class)->render('வணக்கம்', 'ta'));
+        Process::assertRan(fn ($p) => str_contains($p->command, 'espeak-ng'));
+    }
+
     public function test_empty_wav_counts_as_no_audio(): void
     {
         Storage::fake('public');
