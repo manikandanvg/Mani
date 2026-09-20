@@ -188,6 +188,20 @@ class LboxDeviceApiTest extends TestCase
         $this->getJson('/api/device/v1/ota/check')->assertOk()->assertJsonPath('update', null);
     }
 
+    public function test_a_pro_box_is_roaming_and_never_displaced(): void
+    {
+        $this->device->update(['board_type' => 'pro', 'is_displaced' => true]);   // stale flag from before the rule
+        $this->activateDevice();
+        Sanctum::actingAs($this->device, ['*']);
+
+        $this->postJson('/api/device/v1/heartbeat', ['lat' => 9.4535168, 'lng' => 77.5521164])->assertOk();
+        $this->assertSame(9.4535168, (float) $this->device->fresh()->anchor_lat);   // still anchors for the map
+
+        // carried 1.1 km away (arena) → still not displaced
+        $this->postJson('/api/device/v1/heartbeat', ['lat' => 9.4635168, 'lng' => 77.5521164])->assertOk();
+        $this->assertFalse((bool) $this->device->fresh()->is_displaced);
+    }
+
     public function test_first_gps_fix_anchors_the_box_and_saves_the_branch_location_and_movement_displaces(): void
     {
         $this->activateDevice();

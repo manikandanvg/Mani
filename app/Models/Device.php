@@ -91,6 +91,18 @@ class Device extends Authenticatable
         return $this->hasMany(VoiceAnnouncement::class);
     }
 
+    /**
+     * A Pro is an independent, movable box on its own SIM (user rule
+     * 2026-09-05 / 2026-09-20: "arena purpose, mapped with Head Office"). It
+     * keeps reporting GPS for the map, but the installation-anchor lockout
+     * (moved >150 m ⇒ withdrawals suspended) is for boxes fixed at a branch —
+     * the Lite. A roaming box is never DISPLACED.
+     */
+    public function isRoaming(): bool
+    {
+        return $this->board_type === 'pro';
+    }
+
     /** Heartbeats come every ~60s; three missed beats = offline. */
     public function isOnline(): bool
     {

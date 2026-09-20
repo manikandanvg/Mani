@@ -94,6 +94,15 @@ class DeviceService
             return;
         }
 
+        if ($device->isRoaming()) {
+            // Movable Pro: the anchor stays as the map's "home", nothing locks.
+            if ($device->is_displaced) {
+                $device->update(['is_displaced' => false]);
+            }
+
+            return;
+        }
+
         $distance = $this->haversineMeters(
             $lat, $lng, (float) $device->anchor_lat, (float) $device->anchor_lng,
         );

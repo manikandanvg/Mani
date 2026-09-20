@@ -104,7 +104,7 @@ class DeviceResource extends BaseResource
                             ->icon('heroicon-m-cube')->iconColor('warning')
                             ->description(fn (Device $d) => 'S/N ' . $d->serial_no . ' · ' . strtoupper((string) $d->board_type)),
                         Tables\Columns\TextColumn::make('online')->badge()->grow(false)
-                            ->getStateUsing(fn (Device $d) => $d->is_displaced ? 'MOVED!' : ($d->isOnline() ? 'online' : 'offline'))
+                            ->getStateUsing(fn (Device $d) => ($d->is_displaced && ! $d->isRoaming()) ? 'MOVED!' : ($d->isOnline() ? 'online' : 'offline'))
                             ->color(fn ($state) => match ($state) {
                                 'online' => 'success', 'MOVED!' => 'danger', default => 'gray',
                             }),

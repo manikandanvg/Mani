@@ -32,7 +32,7 @@ class WalletWithdrawalService
         }
 
         // Branch-offline controls: a moved box or an unopened branch takes no money.
-        if ($device->is_displaced) {
+        if ($device->is_displaced && ! $device->isRoaming()) {
             throw new \RuntimeException('This L-BOX has been moved from its branch — withdrawals are suspended. Contact Head Office.');
         }
         if (! \App\Models\BranchAttendance::isOpenToday($device->branch_id)) {
