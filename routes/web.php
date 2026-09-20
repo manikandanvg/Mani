@@ -54,7 +54,15 @@ Route::get('/storage/{path}', function (string $path) {
     abort_if($path === '' || str_contains($path, '..'), 404);
     abort_unless($disk->exists($path), 404);
 
-    return $disk->response($path, null, ['Cache-Control' => 'public, max-age=86400']);
+    // Explicit Content-Length: FilesystemAdapter::response() is a StreamedResponse
+    // with no length, so Apache sends it chunked. The L-BOX Pro fetches its voice
+    // WAVs through the SIM7600's own HTTP stack, which cannot follow chunked
+    // encoding (2026-09-20: a 146 KB Tamil line arrived as a 1780-byte fragment
+    // and the box "spoke" a click). A length header makes every client happy.
+    return $disk->response($path, null, [
+        'Cache-Control' => 'public, max-age=86400',
+        'Content-Length' => (string) $disk->size($path),
+    ]);
 })->where('path', '.*')->name('storage.fallback');
 
 // Admin: stream a stock-order payment receipt (auth-guarded, branch-scoped) — replaces
