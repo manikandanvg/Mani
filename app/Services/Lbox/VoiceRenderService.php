@@ -129,8 +129,10 @@ class VoiceRenderService
         file_put_contents($txt, $text);
 
         try {
+            // The command is operator config and may be several words
+            // ("python -m edge_tts" on Windows), so it is NOT quoted as one arg.
             $tts = Process::timeout(60)->run(
-                escapeshellarg(config('lbox.tts.edge.command', 'edge-tts'))
+                config('lbox.tts.edge.command', 'edge-tts')
                 . ' --voice ' . escapeshellarg($voice)
                 . ' --rate=' . escapeshellarg(config('lbox.tts.edge.rate', '+0%'))
                 . ' --volume=' . escapeshellarg(config('lbox.tts.edge.volume', '+0%'))
