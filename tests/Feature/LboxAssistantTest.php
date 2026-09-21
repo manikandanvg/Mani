@@ -102,7 +102,7 @@ class LboxAssistantTest extends TestCase
         \Laravel\Sanctum\Sanctum::actingAs($this->device, ['*']);
         $this->mock(\App\Services\Lbox\SttService::class, function ($m) {
             // first pass with the Tamil hint hears English as Tamil letters; second pass in English is clear
-            $m->shouldReceive('transcribe')->withArgs(fn ($p, $h) => $h === 'ta')->once()->andReturn('வாட் இஸ் த டைம் நவ்');
+            $m->shouldReceive('transcribe')->withArgs(fn ($p, $h) => $h === 'ta')->once()->andReturn('ஹவ் மச் இஸ் இட்');   // 'how much is it' in Tamil letters: no keyword matches
             $m->shouldReceive('transcribe')->withArgs(fn ($p, $h) => $h === 'en')->once()->andReturn('what is the gold rate');
         });
 
