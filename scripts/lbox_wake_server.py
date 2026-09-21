@@ -24,6 +24,12 @@ import numpy as np
 import requests
 from openwakeword.model import Model
 
+try:  # first run on a fresh host: fetch the shared feature models + the built-in wake words
+    import openwakeword.utils as _oww_utils
+    _oww_utils.download_models()
+except Exception as _e:  # noqa: BLE001 - offline host with models already present is fine
+    print(f"[wake] model download skipped: {_e}")
+
 FRAME_SAMPLES = 1280  # 80ms @ 16k — what openWakeWord expects
 FRAME_BYTES = FRAME_SAMPLES * 2
 
