@@ -75,6 +75,37 @@ async def handle_box(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
                     dump = []
             scores = await loop.run_in_executor(None, oww.predict, audio)
             top = max(scores.values())
+            if args.collect:
+                # Continuous take as well: <dir>/<serial>-session.pcm (raw int16 mono 16 kHz)
+                # -> scripts/lbox_wake_clips.py slices it into clips by whisper timestamps.
+                import os
+                os.makedirs(args.collect, exist_ok=True)
+                with open(os.path.join(args.collect, f"{serial}-session.pcm"), "ab") as f:
+                    f.write(frame)
+                # Training-clip collector: a frame 4x above the running floor starts a
+                # 2.5 s clip (0.4 s of pre-roll kept) -> <dir>/<serial>-<n>.wav. Say the
+                # wake phrase with a pause between repeats; verify clips with lbox_stt.py.
+                rms = float(np.sqrt(np.mean(audio.astype(np.float32) ** 2)))
+                col = getattr(args, "_col", None)
+                if col is None:
+                    col = args._col = {"floor": rms, "pre": [], "clip": None, "n": 0}
+                if col["clip"] is None:
+                    col["floor"] = 0.98 * col["floor"] + 0.02 * rms
+                    col["pre"] = (col["pre"] + [audio])[-5:]
+                    if rms > 4 * max(col["floor"], 150):
+                        col["clip"] = list(col["pre"])
+                else:
+                    col["clip"].append(audio)
+                    if len(col["clip"]) * FRAME_SAMPLES >= int(16000 * 2.9):
+                        import os
+                        os.makedirs(args.collect, exist_ok=True)
+                        path = os.path.join(args.collect, f"{serial}-{col['n']:03d}.wav")
+                        with open(path, "wb") as f:
+                            f.write(wav_bytes(np.concatenate(col["clip"])))
+                        print(f"[wake] {serial} clip saved {path}")
+                        col["n"] += 1
+                        col["clip"] = None
+                        col["pre"] = []
             if args.debug:
                 # Every ~2 s: what is the box sending (RMS/peak) and how close is the model.
                 n_frames += 1
@@ -132,6 +163,7 @@ async def main():
     # LBOX_WAKE_API env overrides; default = live. Dev LAN: --api http://192.168.1.2/lordicl-next/public/api/device/v1
     p.add_argument("--api", default=os.environ.get("LBOX_WAKE_API", "https://next.lordicl.com/api/device/v1"))
     p.add_argument("--dump", type=float, default=0, help="save the first N seconds of each box's stream to lbox-mic-<serial>.wav")
+    p.add_argument("--collect", default="", help="save each loud utterance as a 2.9 s WAV into this folder (wake-word training clips)")
     p.add_argument("--debug", action="store_true", help="print mic level + best score every ~2 s per box")
     args = p.parse_args()
 
