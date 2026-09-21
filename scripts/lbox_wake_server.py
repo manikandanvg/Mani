@@ -52,9 +52,18 @@ async def handle_box(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
 
     try:
         n_frames, best = 0, 0.0
+        dump = []   # --dump: first N seconds of the raw stream to a WAV for offline checks
         while True:
             frame = await reader.readexactly(FRAME_BYTES)
             audio = np.frombuffer(frame, dtype=np.int16)
+            if args.dump and dump is not None:
+                dump.append(audio)
+                if len(dump) * FRAME_SAMPLES >= int(16000 * args.dump):
+                    path = f"lbox-mic-{serial}.wav"
+                    with open(path, "wb") as f:
+                        f.write(wav_bytes(np.concatenate(dump)))
+                    print(f"[wake] {serial} dumped {args.dump}s of mic audio to {path}")
+                    dump = None
             scores = await loop.run_in_executor(None, oww.predict, audio)
             top = max(scores.values())
             if args.debug:
@@ -111,6 +120,7 @@ async def main():
     p.add_argument("--threshold", type=float, default=0.5)
     p.add_argument("--record-seconds", type=float, default=4.0)
     p.add_argument("--api", default="http://192.168.1.2/lordicl-next/public/api/device/v1")
+    p.add_argument("--dump", type=float, default=0, help="save the first N seconds of each box's stream to lbox-mic-<serial>.wav")
     p.add_argument("--debug", action="store_true", help="print mic level + best score every ~2 s per box")
     args = p.parse_args()
 
