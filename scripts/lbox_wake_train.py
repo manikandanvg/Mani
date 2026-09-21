@@ -2,12 +2,12 @@
 
     python scripts/lbox_wake_train.py --positive D:/lbox/wake-word/clips/positive \
         --positive D:/lbox/wake-word/clips/synth/positive --negative D:/lbox/wake-word/clips/synth/negative \
-        --take D:/lbox/wake-word/clips/LJBOX2-session.pcm --out scripts/hi_lbox_lr.pkl
+        --take D:/lbox/wake-word/clips/LJBOX2-session.pcm --out scripts/hi_lbox.npz
 
 Same front end as openWakeWord (melspectrogram -> 96-d embeddings every 80 ms), then a
 logistic regression over the last 16 embeddings (~1.3 s). Real clips from the box are
 augmented (gain, shift, room noise from the take at random SNR) so a handful of them
-still teaches the box's own wall and mic. `lbox_wake_server.py --model <this .pkl>`
+still teaches the box's own wall and mic. `lbox_wake_server.py --model <this .npz>`
 runs it in streaming mode. Not as strong as the Colab-trained network - it is the
 bridge until that exists, and it improves with every real clip added.
 """
@@ -16,7 +16,6 @@ import glob
 import os
 import wave
 
-import joblib
 import numpy as np
 from openwakeword.utils import AudioFeatures
 from sklearn.linear_model import LogisticRegression
@@ -135,7 +134,9 @@ def main():
     if neg:
         n_ = (embed(af, neg[:60]) - mu) / sd
         print(f"other speech -> max score {clf.predict_proba(n_)[:, 1].max():.2f}")
-    joblib.dump({"name": "hi_lbox", "clf": clf, "mu": mu, "sd": sd, "win": WIN}, args.out)
+    # Plain weights, no pickle: loads on any host/sklearn version (live has an older sklearn).
+    np.savez(args.out, name="hi_lbox", coef=clf.coef_[0].astype(np.float32), intercept=np.float32(clf.intercept_[0]),
+             mu=mu.astype(np.float32), sd=sd.astype(np.float32), win=WIN)
     print("saved", args.out)
 
 

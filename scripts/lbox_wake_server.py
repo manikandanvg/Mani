@@ -26,23 +26,24 @@ from openwakeword.model import Model
 
 
 class LrDetector:
-    """A detector trained by scripts/lbox_wake_train.py (.pkl): openWakeWord's own
-    streaming embeddings + logistic regression. Same predict()/reset() as Model."""
+    """A detector trained by scripts/lbox_wake_train.py (.npz): openWakeWord's own
+    streaming embeddings + a logistic layer. Same predict()/reset() as Model."""
 
     def __init__(self, path):
-        import joblib
         from openwakeword.utils import AudioFeatures
-        d = joblib.load(path)
-        self.clf, self.mu, self.sd, self.win = d["clf"], d["mu"], d["sd"], d["win"]
-        self.name = d.get("name", "custom")
+        d = np.load(path)
+        self.w, self.b = d["coef"], float(d["intercept"])
+        self.mu, self.sd, self.win = d["mu"], d["sd"], int(d["win"])
+        self.name = str(d["name"])
         self.af = AudioFeatures()
 
     def predict(self, audio):
         self.af(audio)
-        x = np.asarray(self.af.get_features(self.win)).reshape(1, -1)
-        if x.shape[1] != len(self.mu):
+        x = np.asarray(self.af.get_features(self.win)).reshape(-1)
+        if x.shape[0] != len(self.mu):
             return {self.name: 0.0}
-        return {self.name: float(self.clf.predict_proba((x - self.mu) / self.sd)[0, 1])}
+        z = float(np.dot((x - self.mu) / self.sd, self.w) + self.b)
+        return {self.name: 1.0 / (1.0 + np.exp(-z))}
 
     def reset(self):
         self.af.reset()
@@ -77,11 +78,11 @@ async def handle_box(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
         return
 
     print(f"[wake] {serial} connected from {peer}")
-    oww = LrDetector(args.model) if args.model.endswith(".pkl") else Model(wakeword_models=[args.model], inference_framework="onnx")
+    oww = LrDetector(args.model) if args.model.endswith(".npz") else Model(wakeword_models=[args.model], inference_framework="onnx")
     loop = asyncio.get_running_loop()
 
     try:
-        n_frames, best = 0, 0.0
+        n_frames, best, above, n_seen = 0, 0.0, 0, 0
         dump = []   # --dump: first N seconds of the raw stream to a WAV for offline checks
         while True:
             frame = await reader.readexactly(FRAME_BYTES)
@@ -137,8 +138,13 @@ async def handle_box(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
                     rms = float(np.sqrt(np.mean(audio.astype(np.float32) ** 2)))
                     print(f"[wake] {serial} rms={rms:.0f} peak={int(np.abs(audio).max())} best_score_2s={best:.2f}")
                     best = 0.0
-            if top < args.threshold:
+            # Fire only after `min_frames` consecutive frames above threshold: a single
+            # 80 ms spike (door knock, a clipped syllable) must not wake the box.
+            above = above + 1 if top >= args.threshold else 0
+            n_seen = n_seen + 1
+            if above < args.min_frames or n_seen < 25:   # 25 frames = 2 s warm-up after connect
                 continue
+            above = 0
 
             print(f"[wake] {serial} WAKE WORD (score {max(scores.values()):.2f}) - recording question")
             oww.reset()
@@ -181,6 +187,7 @@ async def main():
     p.add_argument("--port", type=int, default=8765)
     p.add_argument("--model", default="hey_jarvis", help="openWakeWord model name or .onnx path")
     p.add_argument("--threshold", type=float, default=0.5)
+    p.add_argument("--min-frames", type=int, default=2, help="consecutive 80 ms frames above threshold before firing")
     p.add_argument("--record-seconds", type=float, default=4.0)
     # Must be the SAME server the box was paired on - its token is valid nowhere else.
     # LBOX_WAKE_API env overrides; default = live. Dev LAN: --api http://192.168.1.2/lordicl-next/public/api/device/v1
