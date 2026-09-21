@@ -148,7 +148,11 @@ class VoiceRenderService
             $conv = Process::timeout(60)->run(
                 escapeshellarg(config('lbox.tts.edge.ffmpeg', 'ffmpeg'))
                 . ' -y -loglevel error -i ' . escapeshellarg($mp3)
-                . ' -ar 22050 -ac 1 -sample_fmt s16 ' . escapeshellarg($out),
+                // -map_metadata -1 -fflags +bitexact: no LIST/INFO chunk before "data".
+                // The Lite streams the WAV and could not seek past that chunk, so every
+                // edge-tts line failed at the header on a Lite (2026-09-21); the Pro
+                // plays from RAM and never noticed.
+                . ' -map_metadata -1 -fflags +bitexact -ar 22050 -ac 1 -sample_fmt s16 ' . escapeshellarg($out),
             );
             if (! $conv->successful()) {
                 Log::warning("[lbox-tts] ffmpeg exit {$conv->exitCode()}: " . trim($conv->errorOutput()));

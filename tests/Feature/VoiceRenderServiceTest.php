@@ -122,7 +122,7 @@ class VoiceRenderServiceTest extends TestCase
         $this->assertSame(3000, Storage::disk('public')->size($path));
         Process::assertRan(fn ($p) => str_contains($p->command, '--voice') && str_contains($p->command, 'ta-IN-PallaviNeural')
             && str_contains($p->command, '--rate=-5%'));
-        Process::assertRan(fn ($p) => str_contains($p->command, 'ffmpeg') && str_contains($p->command, '-ar 22050 -ac 1'));
+        Process::assertRan(fn ($p) => str_contains($p->command, 'ffmpeg') && str_contains($p->command, '-map_metadata -1 -fflags +bitexact -ar 22050 -ac 1'));
         Process::assertNotRan(fn ($p) => str_contains($p->command, 'espeak'));
     }
 
