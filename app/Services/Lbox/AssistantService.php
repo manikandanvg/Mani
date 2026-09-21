@@ -86,7 +86,49 @@ class AssistantService
             return ['volume_up', $ta ? 'சரி, சத்தத்தை கூட்டுகிறேன்.' : 'Okay, turning the volume up.', 'volume_up'];
         }
 
-        if ($this->hits($q, ['time', 'date', 'day', 'நேரம்', 'மணி', 'தேதி', 'நாள்'])) {
+        // "Can you hear me / are you there / react" - a liveness check from the counter.
+        if ($this->hits($q, ['can you hear', 'are you there', 'react', 'are you listening', 'respond', 'awake',
+            'கேட்குதா', 'கேக்குதா', 'இருக்கியா', 'இருக்கீங்களா'])) {
+            return ['ping', $ta ? 'ஆம், நான் இங்கே இருக்கிறேன், கேட்டுக்கொண்டிருக்கிறேன்.' : 'Yes, I am here and listening.'];
+        }
+
+        // Branch sales - counted and totalled from the sales invoices of THIS branch.
+        // Checked before the clock intent: "sales today" must not read as "today".
+        if ($this->hits($q, ['sales', 'sale ', 'sold', 'billing', 'invoice', 'bills', 'விற்பனை', 'பில்'])) {
+            if (! $device->branch_id) {
+                return ['sales_unavailable', $ta ? 'இந்த பெட்டி எந்த கிளையுடனும் இணைக்கப்படவில்லை.' : 'This box is not linked to a branch yet.'];
+            }
+            $month = $this->hits($q, ['month', 'மாதம்']);
+            $rows = \App\Models\SalesInvoice::query()->where('branch_id', $device->branch_id)
+                ->when($month, fn ($w) => $w->whereBetween('date', [Carbon::now()->startOfMonth(), Carbon::now()->endOfDay()]))   // datetime bounds: safe whether 'date' is stored as a date or a datetime
+                ->when(! $month, fn ($w) => $w->whereDate('date', Carbon::today()));
+            $count = (int) $rows->count();
+            $total = \App\Support\Money::group((float) $rows->sum('net_total'));
+            if ($month) {
+                return ['sales_month', $ta
+                    ? sprintf('இந்த மாதம் இந்த கிளையில் %d பில்கள், மொத்தம் ரூபாய் %s.', $count, $total)
+                    : sprintf('This month this branch billed %d %s for rupees %s.', $count, $count === 1 ? 'invoice' : 'invoices', $total)];
+            }
+
+            return ['sales_today', $ta
+                ? sprintf('இன்று இந்த கிளையில் %d பில்கள், மொத்தம் ரூபாய் %s.', $count, $total)
+                : sprintf('Today this branch billed %d %s for rupees %s.', $count, $count === 1 ? 'invoice' : 'invoices', $total)];
+        }
+
+        // Card reads / visitors - staff RFID taps this box logged today.
+        if ($this->hits($q, ['card', 'tap', 'rfid', 'visitor', 'staff', 'employee', 'people', 'attendance',
+            'கார்டு', 'பார்வையாளர்', 'வருகை', 'ஊழியர்'])) {
+            $taps = \App\Models\EmployeeVisit::query()->where('device_id', $device->id)->whereDate('visited_at', Carbon::today());
+            $count = (int) $taps->count();
+            $people = (int) (clone $taps)->distinct()->count('employee_profile_id');
+
+            return ['card_reads', $ta
+                ? sprintf('இன்று இந்த பெட்டியில் %d கார்டு தட்டல்கள், %d ஊழியர்கள்.', $count, $people)
+                : sprintf('Today this box read %d %s from %d %s.', $count, $count === 1 ? 'card' : 'cards',
+                    $people, $people === 1 ? 'staff member' : 'staff members')];
+        }
+
+        if ($this->hits($q, ['time', 'date', 'what day', 'which day', 'நேரம்', 'மணி', 'தேதி', 'நாள்'])) {
             $now = Carbon::now();
 
             return ['datetime', $ta
@@ -94,7 +136,7 @@ class AssistantService
                 : sprintf('Today is %s and the time is %s.', $now->format('l, jS F Y'), $now->format('g:i A'))];
         }
 
-        if ($this->hits($q, ['branch', 'shop', 'store', 'address', 'கிளை', 'கடை', 'முகவரி'])) {
+        if ($this->hits($q, ['branch', 'shop', 'store', 'address', 'where are you', 'where am i', 'location', 'கிளை', 'கடை', 'முகவரி', 'எங்கே'])) {
             $name = $device->branch?->name ?? 'LORD Jeweller';
 
             return ['branch', $ta
@@ -105,7 +147,7 @@ class AssistantService
         if ($this->hits($q, ['hello', 'hi ', 'vanakkam', 'வணக்கம்', 'ஹலோ'])) {
             return ['greeting', $ta
                 ? 'வணக்கம்! தங்கம், வெள்ளி விலை, நேரம், கிளை விவரங்கள் கேளுங்கள்.'
-                : 'Hello! Ask me about gold and silver rates, the time, or this branch.'];
+                : 'Hello! Ask me about gold and silver rates, today\'s sales, card reads, the time, or this branch.'];
         }
 
         if ($this->hits($q, ['thank', 'நன்றி'])) {
@@ -115,7 +157,7 @@ class AssistantService
         // Tier-2 hook: an LLM (Ollama/Claude) could take over here later.
         return ['fallback', $ta
             ? 'மன்னிக்கவும், அது எனக்குத் தெரியவில்லை. தங்கம், வெள்ளி விலை, நேரம், கிளை விவரங்கள் கேட்கலாம்.'
-            : 'Sorry, I do not know that yet. You can ask about gold and silver rates, the time, or this branch.'];
+            : 'Sorry, I do not know that yet. You can ask about gold and silver rates, today\'s sales, card reads, the time, or this branch.'];
     }
 
     protected function hits(string $q, array $keywords): bool
