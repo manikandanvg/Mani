@@ -117,7 +117,7 @@ async def handle_box(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
             if top < args.threshold:
                 continue
 
-            print(f"[wake] {serial} ✨ wake word (score {max(scores.values()):.2f}) — recording question")
+            print(f"[wake] {serial} WAKE WORD (score {max(scores.values()):.2f}) - recording question")
             oww.reset()
             writer.write(b'{"event":"wake"}\n')   # box chimes / lights the ring
             await writer.drain()
@@ -142,7 +142,7 @@ async def handle_box(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
                 "audio_url": body.get("audio_url"),
                 "action": body.get("action"),   # e.g. volume_up / volume_down — box applies locally
             }
-            print(f"[wake] {serial} 🎙 {reply['transcript']!r} → 🤖 {reply['answer']!r}")
+            print(f"[wake] {serial} heard {reply['transcript']!r} -> answer {reply['answer']!r}")
             writer.write((json.dumps(reply) + "\n").encode())
             await writer.drain()
             oww.reset()
