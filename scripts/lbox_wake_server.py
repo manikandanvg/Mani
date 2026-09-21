@@ -14,6 +14,7 @@ streams the WAV to its speaker.
 Runs forever; one instance serves every box on the LAN. Free + self-hosted.
 """
 import argparse
+import os
 import asyncio
 import io
 import json
@@ -56,14 +57,16 @@ async def handle_box(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
         while True:
             frame = await reader.readexactly(FRAME_BYTES)
             audio = np.frombuffer(frame, dtype=np.int16)
-            if args.dump and dump is not None:
+            if args.dump:
+                # rolling: a new N-second file every N seconds, five files kept (-0..-4)
                 dump.append(audio)
                 if len(dump) * FRAME_SAMPLES >= int(16000 * args.dump):
-                    path = f"lbox-mic-{serial}.wav"
+                    n_dump = getattr(args, "_n_dump", 0)
+                    path = f"lbox-mic-{serial}-{n_dump % 5}.wav"
                     with open(path, "wb") as f:
                         f.write(wav_bytes(np.concatenate(dump)))
-                    print(f"[wake] {serial} dumped {args.dump}s of mic audio to {path}")
-                    dump = None
+                    args._n_dump = n_dump + 1
+                    dump = []
             scores = await loop.run_in_executor(None, oww.predict, audio)
             top = max(scores.values())
             if args.debug:
@@ -119,7 +122,9 @@ async def main():
     p.add_argument("--model", default="hey_jarvis", help="openWakeWord model name or .onnx path")
     p.add_argument("--threshold", type=float, default=0.5)
     p.add_argument("--record-seconds", type=float, default=4.0)
-    p.add_argument("--api", default="http://192.168.1.2/lordicl-next/public/api/device/v1")
+    # Must be the SAME server the box was paired on - its token is valid nowhere else.
+    # LBOX_WAKE_API env overrides; default = live. Dev LAN: --api http://192.168.1.2/lordicl-next/public/api/device/v1
+    p.add_argument("--api", default=os.environ.get("LBOX_WAKE_API", "https://next.lordicl.com/api/device/v1"))
     p.add_argument("--dump", type=float, default=0, help="save the first N seconds of each box's stream to lbox-mic-<serial>.wav")
     p.add_argument("--debug", action="store_true", help="print mic level + best score every ~2 s per box")
     args = p.parse_args()
