@@ -24,6 +24,29 @@ import numpy as np
 import requests
 from openwakeword.model import Model
 
+
+class LrDetector:
+    """A detector trained by scripts/lbox_wake_train.py (.pkl): openWakeWord's own
+    streaming embeddings + logistic regression. Same predict()/reset() as Model."""
+
+    def __init__(self, path):
+        import joblib
+        from openwakeword.utils import AudioFeatures
+        d = joblib.load(path)
+        self.clf, self.mu, self.sd, self.win = d["clf"], d["mu"], d["sd"], d["win"]
+        self.name = d.get("name", "custom")
+        self.af = AudioFeatures()
+
+    def predict(self, audio):
+        self.af(audio)
+        x = np.asarray(self.af.get_features(self.win)).reshape(1, -1)
+        if x.shape[1] != len(self.mu):
+            return {self.name: 0.0}
+        return {self.name: float(self.clf.predict_proba((x - self.mu) / self.sd)[0, 1])}
+
+    def reset(self):
+        self.af.reset()
+
 try:  # first run on a fresh host: fetch the shared feature models + the built-in wake words
     import openwakeword.utils as _oww_utils
     _oww_utils.download_models()
@@ -54,7 +77,7 @@ async def handle_box(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
         return
 
     print(f"[wake] {serial} connected from {peer}")
-    oww = Model(wakeword_models=[args.model], inference_framework="onnx")
+    oww = LrDetector(args.model) if args.model.endswith(".pkl") else Model(wakeword_models=[args.model], inference_framework="onnx")
     loop = asyncio.get_running_loop()
 
     try:
