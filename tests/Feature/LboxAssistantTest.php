@@ -6,6 +6,7 @@ use App\Models\Branch;
 use App\Models\Device;
 use App\Models\EmployeeProfile;
 use App\Models\EmployeeVisit;
+use App\Models\LiveRate;
 use App\Models\Member;
 use App\Models\MemberWallet;
 use App\Models\Rank;
@@ -31,6 +32,8 @@ class LboxAssistantTest extends TestCase
         config(['lbox.tts.enabled' => false]);   // answers only - no voice render in tests
         $this->branch = Branch::create(['name' => 'Rajapalayam', 'country' => 'IN', 'is_active' => true]);
         $this->device = Device::create(['name' => 'Counter Box', 'serial_no' => 'LBX-T-1', 'board_type' => 'lite', 'branch_id' => $this->branch->id]);
+        // latestFor() memoises per process: the rate must exist before the first question
+        LiveRate::create(['country' => 'IN', 'gold' => 7250, 'silver' => 95, 'diamond' => 0, 'effective_at' => now()]);
     }
 
     protected function ask(string $q): array
@@ -91,5 +94,27 @@ class LboxAssistantTest extends TestCase
         $this->assertSame('volume_down', $this->ask('volume down')['action']);
         // "today" alone must not hijack a sales question into the clock
         $this->assertSame('sales_today', $this->ask('what is branch sales')['intent']);
+    }
+
+    public function test_tamil_box_hearing_an_english_question_gets_a_second_pass_in_english(): void
+    {
+        $this->device->update(['language' => 'ta', 'status' => 'active']);   // the voice route refuses a box that is not active
+        \Laravel\Sanctum\Sanctum::actingAs($this->device, ['*']);
+        $this->mock(\App\Services\Lbox\SttService::class, function ($m) {
+            // first pass with the Tamil hint hears English as Tamil letters; second pass in English is clear
+            $m->shouldReceive('transcribe')->withArgs(fn ($p, $h) => $h === 'ta')->once()->andReturn('வாட் இஸ் த டைம் நவ்');
+            $m->shouldReceive('transcribe')->withArgs(fn ($p, $h) => $h === 'en')->once()->andReturn('what is the gold rate');
+        });
+
+        $wav = \Illuminate\Http\UploadedFile::fake()->createWithContent('q.wav', str_repeat("\0", 4000));
+        $r = $this->postJson('/api/device/v1/ai/voice', ['audio' => $wav]);
+        $r->assertOk()->assertJsonPath('intent', 'gold_rate')->assertJsonPath('transcript', 'what is the gold rate');
+    }
+
+    public function test_transliterated_tamil_keywords_still_match(): void
+    {
+        $this->device->update(['language' => 'ta']);
+        $this->assertSame('gold_rate', $this->ask('கோல்ட் ரேட் என்ன')['intent']);
+        $this->assertSame('datetime', $this->ask('டைம் என்ன')['intent']);
     }
 }

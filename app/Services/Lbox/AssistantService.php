@@ -41,9 +41,9 @@ class AssistantService
         $rate = LiveRate::latestFor($device->branch?->country ?: 'IN');
         $ta = $lang === 'ta';
 
-        $hasGold = $this->hits($q, ['gold', 'தங்கம்', 'தங்க']);
-        $hasSilver = $this->hits($q, ['silver', 'வெள்ளி']);
-        $hasDiamond = $this->hits($q, ['diamond', 'வைரம்', 'வைர']);
+        $hasGold = $this->hits($q, ['gold', 'தங்கம்', 'தங்க', 'கோல்ட்']);   // கோல்ட் = 'gold' heard in Tamil letters
+        $hasSilver = $this->hits($q, ['silver', 'வெள்ளி', 'சில்வர்']);
+        $hasDiamond = $this->hits($q, ['diamond', 'வைரம்', 'வைர', 'டைமண்ட்']);
         $asksRate = $hasGold || $hasSilver || $hasDiamond || $this->hits($q, ['rate', 'price', 'விலை', 'ரேட்']);
 
         if ($asksRate && ! $rate) {
@@ -94,7 +94,7 @@ class AssistantService
 
         // Branch sales - counted and totalled from the sales invoices of THIS branch.
         // Checked before the clock intent: "sales today" must not read as "today".
-        if ($this->hits($q, ['sales', 'sale ', 'sold', 'billing', 'invoice', 'bills', 'விற்பனை', 'பில்'])) {
+        if ($this->hits($q, ['sales', 'sale ', 'sold', 'billing', 'invoice', 'bills', 'விற்பனை', 'பில்', 'சேல்ஸ்'])) {
             if (! $device->branch_id) {
                 return ['sales_unavailable', $ta ? 'இந்த பெட்டி எந்த கிளையுடனும் இணைக்கப்படவில்லை.' : 'This box is not linked to a branch yet.'];
             }
@@ -128,7 +128,7 @@ class AssistantService
                     $people, $people === 1 ? 'staff member' : 'staff members')];
         }
 
-        if ($this->hits($q, ['time', 'date', 'what day', 'which day', 'நேரம்', 'மணி', 'தேதி', 'நாள்'])) {
+        if ($this->hits($q, ['time', 'date', 'what day', 'which day', 'நேரம்', 'மணி', 'தேதி', 'நாள்', 'டைம்'])) {
             $now = Carbon::now();
 
             return ['datetime', $ta

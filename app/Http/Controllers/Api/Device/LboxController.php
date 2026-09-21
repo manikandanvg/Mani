@@ -171,14 +171,31 @@ class LboxController extends Controller
         $request->validate(['audio' => ['required', 'file', 'max:10240']]);
 
         $path = $request->file('audio')->store('lbox-stt-inbox');
-        $transcript = $stt->transcribe(Storage::path($path), $device->language ?? null);
-        Storage::delete($path);
+        $hint = $device->language ?? null;
+        $transcript = $stt->transcribe(Storage::path($path), $hint);
 
         if (! $transcript) {
+            Storage::delete($path);
+            \Illuminate\Support\Facades\Log::info("[lbox-voice] {$device->serial_no}: nothing understood (hint " . ($hint ?: 'auto') . ')');
+
             return response()->json(['message' => 'Could not understand the audio.'], 422);
         }
 
         $reply = $assistant->ask($device, $transcript);
+
+        // A Tamil-language box hears an English question as Tamil letters and nothing
+        // matches. If the first pass found no intent, listen once more in English.
+        if ($reply['intent'] === 'fallback' && $hint && $hint !== 'en') {
+            $alt = $stt->transcribe(Storage::path($path), 'en');
+            if ($alt && $alt !== $transcript) {
+                $second = $assistant->ask($device, $alt);
+                if ($second['intent'] !== 'fallback') {
+                    [$transcript, $reply] = [$alt, $second];
+                }
+            }
+        }
+        Storage::delete($path);
+        \Illuminate\Support\Facades\Log::info("[lbox-voice] {$device->serial_no}: heard '{$transcript}' -> {$reply['intent']}");
 
         return response()->json([
             'ok' => true,
