@@ -151,8 +151,31 @@ async def handle_box(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
             writer.write(b'{"event":"wake"}\n')   # box chimes / lights the ring
             await writer.drain()
 
-            need = int(16000 * args.record_seconds) * 2
-            question = np.frombuffer(await reader.readexactly(need), dtype=np.int16)
+            # Record the question: up to record_seconds, but stop 0.9 s after the
+            # speaker goes quiet once they have started (nobody waits out a fixed
+            # window), skip the first 0.3 s (the box's own wake beep), and normalise
+            # the level so a soft voice through the box wall still transcribes.
+            floor = None
+            frames_q, spoke, quiet = [], False, 0
+            max_frames = int(16000 * args.record_seconds / FRAME_SAMPLES)
+            for k in range(max_frames):
+                f = np.frombuffer(await reader.readexactly(FRAME_BYTES), dtype=np.int16)
+                if k < 4:          # 0.3 s: wake beep + ring change
+                    continue
+                frames_q.append(f)
+                rms = float(np.sqrt(np.mean(f.astype(np.float32) ** 2)))
+                floor = rms if floor is None else min(floor, rms)
+                if rms > 3 * max(floor, 120):
+                    spoke, quiet = True, 0
+                elif spoke:
+                    quiet += 1
+                    if quiet * FRAME_SAMPLES / 16000 >= 0.9:
+                        break
+            question = np.concatenate(frames_q) if frames_q else np.zeros(1600, dtype=np.int16)
+            peak = int(np.abs(question).max()) or 1
+            if peak < 12000:
+                question = (question.astype(np.float32) * (12000.0 / peak)).astype(np.int16)
+            print(f"[wake] {serial} question {len(question) / 16000:.1f}s, peak {peak}, spoke={spoke}")
 
             def ask():
                 return requests.post(
@@ -188,7 +211,7 @@ async def main():
     p.add_argument("--model", default="hey_jarvis", help="openWakeWord model name or .onnx path")
     p.add_argument("--threshold", type=float, default=0.5)
     p.add_argument("--min-frames", type=int, default=2, help="consecutive 80 ms frames above threshold before firing")
-    p.add_argument("--record-seconds", type=float, default=4.0)
+    p.add_argument("--record-seconds", type=float, default=7.0, help="max question length; recording stops 0.9 s after the speaker goes quiet")
     # Must be the SAME server the box was paired on - its token is valid nowhere else.
     # LBOX_WAKE_API env overrides; default = live. Dev LAN: --api http://192.168.1.2/lordicl-next/public/api/device/v1
     p.add_argument("--api", default=os.environ.get("LBOX_WAKE_API", "https://next.lordicl.com/api/device/v1"))

@@ -18,6 +18,19 @@ class SttService
             return null;
         }
 
+        $text = $this->run($absolutePath, $langHint);
+        if ($text === null && $langHint) {
+            // A wrong hint (device set to Tamil, question asked in English) can come
+            // back empty - let whisper detect the language before giving up.
+            $text = $this->run($absolutePath, null);
+        }
+
+        return $text;
+    }
+
+    /** One whisper pass; null on failure or silence. */
+    protected function run(string $absolutePath, ?string $langHint): ?string
+    {
         $cmd = sprintf(
             '%s %s --file %s --model %s --cache %s%s',
             config('lbox.stt.python', 'python'),
