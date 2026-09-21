@@ -51,11 +51,21 @@ async def handle_box(reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
     loop = asyncio.get_running_loop()
 
     try:
+        n_frames, best = 0, 0.0
         while True:
             frame = await reader.readexactly(FRAME_BYTES)
             audio = np.frombuffer(frame, dtype=np.int16)
             scores = await loop.run_in_executor(None, oww.predict, audio)
-            if max(scores.values()) < args.threshold:
+            top = max(scores.values())
+            if args.debug:
+                # Every ~2 s: what is the box sending (RMS/peak) and how close is the model.
+                n_frames += 1
+                best = max(best, top)
+                if n_frames % 25 == 0:
+                    rms = float(np.sqrt(np.mean(audio.astype(np.float32) ** 2)))
+                    print(f"[wake] {serial} rms={rms:.0f} peak={int(np.abs(audio).max())} best_score_2s={best:.2f}")
+                    best = 0.0
+            if top < args.threshold:
                 continue
 
             print(f"[wake] {serial} ✨ wake word (score {max(scores.values()):.2f}) — recording question")
@@ -101,6 +111,7 @@ async def main():
     p.add_argument("--threshold", type=float, default=0.5)
     p.add_argument("--record-seconds", type=float, default=4.0)
     p.add_argument("--api", default="http://192.168.1.2/lordicl-next/public/api/device/v1")
+    p.add_argument("--debug", action="store_true", help="print mic level + best score every ~2 s per box")
     args = p.parse_args()
 
     if not args.model.endswith(".onnx"):
