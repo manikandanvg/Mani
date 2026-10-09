@@ -120,6 +120,19 @@ return [
         'private_key' => env('FCM_PRIVATE_KEY'),
     ],
 
+    // Native Apple Push Notification service (board 2026-09-21): iPhones register an
+    // APNs device token (provider=apns) and ApnsSender posts to Apple directly with a
+    // .p8 auth key (Apple Developer → Keys). APNS_SANDBOX=true only for Xcode
+    // development builds; TestFlight and App Store builds use production.
+    'apns' => [
+        'enabled' => env('APNS_ENABLED', false),
+        'key_id' => env('APNS_KEY_ID'),
+        'team_id' => env('APNS_TEAM_ID'),
+        'bundle_id' => env('APNS_BUNDLE_ID', 'com.app.lordicl'),
+        'private_key' => env('APNS_PRIVATE_KEY'),
+        'sandbox' => env('APNS_SANDBOX', false),
+    ],
+
     // Aadhaar verification. driver: checksum (instant, offline Verhoeff) | (future: sandbox OTP e-KYC)
     'aadhaar' => [
         'driver' => env('AADHAAR_DRIVER', 'checksum'),

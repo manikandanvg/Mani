@@ -62,8 +62,8 @@ class PushNotificationSettings extends Page implements HasForms
     public function form(Form $form): Form
     {
         return $form->statePath('data')->schema([
-            Section::make('Firebase Cloud Messaging (Android + iOS via Firebase)')
-                ->description('Service-account credentials from the Firebase console (Project settings → Service accounts). All app acknowledgements — QR, contract, invoice, reminders, settlements, payments — deliver through this.')
+            Section::make('Firebase Cloud Messaging (Android)')
+                ->description('Service-account credentials from the Firebase console (Project settings → Service accounts). Every Android acknowledgement — QR, contract, invoice, reminders, settlements, payments — delivers through this.')
                 ->columns(2)
                 ->schema([
                     Toggle::make('fcm_enabled')->label('FCM enabled')
@@ -76,14 +76,14 @@ class PushNotificationSettings extends Page implements HasForms
                         ->placeholder('-----BEGIN PRIVATE KEY-----…')
                         ->columnSpanFull(),
                 ]),
-            Section::make('Apple Push Notification service (native APNs — optional)')
-                ->description('Only needed for a future native-APNs path; iPhones using the Firebase SDK already receive pushes via FCM above. Add the .p8 key details here when Apple credentials arrive.')
+            Section::make('Apple Push Notification service (iPhone — native APNs)')
+                ->description('iPhones push through Apple directly, not Firebase. Apple Developer → Certificates, Identifiers & Profiles → Keys → create a key with "Apple Push Notifications service (APNs)" enabled, download the .p8 once and paste it below. Team ID is on the Membership page; Bundle ID must match the app (com.app.lordicl).')
                 ->columns(3)
                 ->schema([
                     Toggle::make('apns_enabled')->label('APNs enabled')->columnSpanFull(),
                     TextInput::make('apns_key_id')->label('Key ID'),
                     TextInput::make('apns_team_id')->label('Team ID'),
-                    TextInput::make('apns_bundle_id')->label('Bundle ID')->placeholder('com.lordjeweller.app'),
+                    TextInput::make('apns_bundle_id')->label('Bundle ID')->placeholder('com.app.lordicl'),
                     Textarea::make('apns_private_key')->label('Auth key (.p8 contents)')->rows(4)->columnSpanFull(),
                 ]),
             Section::make('Send a test notification')
@@ -112,6 +112,7 @@ class PushNotificationSettings extends Page implements HasForms
 
         // Rotated credentials must not reuse a token minted with the old key.
         Cache::forget('fcm.access_token');
+        Cache::forget('apns.provider_token');
 
         Notification::make()->title('Push notification settings saved')->success()->send();
     }

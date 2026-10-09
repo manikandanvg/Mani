@@ -70,7 +70,10 @@ class GoLiveCheck extends Command
         $this->section('Messaging');
         // Effective creds = admin "Push Notification Settings" row first, .env fallback (PushSetting::fcm()).
         $fcmOn = app(\App\Services\Push\PushSender::class)->enabled();
-        $this->row('FCM push', $fcmOn ? 'enabled' : 'off', $fcmOn ? 'pass' : 'fail', 'every ack/reminder/OTP-less notice is push-only — enable it: Admin → System → Push Notification Settings (FCM service account) or FCM_* in .env');
+        $this->row('FCM push (Android)', $fcmOn ? 'enabled' : 'off', $fcmOn ? 'pass' : 'fail', 'every ack/reminder/OTP-less notice is push-only — enable it: Admin → System → Push Notification Settings (FCM service account) or FCM_* in .env');
+        $apns = app(\App\Services\Push\ApnsSender::class);
+        $apnsSandbox = (bool) config('services.apns.sandbox');
+        $this->row('APNs push (iPhone)', $apns->enabled() ? 'enabled (' . parse_url($apns->host(), PHP_URL_HOST) . ')' : 'off', $apns->enabled() ? ($apnsSandbox ? 'warn' : 'pass') : 'warn', $apns->enabled() ? ($apnsSandbox ? 'APNS_SANDBOX=true — TestFlight/App Store devices are rejected (BadDeviceToken); unset it in production' : null) : 'iPhone users get inbox only — paste the .p8 auth key: Admin → System → Push Notification Settings (APNs) or APNS_* in .env');
         $test = (string) config('services.whatsapp.test_recipient');
         $this->row('WHATSAPP_TEST_RECIPIENT', $test === '' ? 'cleared' : $test, $test === '' ? 'pass' : 'fail', 'every OTP/QR WhatsApp goes to this number instead of the customer — clear it in production');
 

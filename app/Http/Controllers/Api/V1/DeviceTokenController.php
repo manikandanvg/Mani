@@ -11,6 +11,7 @@ use Illuminate\Http\Request;
  * Push-token registration (Phase 4b). The app registers its device token after sign-in
  * (and on token refresh), and unregisters on sign-out. Works for member and customer
  * tokens alike — the row is owned polymorphically by whoever is authenticated.
+ * provider=fcm (Android, Firebase) | apns (iPhone, native Apple token) | expo.
  */
 class DeviceTokenController extends Controller
 {
@@ -20,7 +21,7 @@ class DeviceTokenController extends Controller
         $data = $request->validate([
             'token' => ['required', 'string', 'max:512'],
             'platform' => ['nullable', 'in:android,ios,web'],
-            'provider' => ['nullable', 'in:fcm,expo'],
+            'provider' => ['nullable', 'in:fcm,apns,expo'],
         ]);
 
         $user = $request->user();
