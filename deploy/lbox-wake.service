@@ -1,0 +1,23 @@
+# L-BOX wake-word server as a systemd service (live host).
+#   sudo cp deploy/lbox-wake.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now lbox-wake
+#   journalctl -u lbox-wake -f          # live log
+# Restarts on crash and on reboot; the nohup it replaces died with the first reboot (2026-10).
+[Unit]
+Description=L-BOX wake-word server (Hi L-BOX)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/www/wwwroot/next.lordicl.com
+ExecStart=/usr/bin/python3 -u scripts/lbox_wake_server.py --model scripts/hi_lbox.npz --threshold 0.5 --debug
+Restart=always
+RestartSec=5
+User=root
+Environment=PYTHONUNBUFFERED=1
+StandardOutput=append:/www/wwwroot/next.lordicl.com/storage/logs/wake.log
+StandardError=append:/www/wwwroot/next.lordicl.com/storage/logs/wake.log
+
+[Install]
+WantedBy=multi-user.target
