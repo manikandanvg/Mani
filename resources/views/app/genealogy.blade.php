@@ -200,9 +200,7 @@
              :style="`transform: translate(${x}px, ${y}px) scale(${z});`">
             <div class="icl-tree">
                 <ul>
-                    @foreach ($tree as $node)
-                        @include('filament.pages.partials.genealogy-node', ['node' => $node, 'depth' => 0])
-                    @endforeach
+                    {!! \App\Support\GenealogyRenderer::chart($tree) !!}
                 </ul>
             </div>
         </div>

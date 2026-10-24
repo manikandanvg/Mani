@@ -246,9 +246,22 @@
     "Library folder": "资料库文件夹",
     "Upload file": "上传文件",
     "Business Model Report": "商业模式报告",
+    "Balance Sheet Report": "资产负债表报告",
+    "Profit & Loss Report": "损益报告",
     "Started Amount": "起始金额",
     "Spot Gold Stock": "即时黄金库存",
     "1-year Gold Stock": "1年黄金库存",
     "2nd-year Gold Stock": "第2年黄金库存",
-    "Employee Report": "员工报告"
+    "Employee Report": "员工报告",
+    "Distributor List": "经销商列表",
+    "Distributor Place": "经销商位置",
+    "Sales & Contracts": "销售与合同",
+    "Contracts": "合同",
+    "Contract": "合同",
+    "Settlements": "结算",
+    "Branch / Dealers": "分店 / 经销商",
+    "Blessed Gold": "祝福黄金",
+    "Lord's Branch": "Lord 分店",
+    "Dealer": "经销商",
+    "Utility": "实用器具"
 }

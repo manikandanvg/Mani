@@ -21,7 +21,7 @@ class EpinResource extends BaseResource
     use HqOnly;
     protected static ?string $model = Epin::class;
 
-    protected static ?string $navigationGroup = 'Sales & Bonds';
+    protected static ?string $navigationGroup = 'Sales & Contracts';
 
     protected static ?string $navigationIcon = 'heroicon-o-key';
 

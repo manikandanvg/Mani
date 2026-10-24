@@ -37,7 +37,7 @@ class ProductResource extends BaseResource
                 Forms\Components\Section::make()->columns(2)->schema([
                     Forms\Components\TextInput::make('code')->required()->maxLength(40)->unique(ignoreRecord: true),
                     Forms\Components\Select::make('material')
-                        ->options(['gold' => 'Gold', 'silver' => 'Silver', 'accessory' => 'Accessory', 'diamond' => 'Diamond', 'other' => 'Other'])
+                        ->options(['gold' => 'Gold', 'silver' => 'Silver', 'utility' => 'Utility (spoons, tumblers, pooja articles â¦)', 'diamond' => 'Diamond', 'other' => 'Other'])
                         ->default('gold')->required(),
                     Forms\Components\Select::make('category_id')
                         ->label('Category')

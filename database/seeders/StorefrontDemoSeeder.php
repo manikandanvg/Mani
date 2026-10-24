@@ -27,8 +27,8 @@ class StorefrontDemoSeeder extends Seeder
             ['code' => 'ES001', 'name' => 'Silver Anklet Pair', 'cat' => $silver, 'material' => 'silver', 'weight' => 45.0, 'purity' => '925', 'price' => 4200, 'feat' => true],
             ['code' => 'ES002', 'name' => 'Oxidised Silver Ring', 'cat' => $silver, 'material' => 'silver', 'weight' => 6.0, 'purity' => '925', 'price' => 950, 'feat' => true],
             ['code' => 'ES003', 'name' => 'Silver Chain', 'cat' => $silver, 'material' => 'silver', 'weight' => 22.0, 'purity' => '925', 'price' => 2600, 'feat' => false],
-            ['code' => 'EA001', 'name' => 'Silver Pooja Plate', 'cat' => $acc, 'material' => 'accessory', 'weight' => 120.0, 'purity' => '925', 'price' => 9800, 'feat' => true],
-            ['code' => 'EA002', 'name' => 'Gold-plated Spoon Set', 'cat' => $acc, 'material' => 'accessory', 'weight' => 80.0, 'purity' => '—', 'price' => 5400, 'feat' => false],
+            ['code' => 'EA001', 'name' => 'Silver Pooja Plate', 'cat' => $acc, 'material' => 'utility', 'weight' => 120.0, 'purity' => '925', 'price' => 9800, 'feat' => true],
+            ['code' => 'EA002', 'name' => 'Gold-plated Spoon Set', 'cat' => $acc, 'material' => 'utility', 'weight' => 80.0, 'purity' => '—', 'price' => 5400, 'feat' => false],
         ];
         foreach ($products as $p) {
             Product::firstOrCreate(['code' => $p['code']], [
@@ -47,7 +47,7 @@ class StorefrontDemoSeeder extends Seeder
         }
 
         $pages = [
-            ['slug' => 'about', 'group' => 'page', 'title' => 'About Us', 'body' => '<p>Lord ICL crafts fine gold and silver jewellery for a global family, blending heritage craftsmanship with modern design.</p>'],
+            ['slug' => 'about', 'group' => 'page', 'title' => 'About Us', 'body' => self::aboutBody()],
             ['slug' => 'services', 'group' => 'page', 'title' => 'Services', 'body' => '<p>Custom design, gold savings plans, exchange, hallmarking and worldwide delivery.</p>'],
             ['slug' => 'privacy-policy', 'group' => 'policy', 'title' => 'Privacy Policy', 'body' => '<p>We respect your privacy and protect your personal data.</p>'],
             ['slug' => 'terms', 'group' => 'policy', 'title' => 'Terms of Use', 'body' => '<p>By using this site you agree to our terms.</p>'],
@@ -104,5 +104,29 @@ class StorefrontDemoSeeder extends Seeder
                 'is_published' => true,
             ]);
         }
+    }
+    /**
+     * Public "About Us" copy (board 2026-10-24: the page needs real content). Also used by
+     * the roll-out migration to fill an existing page that still carries the demo one-liner.
+     */
+    public static function aboutBody(): string
+    {
+        return <<<'HTML'
+<p><strong>LORD JEWELLER</strong> is the jewellery house of <strong>Global Gold Pvt Ltd</strong>, headquartered at Sivakasi, Tamil Nadu. We make and sell <em>Blessed Gold</em> â HUID-hallmarked, BIS-certified 22K gold and 925 silver â crafted by heritage goldsmiths and priced to the minute on the live metal rate, so every customer pays exactly what the day's market says, nothing hidden.</p>
+<h2>Made with heritage</h2>
+<p>Our chains, bangles, rings, coins and bridal sets are made in the traditional South Indian way and finished to modern standards. Every gold piece carries its HUID hallmark; every silver piece is purity-stamped. Alongside jewellery we craft <strong>utility pieces</strong> for the home and for gifting â gold spoons, silver tumblers, pooja articles and more.</p>
+<h2>Gold for every family</h2>
+<p>Gold should be reachable, not only on a wedding day. Our savings and purchase schemes let a family build gold a little at a time: a monthly recurring plan that matures into a gold QR, outright gold and silver purchase plans, and a digital gold purse that can be bought in rupees and redeemed as metal at any branch. Each scheme is written down as a contract, settled on its due date, and tracked in the Lord app.</p>
+<h2>A network you can walk into</h2>
+<p>Lord Jeweller serves customers through its own <strong>Lord's Branches</strong> and an authorised network of <strong>dealers</strong> across Tamil Nadu and beyond, each running the same live pricing, the same hallmarked stock and the same contract terms as the head office. Find the branch or dealer nearest you on our <a href="/stores">Branches &amp; Dealers</a> page.</p>
+<h2>Our promise</h2>
+<ul>
+<li>HUID hallmarked 22K gold and certified 925 silver, always.</li>
+<li>Live, transparent pricing â the rate is shown before you buy.</li>
+<li>Every scheme backed by a written contract and a settlement date.</li>
+<li>Lifetime exchange on hallmarked gold at every branch and dealer.</li>
+</ul>
+<p>Head Office: 62K Gandhi Road, Jeahova Nishi Complex, First Floor, Sivakasi 626123, Tamil Nadu, India.</p>
+HTML;
     }
 }

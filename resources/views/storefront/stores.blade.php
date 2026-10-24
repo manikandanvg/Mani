@@ -21,7 +21,7 @@
 @section('content')
     <div class="max-w-7xl mx-auto px-4 py-8" x-data="{ q: '' }">
         <h1 class="text-3xl md:text-4xl font-serif font-bold">{{ tr('Store locator') }}</h1>
-        <p class="text-stone-500 mt-1 mb-6">{{ $branches->count() }} {{ tr('stores') }} · {{ $geo->count() }} {{ tr('on the map') }}</p>
+        <p class="text-stone-500 mt-1 mb-6">{{ $branches->count() }} {{ tr('branches & dealers') }} · {{ $geo->count() }} {{ tr('on the map') }}</p>
 
         <div class="grid lg:grid-cols-[360px_1fr] gap-4 rounded-2xl overflow-hidden border border-stone-200 shadow-sm">
             {{-- sidebar list --}}

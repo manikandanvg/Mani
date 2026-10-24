@@ -32,6 +32,36 @@ class Branch extends Model
         'area_dealer' => 'Area Distributor',
     ];
 
+    /**
+     * Board resolution 2026-10-24: every dealership is either an independent DEALER or one of
+     * LORD'S BRANCHES (the dealer becomes the branch in-charge; by TBP stage they move onto
+     * the payroll). Schemes may be limited to one kind (Plan::available_to).
+     */
+    public const KIND_DEALER = 'dealer';
+    public const KIND_BRANCH = 'branch';
+    public const KINDS = [self::KIND_DEALER, self::KIND_BRANCH];
+    public const KIND_LABELS = [
+        self::KIND_DEALER => 'Dealer (independent dealership)',
+        self::KIND_BRANCH => "Lord's Branch (company branch · dealer is the in-charge)",
+    ];
+
+    public static function kindLabel(?string $kind): string
+    {
+        return self::KIND_LABELS[$kind] ?? ($kind ? ucfirst($kind) : '—');
+    }
+
+    /** True for HQ and every converted "Lord's Branch"; false for an independent dealer. */
+    public function isLordBranch(): bool
+    {
+        return $this->kind === self::KIND_BRANCH || $this->level === 'hq';
+    }
+
+    /** The kind used for scheme availability checks (HQ always counts as a Lord's Branch). */
+    public function kindForSchemes(): string
+    {
+        return $this->isLordBranch() ? self::KIND_BRANCH : self::KIND_DEALER;
+    }
+
     /** Plans.hid → branch level (0 = HQ itself, never assigned to a dealer). */
     public const HID_LEVELS = [1 => 'regional', 2 => 'zonal', 3 => 'district', 4 => 'taluk', 5 => 'reseller', 6 => 'sub_dealer', 7 => 'wholesaler', 8 => 'area_dealer'];
 

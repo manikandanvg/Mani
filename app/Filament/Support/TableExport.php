@@ -141,7 +141,7 @@ class TableExport
 
         [$headers, $rows, $title] = static::data($livewire);
 
-        $output = Pdf::setOptions(['isRemoteEnabled' => false, 'defaultFont' => 'DejaVu Sans'])
+        $output = Pdf::setOptions(['isRemoteEnabled' => false, 'defaultFont' => 'DejaVu Sans'], true)
             ->loadView('pdf.table', [
                 'headers' => $headers,
                 'rows' => $rows,

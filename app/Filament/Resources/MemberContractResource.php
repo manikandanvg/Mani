@@ -22,9 +22,13 @@ class MemberContractResource extends BaseResource
 {
     protected static ?string $model = MemberContract::class;
 
-    protected static ?string $navigationGroup = 'Sales & Bonds';
+    protected static ?string $navigationGroup = 'Sales & Contracts';
 
-    protected static ?string $navigationLabel = 'Contracts';
+    protected static ?string $navigationLabel = 'Settlements';
+
+    protected static ?string $modelLabel = 'Settlement';
+
+    protected static ?string $pluralModelLabel = 'Settlements';
 
     protected static ?string $navigationIcon = 'heroicon-o-document-duplicate';
 

@@ -246,9 +246,22 @@
     "Library folder": "లైబ్రరీ ఫోల్డర్",
     "Upload file": "ఫైల్ అప్‌లోడ్",
     "Business Model Report": "వ్యాపార నమూనా నివేదిక",
+    "Balance Sheet Report": "బ్యాలెన్స్ షీట్ నివేదిక",
+    "Profit & Loss Report": "లాభ నష్టాల నివేదిక",
     "Started Amount": "ప్రారంభ మొత్తం",
     "Spot Gold Stock": "తక్షణ బంగారు నిల్వ",
     "1-year Gold Stock": "1-సంవత్సర బంగారు నిల్వ",
     "2nd-year Gold Stock": "2వ సంవత్సర బంగారు నిల్వ",
-    "Employee Report": "ఉద్యోగి నివేదిక"
+    "Employee Report": "ఉద్యోగి నివేదిక",
+    "Distributor List": "డిస్ట్రిబ్యూటర్ జాబితా",
+    "Distributor Place": "డిస్ట్రిబ్యూటర్ స్థానం",
+    "Sales & Contracts": "అమ్మకాలు & ఒప్పందాలు",
+    "Contracts": "ఒప్పందాలు",
+    "Contract": "ఒప్పందం",
+    "Settlements": "పరిష్కారాలు",
+    "Branch / Dealers": "శాఖ / డీలర్లు",
+    "Blessed Gold": "ఆశీర్వదించిన బంగారం",
+    "Lord's Branch": "లార్డ్ శాఖ",
+    "Dealer": "డీలర్",
+    "Utility": "ఉపయోగ వస్తువులు"
 }

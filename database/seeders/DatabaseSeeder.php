@@ -15,6 +15,9 @@ use Spatie\Permission\Models\Role;
 
 class DatabaseSeeder extends Seeder
 {
+    /** Seed the demo dealer login + branch (tests, dev). RolloutSeeder turns this off. */
+    public static bool $withDemo = true;
+
     public function run(): void
     {
         // --- Roles --- (super_admin sees all; staff roles drive menu visibility;
@@ -84,13 +87,17 @@ class DatabaseSeeder extends Seeder
             Rank::updateOrCreate(['code' => $r['code']], $r);
         }
 
-        // --- Head office branch (store-locator demo coords: Coimbatore) ---
+        // --- Head office branch: LORD JEWELLER, Sivakasi (board 2026-10-24) ---
         $hqBranch = Branch::firstOrCreate(
-            ['name' => 'Head Office'],
-            ['city' => 'Coimbatore', 'country' => 'IN', 'gst_no' => '33ABCDE1234F1Z5',
-             'latitude' => 11.0168445, 'longitude' => 76.9558321, 'level' => 'hq', 'is_active' => true]
+            ['level' => 'hq'],
+            ['name' => 'LORD JEWELLER', 'kind' => 'branch',
+             'address' => '62K Gandhi Road, Jeahova Nishi Complex, First Floor',
+             'city' => 'Sivakasi', 'pincode' => '626123', 'country' => 'IN', 'phone' => '+91 95142 77844',
+             'gst_no' => '33AREPB3962B3ZD', 'invoice_prefix' => 'HQ',
+             'latitude' => 9.4533, 'longitude' => 77.7978, 'is_active' => true]
         );
 
+        if (static::$withDemo) {
         // --- Demo distributor (semi-admin) — branch-scoped dealer login ---
         // A real distributor branch + their own login, mirroring legacy ci_users
         // (branch created first, then linked). Logs into /admin scoped to this branch.
@@ -131,12 +138,13 @@ class DatabaseSeeder extends Seeder
         $distributor->member_code = $distMember->member_code;
         $distributor->save();
         $distributor->syncRoles('distributor');
+        }
 
         // --- Categories: e-commerce vs trade (separate worlds) ---
         $cats = [
             ['domain' => 'ecommerce', 'material' => 'gold', 'slug' => 'ecom-gold', 'name' => ['en' => 'Gold']],
             ['domain' => 'ecommerce', 'material' => 'silver', 'slug' => 'ecom-silver', 'name' => ['en' => 'Silver']],
-            ['domain' => 'ecommerce', 'material' => 'accessory', 'slug' => 'ecom-accessories', 'name' => ['en' => 'Accessories']],
+            ['domain' => 'ecommerce', 'material' => 'utility', 'slug' => 'ecom-accessories', 'name' => ['en' => 'Utility']],
             ['domain' => 'trade', 'material' => 'gold', 'slug' => 'trade-gold', 'name' => ['en' => 'Gold']],
             ['domain' => 'trade', 'material' => 'silver', 'slug' => 'trade-silver', 'name' => ['en' => 'Silver']],
             ['domain' => 'trade', 'material' => 'vessel', 'slug' => 'trade-vessel', 'name' => ['en' => 'Vessels']],

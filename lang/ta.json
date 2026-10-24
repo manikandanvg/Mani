@@ -680,9 +680,21 @@
     "Library folder": "நூலக கோப்புறை",
     "Upload file": "கோப்பை பதிவேற்று",
     "Business Model Report": "வணிக மாதிரி அறிக்கை",
+    "Balance Sheet Report": "இருப்புநிலை அறிக்கை",
+    "Profit & Loss Report": "லாப நட்ட அறிக்கை",
     "Started Amount": "தொடங்கிய தொகை",
     "Spot Gold Stock": "உடனடி தங்க இருப்பு",
     "1-year Gold Stock": "1-ஆம் ஆண்டு தங்க இருப்பு",
     "2nd-year Gold Stock": "2-ஆம் ஆண்டு தங்க இருப்பு",
-    "Employee Report": "பணியாளர் அறிக்கை"
+    "Employee Report": "பணியாளர் அறிக்கை",
+    "Distributor List": "விநியோகஸ்தர் பட்டியல்",
+    "Distributor Place": "விநியோகஸ்தர் இடம்",
+    "Sales & Contracts": "விற்பனை & ஒப்பந்தங்கள்",
+    "Contracts": "ஒப்பந்தங்கள்",
+    "Settlements": "தீர்வுகள்",
+    "Branch / Dealers": "கிளை / டீலர்கள்",
+    "Blessed Gold": "ஆசீர்வதிக்கப்பட்ட தங்கம்",
+    "Lord's Branch": "லார்ட் கிளை",
+    "Dealer": "டீலர்",
+    "Utility": "பயன்பாட்டுப் பொருட்கள்"
 }

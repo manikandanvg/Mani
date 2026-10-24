@@ -17,7 +17,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>@yield('title', 'LORD JEWELLER — Fine Jewellery')</title>
+    <title>@yield('title', 'LORD JEWELLER — Blessed Gold')</title>
 
     {{-- brand favicons (generated from the LORD JEWELLER emblem) --}}
     <link rel="icon" href="{{ asset('favicon.ico') }}" sizes="any">
@@ -76,7 +76,7 @@
     {{-- top bar --}}
     <div class="bg-brand-deep text-white text-xs">
         <div class="max-w-7xl mx-auto px-4 py-2 flex items-center justify-between">
-            <span class="hidden sm:block tracking-[0.18em] uppercase text-stone-200/90">{{ tr('Global fine jewellery · gold · silver · accessories') }}</span>
+            <span class="hidden sm:block tracking-[0.18em] uppercase text-stone-200/90">{{ tr('Global Gold Pvt Ltd · gold · silver · utility') }}</span>
             <div class="flex items-center gap-4">
                 <form method="GET" action="{{ url('/lang') }}" x-data>
                     <select name="code" onchange="this.form.submit()" aria-label="{{ tr('Language') }}"
@@ -105,7 +105,7 @@
                 <img src="{{ asset('images/logo.png') }}" alt="LORD JEWELLER emblem" class="h-12 w-12 object-contain drop-shadow-sm">
                 <span class="leading-none">
                     <span class="block text-xl sm:text-2xl font-serif font-bold tracking-[0.08em] text-brand">LORD <span class="text-brand-gold">JEWELLER</span></span>
-                    <span class="hidden sm:block mt-1 text-[9px] uppercase tracking-luxe text-stone-400">{{ tr('Fine Jewellery') }}</span>
+                    <span class="hidden sm:block mt-1 text-[9px] uppercase tracking-luxe text-stone-400">{{ tr('Blessed Gold') }}</span>
                 </span>
             </a>
 
@@ -171,9 +171,9 @@
             <div class="col-span-2 md:col-span-1">
                 <span class="flex items-center gap-3">
                     <img src="{{ asset('images/logo.png') }}" alt="LORD JEWELLER emblem" class="h-12 w-12 object-contain">
-                    <span class="text-lg font-serif font-bold tracking-[0.08em] text-white">LORD <span class="text-brand-gold">JEWELLER</span></span>
+                    <span class="text-lg font-serif font-bold tracking-[0.08em] text-brand">LORD <span class="text-brand-gold">JEWELLER</span></span>
                 </span>
-                <p class="mt-4 text-stone-400 leading-relaxed">{{ tr('Fine jewellery crafted for a global family. Gold, silver & accessories.') }}</p>
+                <p class="mt-4 text-stone-400 leading-relaxed">{{ tr('Blessed Gold') }}</p>
             </div>
             <div>
                 <h4 class="text-white font-semibold mb-3 uppercase tracking-[0.14em] text-xs">{{ tr('Explore') }}</h4>
@@ -197,7 +197,7 @@
             </div>
             <div>
                 <h4 class="text-white font-semibold mb-3 uppercase tracking-[0.14em] text-xs">{{ tr('Contact') }}</h4>
-                <p class="text-stone-400">{{ tr('Head Office, Coimbatore, India') }}</p>
+                <p class="text-stone-400">{{ tr('Head Office, Sivakasi, Tamil Nadu, India') }}</p>
                 <a href="{{ url('/contact') }}" class="inline-block mt-3 text-brand-gold hover:text-brand-goldlight transition-colors">{{ tr('Get in touch') }} →</a>
 
                 <h4 class="text-white font-semibold mt-6 mb-3 uppercase tracking-[0.14em] text-xs">{{ tr('Get the app') }}</h4>

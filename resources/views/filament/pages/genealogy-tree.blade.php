@@ -1,4 +1,161 @@
 <x-filament-panels::page>
+{{-- ============================================================ view switch (board 2026-10-24) --}}
+<div class="icl-switch">
+    <a href="{{ url('/admin/genealogy') }}" class="icl-switch-btn {{ $this->mode === 'folder' ? 'icl-switch-on' : '' }}">
+        <svg viewBox="0 0 24 24" class="icl-switch-ico"><path fill="currentColor" d="M3 6.5A2.5 2.5 0 0 1 5.5 4h4.2c.7 0 1.3.3 1.8.8L13 6.5h5.5A2.5 2.5 0 0 1 21 9v8.5a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z"/></svg>
+        Folder view
+    </a>
+    <a href="{{ url('/admin/genealogy?view=chart') }}" class="icl-switch-btn {{ $this->mode === 'chart' ? 'icl-switch-on' : '' }}">
+        <svg viewBox="0 0 24 24" class="icl-switch-ico"><path fill="currentColor" d="M11 3h2v4h4a2 2 0 0 1 2 2v2h-2V9h-4v2h2v2h-2v2h4v-2h2v2a2 2 0 0 1-2 2h-4v4h-2v-4H7a2 2 0 0 1-2-2v-2h2v2h4v-2H9v-2h2V9H7v2H5V9a2 2 0 0 1 2-2h4z"/></svg>
+        Chart view
+    </a>
+    <span class="icl-switch-hint">{{ $this->mode === 'folder' ? 'Each distributor is a folder holding the distributors placed under them. Click the arrow to open a folder; click a name for details and the placement path.' : 'Org chart: click a node for details · drag to pan · scroll to zoom.' }}</span>
+</div>
+
+@if ($this->mode === 'folder')
+{{-- ============================================================ FOLDER VIEW --}}
+<div id="icl-geneao" class="icl-folder"
+     x-data="{
+        q: '', selected: {}, modal: false, matches: 0, notFound: false, total: 0,
+        init() { this.total = this.$root.querySelectorAll('.icl-fo-row').length },
+        openAll(on) { this.$root.querySelectorAll('details.icl-fo-node').forEach(d => d.open = on) },
+        pick(row) {
+            if (! row) return;
+            const path = [];
+            let d = row.closest('details');
+            while (d) { const r = d.querySelector(':scope > summary'); if (r) path.unshift(r.dataset.name); d = d.parentElement ? d.parentElement.closest('details') : null; }
+            this.selected = {
+                name: row.dataset.name, code: row.dataset.code, position: row.dataset.position,
+                count: row.dataset.count, active: row.dataset.active === '1', url: row.dataset.url,
+                verified: row.dataset.verified === '1', depth: path.length,
+                path: path, initial: (row.dataset.name || '?').charAt(0).toUpperCase()
+            };
+            this.modal = true;
+        },
+        filter() {
+            const t = this.q.trim().toLowerCase();
+            const rows = this.$root.querySelectorAll('.icl-fo-row');
+            let n = 0, first = null;
+            if (! t) {
+                rows.forEach(r => { r.classList.remove('icl-fo-hit', 'icl-fo-dim'); r.closest('details').classList.remove('icl-fo-path'); });
+                this.$root.querySelectorAll('details.icl-fo-node').forEach(d => d.open = Number(d.dataset.depth) < 1);
+                this.matches = 0; this.notFound = false; return;
+            }
+            this.$root.querySelectorAll('details.icl-fo-node').forEach(d => { d.open = false; d.classList.remove('icl-fo-path'); });
+            rows.forEach(r => {
+                const hit = r.dataset.search.includes(t);
+                r.classList.toggle('icl-fo-hit', hit);
+                r.classList.toggle('icl-fo-dim', ! hit);
+                if (hit) {
+                    n++; if (! first) first = r;
+                    let d = r.closest('details');
+                    while (d) { d.open = true; d.classList.add('icl-fo-path'); d = d.parentElement ? d.parentElement.closest('details') : null; }
+                }
+            });
+            this.matches = n; this.notFound = n === 0;
+            if (first) this.$nextTick(() => first.scrollIntoView({ block: 'center', behavior: 'smooth' }));
+        },
+        printTree() { this.openAll(true); this.$nextTick(() => setTimeout(() => window.print(), 150)); }
+     }">
+
+    <div class="icl-toolbar">
+        <div class="icl-searchwrap">
+            <input type="text" class="icl-search" placeholder="Search name or code…" x-model="q" @input.debounce.200ms="filter()">
+            <span class="icl-notfound" x-show="notFound" x-cloak x-text="`No distributor matches “${q}”`"></span>
+            <span class="icl-fo-matches" x-show="q && matches" x-cloak x-text="matches + (matches === 1 ? ' match' : ' matches')"></span>
+        </div>
+        <button type="button" class="icl-btn" @click="openAll(true)">Expand all</button>
+        <button type="button" class="icl-btn" @click="openAll(false)">Collapse all</button>
+        <span class="icl-sep"></span>
+        <button type="button" class="icl-btn icl-btn-ghost" @click="printTree()">⎙ Print</button>
+        <span class="icl-hint"><span x-text="total"></span> distributors</span>
+    </div>
+
+    <div class="icl-fo-pane">
+        <div class="icl-fo-head">
+            <span>Distributor</span><span class="icl-fo-head-r">Team</span>
+        </div>
+        {!! \App\Support\GenealogyRenderer::folder($this->getTree()) !!}
+
+        {{-- details popup (same facts as the chart, plus the placement path) --}}
+        <div class="icl-modal-backdrop icl-fo-backdrop" x-show="modal" x-cloak x-transition.opacity
+             @click.self="modal = false" @keydown.escape.window="modal = false">
+            <div class="icl-modal" x-show="modal" x-transition:enter="icl-pop-enter" x-transition:enter-start="icl-pop-start">
+                <button type="button" class="icl-modal-x" @click="modal = false">&times;</button>
+                <div class="icl-modal-head">
+                    <div class="icl-ava icl-ava-lg" x-text="selected.initial"></div>
+                    <div>
+                        <div class="icl-modal-name" x-text="selected.name"></div>
+                        <div class="icl-modal-code" x-text="selected.code"></div>
+                    </div>
+                </div>
+                <div class="icl-fo-path-box">
+                    <div class="icl-fo-path-label">Place</div>
+                    <div class="icl-fo-path-trail">
+                        <template x-for="(p, i) in selected.path" :key="i">
+                            <span><span x-text="p" :class="{ 'icl-fo-path-me': i === selected.path.length - 1 }"></span><span x-show="i < selected.path.length - 1" class="icl-fo-path-sep">›</span></span>
+                        </template>
+                    </div>
+                </div>
+                <div class="icl-modal-rows">
+                    <div><span>Depth</span><b x-text="'Level ' + selected.depth"></b></div>
+                    <div><span>Position</span><b x-text="selected.position || '—'"></b></div>
+                    <div><span>Status</span><b :class="selected.active ? 'icl-ok' : 'icl-off'" x-text="selected.active ? 'Active' : 'Inactive'"></b></div>
+                    <div><span>Team size</span><b x-text="selected.count"></b></div>
+                    <div><span>KYC</span><b :class="selected.verified ? 'icl-ok' : 'icl-off'" x-text="selected.verified ? '✓ Verified' : 'Pending'"></b></div>
+                </div>
+                <a class="icl-modal-open" :href="selected.url" x-show="selected.url" target="_blank">Open distributor record →</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .icl-fo-pane { position: relative; border: 1px solid #e5e7eb; border-radius: .75rem; background: #fff; padding: .25rem 0 .75rem; min-height: 420px;
+        max-height: calc(100vh - 14rem); overflow: auto; font-size: .85rem; }
+    .dark .icl-fo-pane { background: #0f172a; border-color: #374151; }
+    .icl-fo-head { display: flex; justify-content: space-between; padding: .5rem 1rem .5rem 2.4rem; font-size: .68rem; font-weight: 700; letter-spacing: .08em;
+        text-transform: uppercase; color: #92400e; background: #fdf6e7; border-bottom: 1px solid #f3e4c6; position: sticky; top: 0; z-index: 2; }
+    .dark .icl-fo-head { background: #1f2937; color: #e6ad46; border-color: #374151; }
+    .icl-fo-head-r { padding-right: .4rem; }
+    details.icl-fo-node > summary { list-style: none; }
+    details.icl-fo-node > summary::-webkit-details-marker { display: none; }
+    .icl-fo-row { display: flex; align-items: center; gap: .5rem; padding: .32rem .9rem .32rem calc(.9rem + var(--d) * 1.35rem);
+        cursor: pointer; border-left: 3px solid transparent; user-select: none; white-space: nowrap; }
+    .icl-fo-row:hover { background: #fdf6e7; }
+    .dark .icl-fo-row:hover { background: #1f2937; }
+    details[open] > .icl-fo-row > .icl-fo-caret { transform: rotate(90deg); }
+    .icl-fo-caret { width: 1rem; display: inline-block; text-align: center; color: #9ca3af; font-size: .8rem; transition: transform .15s; }
+    .icl-fo-svg { width: 1.25rem; height: 1.25rem; flex: 0 0 auto; }
+    .icl-fo-name { font-weight: 600; color: #111827; }
+    .icl-fo-name:hover { color: #ab222f; text-decoration: underline; text-decoration-color: #e6ad46; }
+    .dark .icl-fo-name { color: #f3f4f6; }
+    .icl-fo-code { color: #6b7280; font-size: .75rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .icl-fo-pos { font-size: .62rem; font-weight: 600; color: #92400e; background: #fdeccf; border: 1px solid #e6ad46; padding: 0 .45rem; border-radius: 999px; }
+    .icl-fo-kyc { font-size: .62rem; font-weight: 700; color: #065f46; background: #d1fae5; padding: 0 .4rem; border-radius: 999px; }
+    .icl-fo-off { font-size: .62rem; color: #ab222f; font-style: italic; }
+    .icl-fo-count { margin-left: auto; font-size: .7rem; font-weight: 700; color: #fff; background: #ab222f; min-width: 1.6rem; text-align: center; padding: 0 .4rem; border-radius: 999px; }
+    .icl-fo-inactive > .icl-fo-name, .icl-fo-inactive > .icl-fo-code { opacity: .55; }
+    .icl-fo-children { position: relative; }
+    .icl-fo-children::before { content: ""; position: absolute; top: 0; bottom: .3rem; left: calc(.9rem + var(--d) * 1.35rem - .6rem); border-left: 1px dotted #d6b36a; }
+    .icl-fo-row.icl-fo-hit { background: #fdeccf; border-left-color: #ab222f; }
+    .icl-fo-row.icl-fo-dim { opacity: .35; }
+    details.icl-fo-path > .icl-fo-row.icl-fo-dim { opacity: .75; }
+    .icl-fo-matches { position: absolute; top: 110%; left: 0; font-size: .72rem; color: #92400e; font-weight: 600; }
+    .icl-fo-backdrop { position: fixed; }
+    .icl-fo-path-box { margin: 0 0 .75rem; padding: .55rem .7rem; background: #fdf6e7; border: 1px solid #f3e4c6; border-radius: .6rem; }
+    .dark .icl-fo-path-box { background: #111827; border-color: #374151; }
+    .icl-fo-path-label { font-size: .62rem; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: #92400e; margin-bottom: .2rem; }
+    .icl-fo-path-trail { font-size: .78rem; line-height: 1.5; color: #374151; }
+    .dark .icl-fo-path-trail { color: #e5e7eb; }
+    .icl-fo-path-sep { margin: 0 .3rem; color: #e6ad46; font-weight: 700; }
+    .icl-fo-path-me { font-weight: 700; color: #ab222f; }
+    @media print {
+        .icl-fo-pane { max-height: none; overflow: visible; border: none; }
+        .icl-fo-row.icl-fo-dim { opacity: 1; }
+    }
+</style>
+@else
 <div id="icl-geneao"
      x-data="{
         z: 1, x: 0, y: 0, dragging: false, sx: 0, sy: 0, q: '',
@@ -154,9 +311,7 @@
              :style="`transform: translate(${x}px, ${y}px) scale(${z});`">
             <div class="icl-tree">
                 <ul>
-                    @foreach ($this->getTree() as $node)
-                        @include('filament.pages.partials.genealogy-node', ['node' => $node, 'depth' => 0])
-                    @endforeach
+                    {!! \App\Support\GenealogyRenderer::chart($this->getTree()) !!}
                 </ul>
             </div>
         </div>
@@ -189,6 +344,7 @@
         </div>
     </div>
 </div>
+@endif
 
 <style>
     [x-cloak] { display: none !important; }
@@ -295,10 +451,21 @@
         font-size: .82rem; padding: .55rem; border-radius: .6rem; text-decoration: none; }
     .icl-modal-open:hover { background: #8c1c27; }
 
+    /* view switch (board 2026-10-24) */
+    .icl-switch { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; margin-bottom: .75rem; }
+    .icl-switch-btn { display: inline-flex; align-items: center; gap: .35rem; padding: .4rem .8rem; border-radius: .5rem; border: 1px solid #e5e7eb;
+        font-size: .8rem; font-weight: 600; color: #374151; background: #fff; text-decoration: none; }
+    .dark .icl-switch-btn { background: #1f2937; border-color: #374151; color: #e5e7eb; }
+    .icl-switch-btn:hover { border-color: #ab222f; color: #ab222f; }
+    .icl-switch-on, .icl-switch-on:hover { background: #ab222f; border-color: #ab222f; color: #fff; }
+    .icl-switch-ico { width: 1rem; height: 1rem; }
+    .icl-switch-hint { font-size: .72rem; color: #9ca3af; margin-left: .25rem; }
+
     /* print: just the chart, fully expanded, no transform */
     @media print {
         body * { visibility: hidden; }
         #icl-geneao, #icl-geneao * { visibility: visible; }
+        .icl-switch { display: none !important; }
         #icl-geneao { position: absolute; left: 0; top: 0; }
         .icl-toolbar, .icl-modal-backdrop { display: none !important; }
         .icl-viewport { overflow: visible; height: auto; min-height: 0; border: none; background: #fff; }

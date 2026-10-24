@@ -246,9 +246,22 @@
     "Library folder": "مجلد المكتبة",
     "Upload file": "رفع ملف",
     "Business Model Report": "تقرير نموذج الأعمال",
+    "Balance Sheet Report": "تقرير الميزانية العمومية",
+    "Profit & Loss Report": "تقرير الأرباح والخسائر",
     "Started Amount": "المبلغ الابتدائي",
     "Spot Gold Stock": "مخزون الذهب الفوري",
     "1-year Gold Stock": "مخزون الذهب لسنة واحدة",
     "2nd-year Gold Stock": "مخزون الذهب للسنة الثانية",
-    "Employee Report": "تقرير الموظفين"
+    "Employee Report": "تقرير الموظفين",
+    "Distributor List": "قائمة الموزعين",
+    "Distributor Place": "موقع الموزع",
+    "Sales & Contracts": "المبيعات والعقود",
+    "Contracts": "العقود",
+    "Contract": "عقد",
+    "Settlements": "التسويات",
+    "Branch / Dealers": "الفرع / الوكلاء",
+    "Blessed Gold": "الذهب المبارك",
+    "Lord's Branch": "فرع لورد",
+    "Dealer": "وكيل",
+    "Utility": "أدوات منزلية"
 }

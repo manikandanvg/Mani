@@ -21,7 +21,7 @@ class SalesInvoiceResource extends BaseResource
     use BranchScoped;
     protected static ?string $model = SalesInvoice::class;
 
-    protected static ?string $navigationGroup = 'Sales & Bonds';
+    protected static ?string $navigationGroup = 'Sales & Contracts';
 
     protected static ?int $navigationSort = 3;
 

@@ -77,6 +77,15 @@ class SalesService
             $fx = $branch?->fxRateToBase() ?? 1.0;
             $currency = $branch?->currency_code ?: 'INR';
 
+            // Board 2026-10-24: a scheme marked "Lord's Branches only" / "Dealers only" cannot
+            // be billed at the other kind of branch (the picker hides it; this is the hard gate).
+            abort_unless($plan->availableAt($branch), 422, sprintf(
+                'Scheme %s is available to %s only; this branch is a %s.',
+                $plan->code,
+                $plan->available_to === Plan::AVAILABLE_BRANCH ? "Lord's Branches" : 'dealers',
+                $branch?->isLordBranch() ? "Lord's Branch" : 'dealer',
+            ));
+
             [$member, $isNew] = $this->resolveCustomer($data, $billDate, $branchId);
 
             // --- totals from cart (in the BRANCH currency) ---

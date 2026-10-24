@@ -25,37 +25,14 @@ class MemberGenealogyController extends Controller
         ]);
     }
 
-    /** Same node shape as Filament\Pages\GenealogyTree::getTree, rooted at $member. */
+    /** Same node shape as the admin page (GenealogyRenderer::tree), rooted at $member, no admin links. */
     protected function subtree(Member $root): array
     {
-        $locale = Translatable::defaultLocale();
-
-        $members = Member::query()
-            ->select('id', 'member_code', 'name', 'upline_id', 'rank_id', 'status', 'pan_verified', 'aadhaar_verified')
-            ->with('rank:id,name')
-            ->orderBy('id')
-            ->get();
-
-        $byParent = $members->groupBy('upline_id');
-
-        $build = function (Member $m) use (&$build, $byParent, $locale) {
-            $children = ($byParent->get($m->id) ?? collect())->map($build)->all();
-            $descendants = count($children) + array_sum(array_column($children, 'descendants'));
-
-            return [
-                'id' => $m->id,
-                'name' => $m->name,
-                'code' => $m->member_code,
-                'position' => $m->rank ? Translatable::pick($m->rank->name, $locale) : '',
-                'active' => $m->status === 'active',
-                'verified' => $m->kyc_verified,
-                'initial' => strtoupper(mb_substr(trim($m->name) !== '' ? trim($m->name) : '?', 0, 1)),
-                'url' => '',   // no admin record links for members
-                'children' => $children,
-                'descendants' => $descendants,
-            ];
-        };
-
-        return $build($members->firstWhere('id', $root->id) ?? $root);
+        return \App\Support\GenealogyRenderer::tree($root->id, adminLinks: false)[0] ?? [
+            'id' => $root->id, 'name' => $root->name, 'code' => $root->member_code, 'position' => '',
+            'active' => $root->status === 'active', 'verified' => $root->kyc_verified,
+            'initial' => strtoupper(mb_substr(trim((string) $root->name) !== '' ? trim($root->name) : '?', 0, 1)),
+            'url' => '', 'children' => [], 'descendants' => 0,
+        ];
     }
 }

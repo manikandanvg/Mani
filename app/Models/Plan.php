@@ -31,6 +31,44 @@ class Plan extends Model
         'rank_factor' => 'decimal:2',
     ];
 
+    /** Scheme availability by dealership kind (board 2026-10-24). */
+    public const AVAILABLE_ALL = 'all';
+    public const AVAILABLE_BRANCH = 'branch';
+    public const AVAILABLE_DEALER = 'dealer';
+    public const AVAILABILITY_LABELS = [
+        self::AVAILABLE_ALL => "Both — Lord's Branches and dealers",
+        self::AVAILABLE_BRANCH => "Lord's Branches only",
+        self::AVAILABLE_DEALER => 'Dealers only',
+    ];
+
+    public static function availabilityLabel(?string $v): string
+    {
+        return self::AVAILABILITY_LABELS[$v ?: self::AVAILABLE_ALL] ?? ucfirst((string) $v);
+    }
+
+    /** May this scheme be billed at the given branch (by its kind)? HQ counts as a Lord's Branch. */
+    public function availableAt(?Branch $branch): bool
+    {
+        $mode = $this->available_to ?: self::AVAILABLE_ALL;
+        if ($mode === self::AVAILABLE_ALL || ! $branch) {
+            return true;
+        }
+
+        return $branch->kindForSchemes() === $mode;
+    }
+
+    /** Query scope: schemes billable at a branch of this kind ('branch' | 'dealer'). */
+    public function scopeAvailableFor($query, ?string $kind)
+    {
+        if (! $kind) {
+            return $query;
+        }
+
+        return $query->where(fn ($q) => $q->whereNull('available_to')
+            ->orWhere('available_to', self::AVAILABLE_ALL)
+            ->orWhere('available_to', $kind));
+    }
+
     public function mou() { return $this->belongsTo(Mou::class); }
 
     public function rdQrProduct() { return $this->belongsTo(CatalogProduct::class, 'rd_qr_product_id'); }

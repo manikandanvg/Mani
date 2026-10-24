@@ -19,12 +19,12 @@
             <div class="md:col-span-2 space-y-4">
                 <div class="bg-white rounded-2xl shadow p-6 lift">
                     <h2 class="font-serif font-bold text-lg">{{ tr('Head Office') }}</h2>
-                    <p class="mt-2 text-stone-600 font-light">{{ tr('Head Office, Coimbatore, India') }}</p>
+                    <p class="mt-2 text-stone-600 font-light">{{ tr('Head Office, Sivakasi, Tamil Nadu, India') }}</p>
                     <p class="mt-4 text-sm text-stone-500">{{ tr('Our concierge team responds within one business day.') }}</p>
                 </div>
                 <div class="bg-white rounded-2xl shadow p-6 lift">
-                    <h2 class="font-serif font-bold text-lg">{{ tr('Visit a boutique') }}</h2>
-                    <p class="mt-2 text-stone-600 font-light">{{ tr('Experience our collections in person at any of our stores.') }}</p>
+                    <h2 class="font-serif font-bold text-lg">{{ tr('Branch / Dealers') }}</h2>
+                    <p class="mt-2 text-stone-600 font-light">{{ tr('Experience our collections in person at any of our branches and dealers.') }}</p>
                     <a href="{{ url('/stores') }}" class="inline-block mt-3 text-brand hover:text-brand-dark transition-colors">{{ tr('Store Locator') }} →</a>
                 </div>
             </div>

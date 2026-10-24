@@ -239,7 +239,7 @@ class BusinessModelReport extends ReportPage
             default => __('Business Model Report'),
         };
 
-        $output = Pdf::setOptions(['isRemoteEnabled' => false, 'defaultFont' => 'DejaVu Sans'])
+        $output = Pdf::setOptions(['isRemoteEnabled' => false, 'defaultFont' => 'DejaVu Sans'], true)
             ->loadView('pdf.sections', ['title' => $title, 'sections' => $sections, 'generatedAt' => now()->toDayDateTimeString()])
             ->setPaper('a4', 'landscape')
             ->output();

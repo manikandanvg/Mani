@@ -90,13 +90,13 @@ class AdminPanelProvider extends PanelProvider
             )
             // One canonical sidebar order for ALL THREE logins (board spec 2026-08-09).
             // Empty groups never render, so each persona simply sees its visible subset:
-            // super-admin = everything; dealer = Trade → Sales & Bonds → L-BOX → Track →
+            // super-admin = everything; dealer = Trade → Sales & Contracts → L-BOX → Track →
             // System → Report; support staff = Support & Track only. "Track" is the
             // dealer-facing twin of "Support & Track" (same screens, different group).
             ->navigationGroups([
                 \Filament\Navigation\NavigationGroup::make('Network')->label(fn () => __('Network')),
                 \Filament\Navigation\NavigationGroup::make('Trade')->label(fn () => __('Trade')),
-                \Filament\Navigation\NavigationGroup::make('Sales & Bonds')->label(fn () => __('Sales & Bonds')),
+                \Filament\Navigation\NavigationGroup::make('Sales & Contracts')->label(fn () => __('Sales & Contracts')),
                 \Filament\Navigation\NavigationGroup::make('Commissions')->label(fn () => __('Commissions')),
                 \Filament\Navigation\NavigationGroup::make('Payroll')->label(fn () => __('Payroll')),
                 \Filament\Navigation\NavigationGroup::make('L-BOX')->label(fn () => __('L-BOX')),

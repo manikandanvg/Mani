@@ -42,7 +42,7 @@ class RedeemQr extends Page implements HasForms
 
     protected static ?string $navigationIcon = 'heroicon-o-qr-code';
 
-    protected static ?string $navigationGroup = 'Sales & Bonds';
+    protected static ?string $navigationGroup = 'Sales & Contracts';
 
     protected static ?int $navigationSort = 5;
 

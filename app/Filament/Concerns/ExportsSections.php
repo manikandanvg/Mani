@@ -97,7 +97,7 @@ trait ExportsSections
         $sections = $this->exportSections();
         $slug = $this->exportSlug();
 
-        $output = Pdf::setOptions(['isRemoteEnabled' => false, 'defaultFont' => 'DejaVu Sans'])
+        $output = Pdf::setOptions(['isRemoteEnabled' => false, 'defaultFont' => 'DejaVu Sans'], true)
             ->loadView('pdf.sections', [
                 'title' => property_exists($this, 'title') && static::$title ? static::$title : str($slug)->headline(),
                 'sections' => $sections,

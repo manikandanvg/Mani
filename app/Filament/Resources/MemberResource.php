@@ -30,9 +30,9 @@ class MemberResource extends BaseResource
     // Auditor terminology (2026-07): members/customers are displayed as "Distributors".
     protected static ?string $modelLabel = 'Distributor';
 
-    protected static ?string $pluralModelLabel = 'Distributors';
+    protected static ?string $pluralModelLabel = 'Distributor List';
 
-    protected static ?string $navigationLabel = 'Distributors';
+    protected static ?string $navigationLabel = 'Distributor List';
 
     public static function form(Form $form): Form
     {

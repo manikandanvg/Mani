@@ -98,6 +98,16 @@ class PlanResource extends BaseResource
                         ->searchable(),
                     Forms\Components\Toggle::make('is_active')->label('Visible / billable')->default(true),
                 ]),
+                // Board 2026-10-24: some schemes (RD, G12 …) are for Lord's Branches only,
+                // others for dealers only. Enforced at billing (SalesService) and in the
+                // Sales page scheme picker.
+                Forms\Components\Section::make('Availability')->columns(1)->schema([
+                    Forms\Components\Radio::make('available_to')
+                        ->label('Who may bill this scheme')
+                        ->options(Plan::AVAILABILITY_LABELS)
+                        ->default(Plan::AVAILABLE_ALL)->required()->inline()
+                        ->helperText("Lord's Branch = a company branch run by a branch in-charge (Branch → Kind). Dealer = an independent dealership."),
+                ]),
                 Forms\Components\Section::make('RD gold QR')->columns(3)->schema([
                     Forms\Components\TextInput::make('rd_qr_grams')->label('Gold weight (g)')->numeric()
                         ->helperText('QR + fixed renewal amount backed by this gold weight (e.g. 0.100 = 100 mg); blank = value-based QR'),
@@ -136,6 +146,11 @@ class PlanResource extends BaseResource
                 Translatable::column('name', 'Name'),
                 Tables\Columns\TextColumn::make('type')
                     ->badge(),
+                Tables\Columns\TextColumn::make('available_to')
+                    ->label('Available to')->badge()
+                    ->formatStateUsing(fn (?string $state) => match ($state ?: 'all') { 'branch' => "Lord's Branches", 'dealer' => 'Dealers', default => 'Both' })
+                    ->color(fn (?string $state) => match ($state ?: 'all') { 'branch' => 'info', 'dealer' => 'warning', default => 'gray' })
+                    ->sortable(),
                 Tables\Columns\TextColumn::make('min_value')
                     ->numeric()
                     ->sortable(),
@@ -169,7 +184,8 @@ class PlanResource extends BaseResource
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
-                //
+                Tables\Filters\SelectFilter::make('available_to')->label('Available to')
+                    ->options(['all' => 'Both', 'branch' => "Lord's Branches only", 'dealer' => 'Dealers only']),
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),

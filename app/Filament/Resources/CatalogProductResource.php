@@ -22,7 +22,7 @@ class CatalogProductResource extends BaseResource
 
     protected static ?string $navigationGroup = 'Master';
 
-    protected static ?string $navigationLabel = 'Catalog (Gold/Silver/Vessel)';
+    protected static ?string $navigationLabel = 'Catalog (Gold/Silver/Utility)';
 
     protected static ?string $navigationIcon = 'heroicon-o-cube';
 
@@ -35,7 +35,7 @@ class CatalogProductResource extends BaseResource
                     ->maxLength(40)
                     ->unique(ignoreRecord: true),
                 Forms\Components\Select::make('material')
-                    ->options(['gold' => 'Gold', 'silver' => 'Silver', 'vessel' => 'Vessel'])
+                    ->options(['gold' => 'Gold', 'silver' => 'Silver', 'vessel' => 'Vessel', 'utility' => 'Utility (gold spoon, silver tumbler ...)'])
                     ->default('gold')
                     ->required(),
                 Translatable::fieldset('name', 'Name'),

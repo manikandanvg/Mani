@@ -23,7 +23,7 @@ class RedemptionInvoiceResource extends BaseResource
 {
     protected static ?string $model = RedemptionInvoice::class;
 
-    protected static ?string $navigationGroup = 'Sales & Bonds';
+    protected static ?string $navigationGroup = 'Sales & Contracts';
 
     protected static ?string $navigationLabel = 'Redemption Invoices';
 

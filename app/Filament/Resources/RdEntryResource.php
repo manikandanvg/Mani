@@ -21,7 +21,7 @@ class RdEntryResource extends BaseResource
 
     protected static ?string $model = RdEntry::class;
 
-    protected static ?string $navigationGroup = 'Sales & Bonds';
+    protected static ?string $navigationGroup = 'Sales & Contracts';
 
     protected static ?int $navigationSort = 4;
 

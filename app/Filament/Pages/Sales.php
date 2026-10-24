@@ -912,11 +912,14 @@ class Sales extends Page implements HasForms
     {
         // Plan min/max ceilings are INR base; the cart totals are in the branch
         // currency — convert once so the filter agrees with assertPlanCaps.
-        $fx = Branch::find($branchId)?->fxRateToBase() ?? 1.0;
+        $branch = Branch::find($branchId);
+        $fx = $branch?->fxRateToBase() ?? 1.0;
         $grand = round(self::totals($cart)['grand'] * $fx, 2);
         $types = self::planTypesForCart($cart);
 
+        // Board 2026-10-24: schemes limited to Lord's Branches / dealers never show for the other kind.
         return Plan::where('is_active', true)
+            ->availableFor($branch?->kindForSchemes())
             ->where('min_value', '<=', $grand)
             ->where(fn ($q) => $q->whereNull('max_value')->orWhere('max_value', '>=', $grand))
             ->when($types !== null, fn ($q) => $q->whereIn('type', $types))

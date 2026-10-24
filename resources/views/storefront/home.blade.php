@@ -1,6 +1,6 @@
 @extends('storefront.layouts.app')
 @php use App\Support\Translatable; use App\Support\Money; @endphp
-@section('title', 'LORD JEWELLER — Fine Jewellery')
+@section('title', 'LORD JEWELLER — Blessed Gold')
 
 @section('content')
     {{-- hero slider --}}

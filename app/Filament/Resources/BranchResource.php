@@ -31,7 +31,30 @@ class BranchResource extends BaseResource
             ->schema([
                 Forms\Components\Section::make('Branch details')->columns(2)->schema([
                     Forms\Components\TextInput::make('name')->required()->maxLength(200),
-                    Forms\Components\TextInput::make('incharge')->label('In-charge')->maxLength(200),
+                    // Board resolution 2026-10-24: dealers convert into Lord's Branches (the
+                    // dealer becomes the branch in-charge); some stay independent dealers.
+                    // Scheme availability (Scheme → Availability) keys off this.
+                    Forms\Components\Radio::make('kind')
+                        ->label('Kind')
+                        ->options(Branch::KIND_LABELS)
+                        ->default(Branch::KIND_DEALER)->required()->inline(false)->live()
+                        ->disabled(fn (?Branch $record) => $record?->level === 'hq')
+                        ->dehydrated()
+                        ->helperText(fn (\Filament\Forms\Get $get) => $get('kind') === Branch::KIND_BRANCH
+                            ? "A Lord's Branch: company stock, company billing; the former dealer is recorded as the in-charge below and, by TBP stage, goes onto the payroll as an employee."
+                            : 'An independent dealership trading on its own account.')
+                        ->afterStateUpdated(function (?string $state, \Filament\Forms\Set $set, \Filament\Forms\Get $get, ?Branch $record) {
+                            // Converting to a Lord's Branch: pre-fill the in-charge from the dealer login.
+                            if ($state === Branch::KIND_BRANCH && blank($get('incharge')) && $record) {
+                                $name = $record->distributorUser()->value('name');
+                                if ($name) {
+                                    $set('incharge', $name);
+                                }
+                            }
+                        })
+                        ->columnSpanFull(),
+                    Forms\Components\TextInput::make('incharge')->label('In-charge')->maxLength(200)
+                        ->helperText(fn (\Filament\Forms\Get $get) => $get('kind') === Branch::KIND_BRANCH ? 'Branch in-charge (the converted dealer).' : null),
                     // Dealership ladder (board 2026-08-26) in Plans `hid` order; set
                     // automatically when a dealership plan is billed, editable here.
                     Forms\Components\Select::make('level')
@@ -118,6 +141,11 @@ class BranchResource extends BaseResource
             ->columns([
                 Tables\Columns\TextColumn::make('name')
                     ->searchable(),
+                Tables\Columns\TextColumn::make('kind')
+                    ->label('Kind')->badge()
+                    ->formatStateUsing(fn (?string $state, Branch $record) => $record->isLordBranch() ? "Lord's Branch" : 'Dealer')
+                    ->color(fn (?string $state, Branch $record) => $record->isLordBranch() ? 'info' : 'warning')
+                    ->sortable(),
                 Tables\Columns\TextColumn::make('level')
                     ->formatStateUsing(fn ($state) => Branch::levelLabel($state))
                     ->badge()
@@ -159,7 +187,10 @@ class BranchResource extends BaseResource
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
-                //
+                Tables\Filters\SelectFilter::make('kind')->label('Kind')
+                    ->options(['branch' => "Lord's Branches", 'dealer' => 'Dealers']),
+                Tables\Filters\SelectFilter::make('level')->label('Dealership level')
+                    ->options(collect(Branch::LEVELS)->mapWithKeys(fn ($l) => [$l => Branch::levelLabel($l)])->all()),
             ])
             ->actions([
                 // "View as Dealer" — step into this branch's distributor session (super-admin only).

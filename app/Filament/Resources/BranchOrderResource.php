@@ -153,6 +153,28 @@ class BranchOrderResource extends BaseResource
                 Tables\Columns\TextColumn::make('approved_at')->dateTime()->label('Decided')->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
+                // Board 2026-10-24: Order Requests filter by a date interval (order date).
+                Tables\Filters\Filter::make('ordered_between')
+                    ->label('Order date')
+                    ->form([
+                        Forms\Components\DatePicker::make('from')->label('From')->native(false)->displayFormat('d M Y'),
+                        Forms\Components\DatePicker::make('until')->label('Until')->native(false)->displayFormat('d M Y'),
+                    ])
+                    ->columns(2)->columnSpan(2)
+                    ->query(fn (Builder $query, array $data) => $query
+                        ->when($data['from'] ?? null, fn (Builder $q, $d) => $q->whereDate('created_at', '>=', $d))
+                        ->when($data['until'] ?? null, fn (Builder $q, $d) => $q->whereDate('created_at', '<=', $d)))
+                    ->indicateUsing(function (array $data): array {
+                        $out = [];
+                        if ($data['from'] ?? null) {
+                            $out[] = 'From ' . \Illuminate\Support\Carbon::parse($data['from'])->format('d M Y');
+                        }
+                        if ($data['until'] ?? null) {
+                            $out[] = 'Until ' . \Illuminate\Support\Carbon::parse($data['until'])->format('d M Y');
+                        }
+
+                        return $out;
+                    }),
                 Tables\Filters\SelectFilter::make('status')
                     ->options(['pending' => 'Pending', 'approved' => 'Approved / Accepted', 'in_transit' => 'In transit', 'delivered' => 'Delivered', 'billed' => 'Billed', 'rejected' => 'Rejected', 'cancelled' => 'Cancelled']),
                 Tables\Filters\SelectFilter::make('source')->label('Type')
@@ -162,6 +184,7 @@ class BranchOrderResource extends BaseResource
                         BranchOrderService::SOURCE_REDEMPTION => 'Redemption',
                     ]),
             ])
+            ->filtersFormColumns(3)
             ->actions([
                 // No 'view' page registered (board phase-1, 2026-08-21) — the same
                 // button now opens the infolist below as a popup modal.

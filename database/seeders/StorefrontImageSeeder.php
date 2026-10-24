@@ -21,7 +21,7 @@ class StorefrontImageSeeder extends Seeder
         $categoryImages = [
             'Gold' => 'images/categories/gold.jpg',
             'Silver' => 'images/categories/silver.jpg',
-            'Accessories' => 'images/categories/accessories.jpg',
+            'Utility' => 'images/categories/accessories.jpg',
         ];
         foreach (Category::where('domain', 'ecommerce')->whereNull('parent_id')->get() as $cat) {
             $name = is_array($cat->name) ? ($cat->name['en'] ?? '') : (string) $cat->name;

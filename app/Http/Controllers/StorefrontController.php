@@ -35,9 +35,9 @@ class StorefrontController extends Controller
     {
         return [
             [
-                'eyebrow' => 'Crafted with heritage',
+                'eyebrow' => 'Made with heritage',
                 'title' => 'Timeless gold & silver, for every celebration',
-                'subtitle' => 'Shop chains, bangles, rings and accessories — priced live, delivered worldwide, in your language and currency.',
+                'subtitle' => 'Shop chains, bangles, rings and utility pieces — priced live, delivered worldwide, in your language and currency.',
                 'cta' => 'Explore the collection',
                 'link' => '/shop',
                 'image' => asset('images/slides/slide-gold-heritage.jpg'),
@@ -45,7 +45,7 @@ class StorefrontController extends Controller
             ],
             [
                 'eyebrow' => 'Live gold & silver rates',
-                'title' => 'Pure 22K & 18K, priced to the minute',
+                'title' => 'HUID Hallmark Pure 22K, priced to the minute',
                 'subtitle' => 'Transparent, real-time pricing on every gold and silver piece — no surprises at checkout.',
                 'cta' => 'Shop gold',
                 'link' => '/shop?material=gold',
@@ -53,11 +53,11 @@ class StorefrontController extends Controller
                 'gradient' => 'from-brand-dark via-amber-800 to-brand-gold',
             ],
             [
-                'eyebrow' => 'New season accessories',
+                'eyebrow' => 'Our New Utility',
                 'title' => 'Everyday elegance, effortlessly yours',
-                'subtitle' => 'Discover our latest accessories collection — finely finished, beautifully affordable.',
-                'cta' => 'Browse accessories',
-                'link' => '/shop?material=accessory',
+                'subtitle' => 'Discover our latest utility collection — gold spoons, silver tumblers and more, finely finished and beautifully affordable.',
+                'cta' => 'Browse utility',
+                'link' => '/shop?material=utility',
                 'image' => asset('images/slides/slide-accessories.jpg'),
                 'gradient' => 'from-stone-900 via-brand-dark to-brand',
             ],

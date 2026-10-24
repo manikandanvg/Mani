@@ -22,9 +22,16 @@ class BondResource extends BaseResource
     use BranchScoped;
     protected static ?string $model = Bond::class;
 
-    protected static ?string $navigationGroup = 'Sales & Bonds';
+    protected static ?string $navigationGroup = 'Sales & Contracts';
 
     protected static ?int $navigationSort = 1;
+
+    // Board 2026-10-24: a bond is shown as a "Contract" (the MemberContract register is "Settlements").
+    protected static ?string $navigationLabel = 'Contracts';
+
+    protected static ?string $modelLabel = 'Contract';
+
+    protected static ?string $pluralModelLabel = 'Contracts';
 
     protected static ?string $navigationIcon = 'heroicon-o-document-check';
 

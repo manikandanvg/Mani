@@ -246,9 +246,22 @@
     "Library folder": "Dossier de bibliothèque",
     "Upload file": "Téléverser un fichier",
     "Business Model Report": "Rapport du modèle d’affaires",
+    "Balance Sheet Report": "Rapport de bilan",
+    "Profit & Loss Report": "Rapport de résultat",
     "Started Amount": "Montant de départ",
     "Spot Gold Stock": "Stock d’or immédiat",
     "1-year Gold Stock": "Stock d’or à 1 an",
     "2nd-year Gold Stock": "Stock d’or de 2e année",
-    "Employee Report": "Rapport des employés"
+    "Employee Report": "Rapport des employés",
+    "Distributor List": "Liste des distributeurs",
+    "Distributor Place": "Place du distributeur",
+    "Sales & Contracts": "Ventes & contrats",
+    "Contracts": "Contrats",
+    "Contract": "Contrat",
+    "Settlements": "Règlements",
+    "Branch / Dealers": "Agence / Revendeurs",
+    "Blessed Gold": "Or béni",
+    "Lord's Branch": "Agence Lord",
+    "Dealer": "Revendeur",
+    "Utility": "Articles utilitaires"
 }

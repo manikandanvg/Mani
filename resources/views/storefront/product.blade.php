@@ -24,7 +24,7 @@
                     @endif
                 @else
                     <div class="rounded-2xl bg-gradient-to-br from-stone-100 to-stone-200 h-96 grid place-items-center text-8xl">
-                        {{ $product->material === 'silver' ? '💍' : ($product->material === 'accessory' ? '🎁' : '💛') }}
+                        {{ $product->material === 'silver' ? '💍' : (in_array($product->material, ['accessory', 'utility'], true) ? '🎁' : '💛') }}
                     </div>
                 @endif
             </div>
