@@ -56,3 +56,56 @@ Change the super admin password (`admin@lordicl.com`) immediately after seeding.
 ## Dev database
 
 `lordicl_next` was backed up to `Desktop\db-backups\lordicl_next-pre-rollout-2026-10-24.sql` and then imported with `legacy:rollout --fresh` (plans already v2 there). Test members/branches that are not in legacy remain.
+
+## Live server (aaPanel, /www/wwwroot/next.lordicl.com)
+
+The legacy DB on the live server is the one that matters at cut-over (the local `lordicl` copy is a snapshot). Two ways; A is simpler and keeps the heavy job off the server.
+
+### A. Import locally, ship a dump (recommended)
+
+```bash
+# on the live server: freeze legacy + dump it (legacy app read-only from here on)
+mysqldump -u<user> -p --single-transaction lordicl > /www/backup/lordicl-cutover.sql
+
+# on the PC: load that dump as the legacy source, build the live DB from it
+mysql -uroot -e "DROP DATABASE IF EXISTS lordicl; CREATE DATABASE lordicl CHARACTER SET utf8mb4"
+mysql -uroot lordicl < lordicl-cutover.sql
+mysql -uroot -e "CREATE DATABASE lordicl_live CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+DB_DATABASE=lordicl_live php artisan migrate --force
+DB_DATABASE=lordicl_live php artisan db:seed --class=RolloutSeeder --force
+DB_DATABASE=lordicl_live php -d memory_limit=1024M artisan legacy:rollout --fresh --seed-plans
+DB_DATABASE=lordicl_live php artisan db:seed --class=CashStockSeeder --force
+C:\wamp64\bin\mysql\mysql8.2.0\bin\mysqldump -uroot --single-transaction lordicl_live > lordicl_live.sql
+
+# ship + load on the live server (aaPanel → Databases → create `lordicl_live` + user first)
+scp lordicl_live.sql root@<live>:/www/backup/
+mysql -u<user> -p lordicl_live < /www/backup/lordicl_live.sql
+```
+
+### B. Import on the server
+
+```bash
+cd /www/wwwroot/next.lordicl.com
+git pull && composer install --no-dev --optimize-autoloader
+# .env: DB_DATABASE=lordicl_live  LEGACY_DB_DATABASE=lordicl  LEGACY_DB_USERNAME/PASSWORD=<legacy db user>
+php artisan migrate --force
+php artisan db:seed --class=RolloutSeeder --force
+php artisan legacy:rollout --dry-run
+php -d memory_limit=1024M -d max_execution_time=0 artisan legacy:rollout --fresh --seed-plans   # ~8 min
+php artisan db:seed --class=CashStockSeeder --force
+```
+
+### Either way, afterwards on the live server
+
+```bash
+php artisan storage:link
+php artisan config:clear && php artisan route:clear && php artisan view:clear
+php artisan optimize            # config/route cache for production
+php artisan ranks:recompute     # optional: re-derive TBP ranks from BV
+php artisan branches:audit-sources
+```
+
+- aaPanel PHP settings: `memory_limit` ≥ 256M for PHP-FPM (Distributor Place / reports on 16k members), CLI is used for the import so no `max_execution_time` change is needed for the web.
+- Change `admin@lordicl.com`'s password; dealers log in with their legacy passwords (hashes copied).
+- Copy `storage/app/public` uploads (member photos, product images) from legacy if they are to be shown.
+- Point the legacy app at a maintenance page once the dump is taken: anything entered there after the dump is lost.
