@@ -112,7 +112,10 @@ class MemberBusinessController extends Controller
                     ? "strftime('%Y-%m', earned_on)"
                     : "DATE_FORMAT(earned_on, '%Y-%m')";
 
-                return $this->ledgerQuery($member, 'GAP')
+                $page = $this->ledgerQuery($member, 'GAP')
+                    // Roll-out 2026-10-24: the legacy history is ONE line per status, not
+                    // a month — it is listed separately below, never merged into a month.
+                    ->where(fn ($q) => $q->whereNull('invoice_no')->orWhere('invoice_no', 'not like', 'LEGACY-%'))
                     ->selectRaw("$monthExpr as month")
                     ->selectRaw('SUM(amount) as amount, SUM(net_amount) as net, COUNT(*) as entries')
                     ->selectRaw("SUM(CASE WHEN status = 'paid' THEN 1 ELSE 0 END) as paid_entries")
@@ -129,6 +132,14 @@ class MemberBusinessController extends Controller
                         'entries' => (int) $r->entries,
                         'status' => (int) $r->entries > 0 && (int) $r->paid_entries >= (int) $r->entries ? 'paid' : 'pending',
                     ]);
+                if ($page->currentPage() === 1) {
+                    $legacy = $this->ledgerQuery($member, 'GAP')->where('invoice_no', 'like', 'LEGACY-%')
+                        ->orderByDesc('earned_on')->get()
+                        ->map(fn (CommissionLedger $r) => $this->ledgerRow($r));
+                    $page->setCollection($legacy->concat($page->getCollection()));
+                }
+
+                return $page;
             })(),
             'CBC' => $this->cbcQuery($member)->latest('cbc_date')->paginate(20)
                 ->through(fn (CbcEntry $r) => [
@@ -165,21 +176,48 @@ class MemberBusinessController extends Controller
                     'reference' => $r->invoice_no,
                     'net' => (float) $r->net_amount,
                     'paid_on' => optional($r->paid_on)->toDateString(),
-                ]),
+                ] + $this->legacyMeta($r->invoice_no)),
             default => $this->ledgerQuery($member, $stream)->latest('earned_on')->with('fromMember')->paginate(20)
-                ->through(fn (CommissionLedger $r) => [
-                    'stream' => $r->type,
-                    'date' => optional($r->earned_on)->toDateString(),
-                    'amount' => (float) $r->amount,
-                    'status' => $r->status,
-                    'from' => $r->fromMember?->name,
-                    'reference' => $r->invoice_no,
-                    'net' => (float) $r->net_amount,
-                    'paid_on' => optional($r->paid_on)->toDateString(),
-                ]),
+                ->through(fn (CommissionLedger $r) => $this->ledgerRow($r)),
         };
 
         return response()->json($rows);
+    }
+
+    /** One commission_ledger row as the app's earning line (+ legacy opening meta). */
+    protected function ledgerRow(CommissionLedger $r): array
+    {
+        return [
+            'stream' => $r->type,
+            'date' => optional($r->earned_on)->toDateString(),
+            'amount' => (float) $r->amount,
+            'status' => $r->status,
+            'from' => $r->fromMember?->name,
+            'reference' => $r->invoice_no,
+            'net' => (float) $r->net_amount,
+            'paid_on' => optional($r->paid_on)->toDateString(),
+        ] + $this->legacyMeta($r->invoice_no);
+    }
+
+    /**
+     * Roll-out 2026-10-24: the previous system's history was imported as ONE line per
+     * distributor ("LEGACY-IC ×1,234 2024-01→2026-09"). The app shows it as an opening
+     * balance with the entry count and period instead of the raw reference.
+     */
+    protected function legacyMeta(?string $reference): array
+    {
+        if (! $reference || ! str_starts_with($reference, 'LEGACY-')) {
+            return [];
+        }
+        preg_match('/×([\d,]+)/u', $reference, $n);
+        preg_match('/(\d{4}-\d{2})→(\d{4}-\d{2})/u', $reference, $p);
+
+        return [
+            'legacy' => true,
+            'entries' => isset($n[1]) ? (int) str_replace(',', '', $n[1]) : null,
+            'period_from' => $p[1] ?? null,
+            'period_to' => $p[2] ?? null,
+        ];
     }
 
     /**
@@ -356,9 +394,14 @@ class MemberBusinessController extends Controller
 
         return response()->json([
             'root' => $this->genealogyNode($member, 10),
-            // Admin-parity web chart for the app's WebView (item 12) — signed, 3h.
+            // Admin-parity web page for the app's WebView (item 12) — signed, 3h.
+            // Board 2026-10-24: the default is the FOLDER view ("Distributor Place");
+            // the org chart stays available on its own signed URL.
             'web_url' => \Illuminate\Support\Facades\URL::temporarySignedRoute(
-                'app.genealogy', now()->addHours(3), ['member' => $member->id],
+                'app.genealogy', now()->addHours(3), ['member' => $member->id, 'view' => 'folder'],
+            ),
+            'web_chart_url' => \Illuminate\Support\Facades\URL::temporarySignedRoute(
+                'app.genealogy', now()->addHours(3), ['member' => $member->id, 'view' => 'chart'],
             ),
         ]);
     }

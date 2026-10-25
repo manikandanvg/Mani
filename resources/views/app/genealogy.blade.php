@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>My Network</title>
+<title>Distributor Place</title>
 <script defer src="https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js"></script>
 <style>
     [x-cloak] { display: none !important; }
@@ -33,6 +33,7 @@
     .icl-btn { padding: .5rem .7rem; border: 1px solid #ab222f; background: #ab222f; color: #fff; border-radius: .55rem; font-size: .82rem; font-weight: 600; line-height: 1; }
     .icl-btn-ghost { background: #fff; color: #ab222f; }
 
+    /* ---------- chart (org tree) ---------- */
     .icl-viewport { position: relative; overflow: hidden; flex: 1; cursor: grab; touch-action: none; }
     .icl-stage { position: absolute; top: 30px; left: 50%; transform-origin: top center; will-change: transform;
         transition: transform .3s cubic-bezier(.22,.61,.36,1); }
@@ -73,6 +74,38 @@
     .icl-card.icl-hit { outline: 3px solid #e6ad46; outline-offset: 2px; }
     .icl-card.icl-current { outline: 3px solid #ab222f; outline-offset: 2px; box-shadow: 0 0 0 6px rgba(171,34,47,.15); }
 
+    /* ---------- folder view ("Distributor Place", board 2026-10-24) ---------- */
+    .icl-fo-pane { flex: 1; overflow: auto; -webkit-overflow-scrolling: touch; font-size: .86rem; background: #fff; }
+    .icl-fo-head { display: flex; justify-content: space-between; padding: .45rem .9rem .45rem 2.3rem; font-size: .64rem; font-weight: 700;
+        letter-spacing: .08em; text-transform: uppercase; color: #92400e; background: #fdf6e7; border-bottom: 1px solid #f3e4c6; position: sticky; top: 0; z-index: 2; }
+    details.icl-fo-node > summary { list-style: none; }
+    details.icl-fo-node > summary::-webkit-details-marker { display: none; }
+    .icl-fo-row { display: flex; align-items: center; gap: .45rem; padding: .5rem .7rem .5rem calc(.6rem + var(--d) * 1.1rem);
+        border-left: 3px solid transparent; user-select: none; white-space: nowrap; overflow: hidden; }
+    .icl-fo-row:active { background: #fdf6e7; }
+    details[open] > .icl-fo-row > .icl-fo-caret { transform: rotate(90deg); }
+    .icl-fo-caret { width: .9rem; flex: 0 0 auto; text-align: center; color: #9ca3af; font-size: .8rem; transition: transform .15s; }
+    .icl-fo-svg { width: 1.3rem; height: 1.3rem; flex: 0 0 auto; }
+    .icl-fo-name { font-weight: 600; color: #111827; overflow: hidden; text-overflow: ellipsis; }
+    .icl-fo-code { color: #6b7280; font-size: .72rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .icl-fo-pos { font-size: .6rem; font-weight: 600; color: #92400e; background: #fdeccf; border: 1px solid #e6ad46; padding: 0 .4rem; border-radius: 999px; }
+    .icl-fo-kyc { font-size: .6rem; font-weight: 700; color: #065f46; background: #d1fae5; padding: 0 .4rem; border-radius: 999px; }
+    .icl-fo-off { font-size: .6rem; color: #ab222f; font-style: italic; }
+    .icl-fo-count { margin-left: auto; font-size: .68rem; font-weight: 700; color: #fff; background: #ab222f; min-width: 1.5rem; text-align: center; padding: 0 .4rem; border-radius: 999px; }
+    .icl-fo-inactive > .icl-fo-name, .icl-fo-inactive > .icl-fo-code { opacity: .55; }
+    .icl-fo-children { position: relative; }
+    .icl-fo-children::before { content: ""; position: absolute; top: 0; bottom: .3rem; left: calc(.6rem + var(--d) * 1.1rem - .45rem); border-left: 1px dotted #d6b36a; }
+    .icl-fo-row.icl-fo-hit { background: #fdeccf; border-left-color: #ab222f; }
+    .icl-fo-row.icl-fo-dim { opacity: .35; }
+    details.icl-fo-path > .icl-fo-row.icl-fo-dim { opacity: .75; }
+    .icl-fo-path-box { margin: 0 0 .75rem; padding: .55rem .7rem; background: #fdf6e7; border: 1px solid #f3e4c6; border-radius: .6rem; }
+    .icl-fo-path-label { font-size: .62rem; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: #92400e; margin-bottom: .2rem; }
+    .icl-fo-path-trail { font-size: .78rem; line-height: 1.5; color: #374151; }
+    .icl-fo-path-sep { margin: 0 .3rem; color: #e6ad46; font-weight: 700; }
+    .icl-fo-path-me { font-weight: 700; color: #ab222f; }
+    .icl-hint { font-size: .7rem; color: #9ca3af; }
+
+    /* ---------- details popup ---------- */
     .icl-modal-backdrop { position: fixed; inset: 0; background: rgba(17,24,39,.45); display: flex; align-items: center; justify-content: center; z-index: 30; }
     .icl-modal { position: relative; width: 320px; max-width: 88%; background: #fff; border-radius: 1rem; padding: 1.2rem; box-shadow: 0 20px 50px rgba(0,0,0,.3); }
     .icl-modal-x { position: absolute; top: .4rem; right: .65rem; border: none; background: none; font-size: 1.5rem; line-height: 1; color: #9ca3af; }
@@ -86,6 +119,96 @@
 </style>
 </head>
 <body>
+@if (($view ?? 'folder') === 'folder')
+{{-- ================= FOLDER VIEW (default) ================= --}}
+<div id="icl-geneao"
+     x-data="{
+        q: '', selected: {}, modal: false, matches: 0, notFound: false, total: 0,
+        init() { this.total = this.$root.querySelectorAll('.icl-fo-row').length },
+        openAll(on) { this.$root.querySelectorAll('details.icl-fo-node').forEach(d => d.open = on) },
+        pick(row) {
+            if (! row) return;
+            const path = [];
+            let d = row.closest('details');
+            while (d) { const r = d.querySelector(':scope > summary'); if (r) path.unshift(r.dataset.name); d = d.parentElement ? d.parentElement.closest('details') : null; }
+            this.selected = {
+                name: row.dataset.name, code: row.dataset.code, position: row.dataset.position,
+                count: row.dataset.count, active: row.dataset.active === '1',
+                verified: row.dataset.verified === '1', depth: path.length, path: path,
+                initial: (row.dataset.name || '?').charAt(0).toUpperCase()
+            };
+            this.modal = true;
+        },
+        filter() {
+            const t = this.q.trim().toLowerCase();
+            const rows = this.$root.querySelectorAll('.icl-fo-row');
+            let n = 0, first = null;
+            if (! t) {
+                rows.forEach(r => { r.classList.remove('icl-fo-hit', 'icl-fo-dim'); r.closest('details').classList.remove('icl-fo-path'); });
+                this.$root.querySelectorAll('details.icl-fo-node').forEach(d => d.open = Number(d.dataset.depth) < 1);
+                this.matches = 0; this.notFound = false; return;
+            }
+            this.$root.querySelectorAll('details.icl-fo-node').forEach(d => { d.open = false; d.classList.remove('icl-fo-path'); });
+            rows.forEach(r => {
+                const hit = r.dataset.search.includes(t);
+                r.classList.toggle('icl-fo-hit', hit);
+                r.classList.toggle('icl-fo-dim', ! hit);
+                if (hit) {
+                    n++; if (! first) first = r;
+                    let d = r.closest('details');
+                    while (d) { d.open = true; d.classList.add('icl-fo-path'); d = d.parentElement ? d.parentElement.closest('details') : null; }
+                }
+            });
+            this.matches = n; this.notFound = n === 0;
+            if (first) this.$nextTick(() => first.scrollIntoView({ block: 'center', behavior: 'smooth' }));
+        }
+     }">
+
+    <div class="icl-toolbar">
+        <div class="icl-searchwrap">
+            <input type="text" class="icl-search" placeholder="Search name or code…" x-model="q" @input.debounce.200ms="filter()">
+            <span class="icl-notfound" x-show="notFound" x-cloak x-text="`No match for “${q}”`"></span>
+        </div>
+        <button type="button" class="icl-btn icl-btn-ghost" @click="openAll(true)">Expand</button>
+        <button type="button" class="icl-btn icl-btn-ghost" @click="openAll(false)">Collapse</button>
+        <span class="icl-hint"><span x-text="total"></span> distributors</span>
+    </div>
+
+    <div class="icl-fo-pane">
+        <div class="icl-fo-head"><span>Distributor</span><span>Under</span></div>
+        {!! \App\Support\GenealogyRenderer::folder($tree) !!}
+    </div>
+
+    <div class="icl-modal-backdrop" x-show="modal" x-cloak @click.self="modal = false">
+        <div class="icl-modal" x-show="modal">
+            <button type="button" class="icl-modal-x" @click="modal = false">&times;</button>
+            <div class="icl-modal-head">
+                <div class="icl-ava icl-ava-lg" x-text="selected.initial"></div>
+                <div>
+                    <div class="icl-modal-name" x-text="selected.name"></div>
+                    <div class="icl-modal-code" x-text="selected.code"></div>
+                </div>
+            </div>
+            <div class="icl-fo-path-box">
+                <div class="icl-fo-path-label">Place</div>
+                <div class="icl-fo-path-trail">
+                    <template x-for="(p, i) in selected.path" :key="i">
+                        <span><span x-text="p" :class="{ 'icl-fo-path-me': i === selected.path.length - 1 }"></span><span x-show="i < selected.path.length - 1" class="icl-fo-path-sep">›</span></span>
+                    </template>
+                </div>
+            </div>
+            <div class="icl-modal-rows">
+                <div><span>Depth</span><b x-text="'Level ' + selected.depth"></b></div>
+                <div><span>TBP stage</span><b x-text="selected.position || '—'"></b></div>
+                <div><span>Status</span><b :class="selected.active ? 'icl-ok' : 'icl-off'" x-text="selected.active ? 'Active' : 'Inactive'"></b></div>
+                <div><span>Distributors under</span><b x-text="selected.count"></b></div>
+                <div><span>KYC</span><b :class="selected.verified ? 'icl-ok' : 'icl-off'" x-text="selected.verified ? '✓ Verified' : 'Pending'"></b></div>
+            </div>
+        </div>
+    </div>
+</div>
+@else
+{{-- ================= CHART VIEW ================= --}}
 <div id="icl-geneao"
      x-data="{
         z: 1, x: 0, y: 0, dragging: false, sx: 0, sy: 0, q: '',
@@ -97,7 +220,7 @@
         down(e) {
             this.pointers[e.pointerId] = { x: e.clientX, y: e.clientY };
             const pts = Object.values(this.pointers);
-            if (pts.length === 2) {                        // pinch begins
+            if (pts.length === 2) {
                 this.dragging = false;
                 this.pinchDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
                 this.pinchZ = this.z;
@@ -217,11 +340,11 @@
                     </div>
                 </div>
                 <div class="icl-modal-rows">
-                    <div><span>Position</span><b x-text="selected.position || '—'"></b></div>
+                    <div><span>TBP stage</span><b x-text="selected.position || '—'"></b></div>
                     <div><span>Status</span>
                         <b :class="selected.active ? 'icl-ok' : 'icl-off'" x-text="selected.active ? 'Active' : 'Inactive'"></b>
                     </div>
-                    <div><span>Team size</span><b x-text="selected.count"></b></div>
+                    <div><span>Distributors under</span><b x-text="selected.count"></b></div>
                     <div><span>KYC</span>
                         <b :class="selected.verified ? 'icl-ok' : 'icl-off'" x-text="selected.verified ? '✓ Verified' : 'Pending'"></b>
                     </div>
@@ -230,5 +353,6 @@
         </div>
     </div>
 </div>
+@endif
 </body>
 </html>

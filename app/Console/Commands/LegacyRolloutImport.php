@@ -562,6 +562,26 @@ class LegacyRolloutImport extends LegacyImport
         foreach (array_chunk($batch, 1000) as $chunk) {
             DB::table('digi_orders')->insert($chunk);
         }
+        // The app's Digi Market purse reads member_wallets.digi_gold_grams and shows the
+        // gram ledger behind it (digi_gold_txns) — one "legacy_opening" credit per member.
+        $txns = [];
+        foreach ($batch as $row) {
+            if ((float) $row['gold_wt'] <= 0) {
+                continue;
+            }
+            $txns[] = [
+                'member_id' => $row['member_id'], 'metal' => 'gold', 'type' => 'credit',
+                'grams' => $row['gold_wt'], 'rate' => $row['rate_on_date'], 'value' => $row['value'], 'fee' => 0,
+                'source' => 'legacy_opening', 'reference' => $row['ref_no'], 'balance_after' => $row['gold_wt'],
+                'created_at' => $row['created_at'], 'updated_at' => $row['updated_at'],
+            ];
+        }
+        if (Schema::hasTable('digi_gold_txns')) {
+            DB::table('digi_gold_txns')->where('source', 'legacy_opening')->delete();
+            foreach (array_chunk($txns, 1000) as $chunk) {
+                DB::table('digi_gold_txns')->insert($chunk);
+            }
+        }
         foreach (array_chunk($wallet, 1000, true) as $chunk) {
             foreach ($chunk as $memberId => $grams) {
                 DB::table('member_wallets')->updateOrInsert(['member_id' => $memberId],

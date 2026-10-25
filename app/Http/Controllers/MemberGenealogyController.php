@@ -22,6 +22,9 @@ class MemberGenealogyController extends Controller
         return view('app.genealogy', [
             'tree' => [$this->subtree($member)],
             'memberName' => $member->name,
+            // Board 2026-10-24: folder view ("Distributor Place") is the default; the
+            // org chart only when the signed URL asks for it (view is part of the signature).
+            'view' => $request->query('view') === 'chart' ? 'chart' : 'folder',
         ]);
     }
 

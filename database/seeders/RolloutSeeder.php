@@ -26,6 +26,7 @@ class RolloutSeeder extends Seeder
         DatabaseSeeder::$withDemo = false;
         $this->call(DatabaseSeeder::class);
         DatabaseSeeder::$withDemo = true;
+        $this->call(StorefrontImageSeeder::class);   // category / product / post imagery under public/images
 
         // Public pages the storefront links to (About has the board's copy; policies are stubs to edit in Website → Pages).
         foreach ([
