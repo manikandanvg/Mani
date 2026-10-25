@@ -150,4 +150,8 @@ return [
         'block_threshold' => env('PAN_BLOCK_THRESHOLD', 200000),
     ],
 
+    // Store-review demo logins (Play / App Store reviewers, 2026-10-25): "phone:code,phone:code".
+    // Only the listed demo phones get a fixed OTP (OtpService); leave empty on dev.
+    'review_logins' => env('REVIEW_LOGINS', ''),
+
 ];
