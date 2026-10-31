@@ -207,14 +207,25 @@ class BoardCorrectionsOct31Test extends TestCase
             ->mountTableAction('staticQr', $dealer)
             ->assertSee('lbox-QR-' . $dealer->id . '.png');
 
-        // the dealer prints the same card from its own login: L-BOX → My Branch QR
-        $this->get('/admin/my-branch-qr')->assertForbidden();   // HQ admin has no branch login
+    }
+
+    /** The dealer prints the same card from its own login: L-BOX → My Branch QR. */
+    public function test_dealer_prints_its_branch_qr_from_its_own_login(): void
+    {
+        $dealer = Branch::create(['name' => 'Dealer SQ', 'country' => 'IN', 'is_active' => true]);
         $dealerUser = User::create(['name' => 'Dealer SQ', 'email' => 'dealersq@test.local', 'password' => 'secret123', 'status' => 'active', 'branch_id' => $dealer->id]);
         $dealerUser->assignRole('distributor');
         app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+
+        $this->actingAs($this->admin)->get('/admin/my-branch-qr')->assertForbidden();   // HQ admin has no branch login
+
+        // switching users inside one test session: drop the admin's session (AuthenticateSession
+        // would otherwise log the dealer out on the first request — browsers have separate sessions)
+        $this->flushSession();
         $html = $this->actingAs($dealerUser)->get('/admin/my-branch-qr')->assertSuccessful()->getContent();
         $this->assertStringContainsString('lbox-QR-' . $dealer->id . '.png', $html);
         $this->assertStringContainsString('My Branch QR', $html);
+        $this->assertNotNull($dealer->fresh()->staticQrDevice(), 'generated on first visit');
     }
 
     public function test_app_price_list_prices_every_item_from_the_name_weight_and_stores_carry_the_payment_qr(): void
