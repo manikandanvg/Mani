@@ -81,6 +81,11 @@ class ActivityLogResource extends BaseResource
                 Tables\Columns\TextColumn::make('action')->badge()->color('gray')->searchable(),
                 Tables\Columns\TextColumn::make('summary')->searchable()->wrap()->limit(140)
                     ->description(fn (ActivityLog $r) => $r->subject_label ? ($r->subject_type ? class_basename($r->subject_type) . ' · ' : '') . $r->subject_label : null),
+                // Generated login / redeem OTP — HQ super admin only (user 2026-10-31): lets Head Office
+                // read a code to a distributor whose phone did not receive it. Hidden column = not exported.
+                Tables\Columns\TextColumn::make('details.otp_code')->label('OTP')->badge()->color('warning')
+                    ->visible(fn () => static::canSeeOtp())->copyable()->placeholder('—')->toggleable()
+                    ->description(fn (ActivityLog $r) => isset($r->details['expires_at']) ? 'valid till ' . substr((string) $r->details['expires_at'], 11, 5) : null),
                 Tables\Columns\TextColumn::make('actor_name')->label('By')->searchable()
                     ->description(fn (ActivityLog $r) => $r->actor_type)
                     ->placeholder('—'),
@@ -155,13 +160,34 @@ class ActivityLogResource extends BaseResource
                 Infolists\Components\TextEntry::make('status')->badge(),
                 Infolists\Components\TextEntry::make('ip')->label('IP')->placeholder('—'),
                 Infolists\Components\TextEntry::make('request_id')->label('Request')->placeholder('—')->copyable(),
+                Infolists\Components\TextEntry::make('details.otp_code')->label('Generated OTP')->badge()->color('warning')->copyable()
+                    ->visible(fn (ActivityLog $r) => static::canSeeOtp() && isset($r->details['otp_code'])),
                 Infolists\Components\TextEntry::make('details')->label('Details')->columnSpanFull()
                     ->state(fn (ActivityLog $r) => $r->details
                         ? new HtmlString('<pre style="white-space:pre-wrap;font-size:.78rem;line-height:1.35;background:#f8f7f4;border:1px solid #e7e5e4;border-radius:.5rem;padding:.75rem;max-height:28rem;overflow:auto">'
-                            . e(json_encode($r->details, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)) . '</pre>')
+                            . e(json_encode(static::detailsFor($r), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)) . '</pre>')
                         : '—'),
             ]),
         ]);
+    }
+
+    /** The generated OTP is readable by the HQ super admin only. */
+    public static function canSeeOtp(): bool
+    {
+        $u = auth()->user();
+
+        return $u !== null && method_exists($u, 'isSuperAdmin') && $u->isSuperAdmin();
+    }
+
+    /** Details as shown to the current user: the OTP code is removed for everyone but the super admin. */
+    public static function detailsFor(ActivityLog $r): array
+    {
+        $d = $r->details ?? [];
+        if (! static::canSeeOtp()) {
+            unset($d['otp_code']);
+        }
+
+        return $d;
     }
 
     public static function getPages(): array

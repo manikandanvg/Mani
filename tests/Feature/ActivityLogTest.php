@@ -98,6 +98,17 @@ class ActivityLogTest extends TestCase
         $sent = ActivityLog::where('category', 'otp')->where('action', 'otp_sent')->latest('id')->firstOrFail();
         $this->assertSame($member->id, (int) $sent->member_id);
         $this->assertStringNotContainsString('9000000099', $sent->summary);
+        // the generated code is kept on the row (user 2026-10-31) and shown to the HQ super admin only
+        $code = \App\Models\PhoneOtp::latest('id')->value('code');
+        $this->assertMatchesRegularExpression('/^\d{6}$/', (string) $code);
+        $this->assertSame($code, $sent->details['otp_code']);
+        $this->actingAs($this->admin);
+        $this->assertTrue(\App\Filament\Resources\ActivityLogResource::canSeeOtp());
+        Livewire::test(ListActivityLogs::class)->filterTable('category', ['otp'])->assertSee($code);
+        $this->assertArrayHasKey('otp_code', \App\Filament\Resources\ActivityLogResource::detailsFor($sent));
+        auth()->logout();
+        $this->assertFalse(\App\Filament\Resources\ActivityLogResource::canSeeOtp());
+        $this->assertArrayNotHasKey('otp_code', \App\Filament\Resources\ActivityLogResource::detailsFor($sent));
 
         $this->postJson('/api/v1/auth/otp/verify', ['phone' => '9000000099', 'code' => '000000']);
         $this->assertTrue(ActivityLog::where('action', 'otp_rejected')->exists());

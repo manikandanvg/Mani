@@ -39,8 +39,14 @@ L-BOX, system), the affected distributor and branch, the subject record, details
 changed fields old → new, payloads, gateway answers), IP, user agent and a request id
 that ties together everything one request did.
 
-Secrets are never stored: passwords, keys, tokens, OTP codes, Aadhaar / PAN / bank
-numbers are written as `[hidden]`; phone numbers appear masked (98xxxxxx82).
+Secrets are never stored: passwords, keys, tokens, Aadhaar / PAN / bank numbers are
+written as `[hidden]`; phone numbers appear masked (98xxxxxx82).
+
+One deliberate exception (user 2026-10-31): the **generated login OTP** is kept on the
+`otp_sent` row (`details.otp_code`, with its expiry) so Head Office can read a code to a
+distributor whose phone did not receive it. Only the **super admin** sees it — as the "OTP"
+column (hidden from the export for everyone else) and as "Generated OTP" in the Details popup;
+other HQ users get the row without the code (`ActivityLogResource::canSeeOtp()`).
 
 ## Filters on the viewer
 

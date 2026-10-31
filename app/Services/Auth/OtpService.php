@@ -58,7 +58,11 @@ class OtpService
             ucfirst($purpose) . ' OTP to ' . \App\Services\Activity\ActivityLogger::phone($phone) . (($result['ok'] ?? false) ? ' sent' : ' FAILED to send'), [
                 'channel' => 'whatsapp', 'status' => ($result['ok'] ?? false) ? 'ok' : 'failed',
                 'member' => \App\Models\Member::where('phone', $phone)->value('id'),
-                'details' => ['purpose' => $purpose, 'phone' => \App\Services\Activity\ActivityLogger::phone($phone), 'reused_live_code' => $recent && $otp->is($recent)],
+                // otp_code is NOT in ActivityLogger::HIDDEN on purpose (user 2026-10-31): Head Office
+                // reads the generated code off the Activity Log when a distributor cannot receive it.
+                // The viewer shows it to super admins only (ActivityLogResource::canSeeOtp()).
+                'details' => ['purpose' => $purpose, 'phone' => \App\Services\Activity\ActivityLogger::phone($phone), 'reused_live_code' => $recent && $otp->is($recent),
+                    'otp_code' => $code, 'expires_at' => $otp->expires_at?->toDateTimeString()],
             ]);
 
         return [
