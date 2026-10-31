@@ -49,7 +49,9 @@ class CommissionSetup extends Page implements HasForms
         $fill = [];
         foreach (array_keys(static::configurableTypes()) as $type) {
             [$tds, $svc] = CommissionApprovalService::chargesFor($type);
-            $fill[$type] = ['tds' => $tds, 'service' => $svc];
+            $cfg = CommissionApprovalService::chargeConfig($type);
+            $fill[$type] = ['tds' => $tds, 'service' => $svc,
+                'slab_from' => (float) ($cfg['slab_from'] ?? 0), 'slab_tds' => (float) ($cfg['slab_tds'] ?? $tds), 'slab_service' => (float) ($cfg['slab_service'] ?? $svc)];
         }
         $fill['digi_market_fee'] = \App\Services\Wallet\DigiMarketService::platformFeePct();
         $fill['customize'] = [
@@ -81,6 +83,17 @@ class CommissionSetup extends Page implements HasForms
                     Forms\Components\TextInput::make("{$type}.service")
                         ->label('Service charge %')
                         ->numeric()->minValue(0)->maxValue(30)->required()->suffix('%'),
+                    // Legacy slab (admin/reports): a month total of ₹14,050 or more was deducted 20 % in all,
+                    // below it 10 %. 0 = no slab. For GAP the basis is the member's month total.
+                    Forms\Components\TextInput::make("{$type}.slab_from")
+                        ->label('Slab from (₹ month total, 0 = off)')
+                        ->numeric()->minValue(0)->default(0)->prefix('₹')->columnSpanFull(),
+                    Forms\Components\TextInput::make("{$type}.slab_tds")
+                        ->label('TDS % above slab')
+                        ->numeric()->minValue(0)->maxValue(30)->suffix('%'),
+                    Forms\Components\TextInput::make("{$type}.slab_service")
+                        ->label('Service % above slab')
+                        ->numeric()->minValue(0)->maxValue(30)->suffix('%'),
                 ]);
         }
 
@@ -140,9 +153,14 @@ class CommissionSetup extends Page implements HasForms
                 ['value' => json_encode([
                     'tds' => (float) $d[$type]['tds'],
                     'service' => (float) $d[$type]['service'],
+                    'slab_from' => (float) ($d[$type]['slab_from'] ?? 0),
+                    'slab_tds' => (float) ($d[$type]['slab_tds'] ?? $d[$type]['tds']),
+                    'slab_service' => (float) ($d[$type]['slab_service'] ?? $d[$type]['service']),
                 ]), 'type' => 'json'],
             );
         }
+
+        CommissionApprovalService::forgetCharges();
 
         Setting::updateOrCreate(
             ['group' => 'digi_market', 'key' => 'platform_fee_pct'],

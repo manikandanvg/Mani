@@ -57,3 +57,19 @@ The November cut-off (1 Dec 2026) is the first on the new engine. The build belo
 4. **Proof of parity before 1 Dec**: a replay test that runs `payout:cutoff --cutoff=2026-10-31` on a copy of the October closing dump imported into a scratch database and diffs the result against legacy's own `tbl_memberearning_level` / `tbl_gap_log` / `tbl_cbc` for the same run — row counts, per-member gross, TDS, service, net, and the CBC passed list must match 100 % (allowing only the `$insetfirstcom` quirk, which we do **not** replicate; it changes `lvlcomissue` counters only, not amounts — board to confirm).
 
 Estimated effort: command + run record + viewer + slab + replay test ≈ 1 working day, after the migration.
+
+## 5. Built (2026-10-31 night) — and the first parity replay
+
+| piece | where |
+|---|---|
+| Cut-off command | `php artisan payout:cutoff --cutoff=YYYY-MM-DD [--dry-run] [--ep-cap] [--task-factor] [--recompute] [--quiet-log]` → `App\Services\Payout\CutoffService` |
+| Run record + log | `payout_runs` (period, cut-off, totals, switches, log path, run/approved by); `storage/app/payouts/cutoff_<month>_<stamp>.log` in the legacy `ascript_payout` format; GAP rows and CBC coupons carry `payout_run_id` |
+| Viewer | Commissions → **Payout Runs** (HQ): totals, the per-member GAP log (rows, gross, TDS, service, net — the legacy `tbl_gap_log` shape), GAP rows per level per bond, log tail / download, xlsx of the GAP log |
+| Approval | **Approve run** (super admin) = legacy admin/reports: every pending GAP row → cash wallet net of TDS + service, CBC coupons due → 40 % E-pin + 60 % coupon; or row by row on Commission Approval as before. No digi wallet. |
+| Slab | Commission Setup → per stream "Slab from (₹ month total)", "TDS % above slab", "Service % above slab" (legacy: 14,050 → 10 + 10). For GAP the slab is judged on the member's **month total**, as legacy did on `tbl_gap_log.nettotal`. |
+| Frozen upline | `bonds.upline_member_id` = legacy `tbl_bond.uplineuserid` (imported; the Sales screen stores the upline at sale). Level 1 is paid to it and levels 2–5 walk up from there — a distributor re-mapped after the sale does not move the contract's income (25 live contracts are in that state). |
+| Parity check | `php artisan payout:compare --period=YYYY-MM-01 [--export=diff.xlsx]` — per member GAP rows + gross vs `tbl_memberearning_level`, the GAP log totals vs `tbl_gap_log`, CBC due vs `tbl_cbc`, on the `legacy` connection. Exit 1 when anything differs. |
+
+**Replay of the legacy October run** (dev copy of the 24-Oct snapshot, imported Oct GAP lines removed, instalment counters rolled back one step, `payout:cutoff --cutoff=2026-09-30`): legacy 24,829 rows / 4,470 members / ₹5,13,48,590 gross; new 24,836 rows / 4,476 members / ₹5,13,47,428.60 **before** the frozen-upline rule — the 85 differing members were all explained by re-mapped uplines (frozen on the bond in legacy) plus rank changes between 1 Oct (legacy run) and 24 Oct (snapshot). The definitive check is the user's trial: legacy Ascript on the October closing DB vs `payout:cutoff --cutoff=2026-10-31` on the same DB imported, then `payout:compare --period=2026-11-01`.
+
+Rules kept exactly as legacy: bond's stored level amounts; bonds on/before the cut-off; rank depth ≥ level; all-zero level amounts = no level income; one instalment per bond per pay month; every processed bond consumes an instalment (legacy's effective behaviour); 5 + 5 % at the log stage; nothing credited before approval. Not replicated: the EPIN 40 % credit at cut-off time (it is credited at approval, board gate) and legacy paying as digi gold (board: cash wallet).

@@ -477,6 +477,8 @@ class LegacyImport extends Command
                         'epin_value' => $this->num($b->epinvalue),
                         'return_date' => $this->date($b->returndate),
                         'mou_id' => $this->mouMap[$b->mouid] ?? null,
+                        // level-1 upline frozen at sale — the cut-off pays it even after a re-mapping
+                        'upline_member_id' => $this->memberMap[$this->clip($b->uplineuserid ?? '', 30)] ?? null,
                         'status' => (int) $b->bondstatus === 1 ? 'active' : 'closed',
                         'created_at' => $date, 'updated_at' => $date,
                     ];

@@ -107,7 +107,7 @@ Decision to take with the board before approval runs on the new system:
 
 | item | legacy | target | proof |
 |---|---|---|---|
-| Contracts (bonds) | `tbl_bond` every row, same id | `bonds` (plan matched by name to the v2 sheet, value, CBC/IC counters, return date, MOU, bondstatus 1→active else closed) | count + SUM(value) by status equal; `MAX(bond_date)` = closing date; skipped rows = members/plans not found (listed by the import) |
+| Contracts (bonds) | `tbl_bond` every row, same id | `bonds` (plan matched by name to the v2 sheet, value, CBC/IC counters, return date, MOU, **level-1 upline frozen at sale** (`upline_member_id` ← `uplineuserid`), bondstatus 1→active else closed) | count + SUM(value) by status equal; `MAX(bond_date)` = closing date; skipped rows = members/plans not found (listed by the import) |
 | Gold Saving instalments | `tbl_rdentry` | `rd_entries` per bond | count + SUM equal |
 | Contract documents / settlements | not in legacy | `member_contracts` **is empty for legacy bonds** (new system creates it at billing only). Sales & Contracts shows the bonds; the Settlements page (expired contract → Generate settlement → wallet) only sees contracts created in the new system | decision: build a one-off `contracts:backfill` that creates a contract row per legacy active bond (start = bond date, end = + plan term) if the board wants legacy maturities settled through the new screen |
 | Pending gold QRs | `tbl_digi_queue` INVOICE PENDING | `redeemable_qrs` pending | count equal |

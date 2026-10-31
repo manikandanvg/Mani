@@ -163,6 +163,7 @@ class SalesService
                 'value' => $allocation,                 // bvalue = allocated amount
                 'invoice_no' => $invoice->invoice_no,
                 'lvlcom' => $levelAmounts,
+                'upline_member_id' => $member->upline_id,   // level-1 upline frozen at sale (legacy tbl_bond.uplineuserid)
                 'cbc_value' => $cbcMonthly,
                 'cbc_count' => (int) $plan->cbc_count,
                 'cbc_issued' => 0,

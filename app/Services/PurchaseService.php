@@ -48,6 +48,7 @@ class PurchaseService
                 'bond_date' => $bondDate,
                 'value' => $value,
                 'invoice_no' => $data['invoice_no'] ?? $this->nextInvoiceNo(),
+                'upline_member_id' => $member->upline_id,
                 'cbc_value' => (float) ($plan->cbc_value ?? 0),
                 'cbc_count' => (int) ($plan->cbc_count ?? 0),
                 'cbc_issued' => 0,

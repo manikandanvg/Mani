@@ -143,7 +143,14 @@ class CommissionApprovalService
         DB::transaction(function () use ($row, $paidOn) {
             // amount is INR base; pay in the earner's currency at the rate frozen on the row.
             $gross = round((float) $row->amount / (float) ($row->fx_rate ?: 1), 2);
-            ['tds' => $tds, 'service' => $svc, 'net' => $net] = $this->deduct($gross, $row->type);
+            // GAP: the slab is judged on the member's month total (legacy tbl_gap_log nettotal),
+            // not on the single level row.
+            $basis = $row->type === 'GAP'
+                ? (float) CommissionLedger::where('member_id', $row->member_id)->where('type', 'GAP')
+                    ->whereBetween('earned_on', [$row->earned_on->copy()->startOfMonth()->toDateString(), $row->earned_on->copy()->endOfMonth()->toDateString()])
+                    ->sum('amount')
+                : null;
+            ['tds' => $tds, 'service' => $svc, 'net' => $net] = $this->deduct($gross, $row->type, $basis);
             // earning_total tracks gross earned; cash_balance gets the net payout.
             $this->creditWallet($row->member_id, cash: $net, earning: $gross, currency: $row->currency_code ?: 'INR');
             $row->update([
@@ -208,9 +215,9 @@ class CommissionApprovalService
      * value = {"tds": %, "service": %}); the class constants are the fallback when a
      * stream has never been configured. CBC never reaches here (coupon — exempt).
      */
-    protected function deduct(float $gross, ?string $type = null): array
+    protected function deduct(float $gross, ?string $type = null, ?float $basis = null): array
     {
-        [$tdsPct, $svcPct] = self::chargesFor($type);
+        [$tdsPct, $svcPct] = self::chargesFor($type, $basis ?? $gross);
 
         $tds = round($gross * $tdsPct / 100, 2);
         $svc = round($gross * $svcPct / 100, 2);
@@ -218,24 +225,48 @@ class CommissionApprovalService
         return ['tds' => $tds, 'service' => $svc, 'net' => round($gross - $tds - $svc, 2)];
     }
 
-    /** [tds %, service %] for a stream — configured value or the 5/5 default. */
-    public static function chargesFor(?string $type): array
+    /**
+     * [tds %, service %] for a stream — configured value or the 5/5 default.
+     *
+     * Slab (legacy admin/reports paygap, docs/CUTOFF-PLAN.md): when the stream has `slab_from`
+     * configured and the BASIS (the member's month total for GAP, the row's gross otherwise)
+     * reaches it, the slab rates apply instead — legacy: ≥ ₹14,050 → 20 % in all, else 10 %.
+     */
+    public static function chargesFor(?string $type, ?float $basis = null): array
     {
-        static $cache = null;
+        $row = self::chargeConfig($type);
+        $tds = isset($row['tds']) ? (float) $row['tds'] : self::TDS_PCT;
+        $svc = isset($row['service']) ? (float) $row['service'] : self::SERVICE_PCT;
+        $slabFrom = (float) ($row['slab_from'] ?? 0);
+        if ($slabFrom > 0 && $basis !== null && $basis >= $slabFrom) {
+            $tds = isset($row['slab_tds']) ? (float) $row['slab_tds'] : $tds;
+            $svc = isset($row['slab_service']) ? (float) $row['slab_service'] : $svc;
+        }
 
-        if ($cache === null) {
-            $cache = \App\Models\Setting::where('group', 'commission')
+        return [$tds, $svc];
+    }
+
+    /** @var array<string, array>|null  Commission Setup rows, loaded once per request */
+    protected static ?array $chargeCache = null;
+
+    /** Raw Commission Setup row of a stream: {tds, service, slab_from, slab_tds, slab_service}. */
+    public static function chargeConfig(?string $type): array
+    {
+        if (self::$chargeCache === null) {
+            self::$chargeCache = \App\Models\Setting::where('group', 'commission')
                 ->pluck('value', 'key')
                 ->map(fn ($v) => json_decode((string) $v, true))
                 ->all();
         }
+        $row = $type !== null ? (self::$chargeCache[$type] ?? null) : null;
 
-        $row = $type !== null ? ($cache[$type] ?? null) : null;
+        return is_array($row) ? $row : [];
+    }
 
-        return [
-            is_array($row) && isset($row['tds']) ? (float) $row['tds'] : self::TDS_PCT,
-            is_array($row) && isset($row['service']) ? (float) $row['service'] : self::SERVICE_PCT,
-        ];
+    /** Forget the cached Commission Setup rows (after the page saves / in tests). */
+    public static function forgetCharges(): void
+    {
+        self::$chargeCache = null;
     }
 
     /** Reverse of RESELLER_COM: a margin row's com_type_id → its stream key. */
