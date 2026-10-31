@@ -559,6 +559,13 @@ class LegacyImport extends Command
                     $in += count($batch);
                 }
             });
+        // Legacy pre-schedules the WHOLE coupon run at sale (one row per month, post-dated up to
+        // the last instalment) but counts only PAID ones in cbcissue. The engine (issueCbc)
+        // creates a coupon whenever cbc_issued < cbc_count and none exists for the month, so a
+        // scheduled row must count as issued — otherwise it would add extra coupons after the
+        // legacy schedule ends. Future rows stay pending and mature in Commission Approval.
+        DB::statement('UPDATE bonds SET cbc_issued = (SELECT COUNT(*) FROM cbc_entries WHERE cbc_entries.bond_id = bonds.id)'
+            . ' WHERE EXISTS (SELECT 1 FROM cbc_entries WHERE cbc_entries.bond_id = bonds.id)');
         $this->note('cbc_entries', $in, $skip);
     }
 
