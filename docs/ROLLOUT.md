@@ -106,6 +106,8 @@ php artisan branches:pincodes --fill        # auto-fill missing pincodes from ad
 php artisan branches:pincodes --export=/www/backup/branches-without-pincode.xlsx   # the rest, for the board
 php artisan branches:geocode                # store-locator pins for branches without coordinates (Nominatim, ~1 s each; 480 branches ≈ 9 min)
 php artisan branches:static-qr              # static payment QR (virtual L-BOX device) for every dealer
+php artisan branches:auto-map               # dealer supplier by pincode (report) → --apply to write   (docs/ACTIVITY-LOG.md)
+php artisan members:auto-map                # distributors without a branch → local counter by pincode → --apply
 php artisan stock:import-opening --template=/www/backup/opening-stock.xlsx         # sheet to hand to the branches
 php artisan stock:import-opening /path/filled.xlsx --dry-run && php artisan stock:import-opening /path/filled.xlsx
 ```

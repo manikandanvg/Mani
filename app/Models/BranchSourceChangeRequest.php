@@ -10,6 +10,10 @@ use Illuminate\Database\Eloquent\Model;
  */
 class BranchSourceChangeRequest extends Model
 {
+    use \App\Models\Concerns\LogsActivity;
+
+    public const ACTIVITY_CATEGORY = 'branch';
+
     protected $guarded = [];
 
     protected $casts = [

@@ -12,6 +12,10 @@ use Spatie\Permission\Traits\HasRoles;
 
 class User extends Authenticatable implements FilamentUser
 {
+    use \App\Models\Concerns\LogsActivity;
+
+    public const ACTIVITY_CATEGORY = 'branch';
+
     use HasFactory, Notifiable, HasRoles, SoftDeletes;
 
     protected $fillable = [

@@ -30,6 +30,9 @@ class ImpersonationController extends Controller
 
         Auth::login($user);
         $this->refreshSessionFingerprint($user);
+        \App\Services\Activity\ActivityLogger::log('auth', 'impersonate_start', $current->name . ' is viewing the panel as ' . $user->name, [
+            'actor' => $current, 'subject' => $user, 'branch' => $user->branch_id, 'channel' => 'panel',
+        ]);
 
         return redirect('/admin');
     }
@@ -45,6 +48,9 @@ class ImpersonationController extends Controller
         }
 
         session()->forget('impersonator_id');
+        \App\Services\Activity\ActivityLogger::log('auth', 'impersonate_end', ($original->name ?? 'Admin') . ' left the dealer view', [
+            'actor' => $original ?? null, 'channel' => 'panel',
+        ]);
 
         return redirect('/admin');
     }

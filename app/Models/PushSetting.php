@@ -11,6 +11,10 @@ use Illuminate\Database\Eloquent\Model;
  */
 class PushSetting extends Model
 {
+    use \App\Models\Concerns\LogsActivity;
+
+    public const ACTIVITY_CATEGORY = 'master';
+
     protected $guarded = [];
 
     protected $casts = [

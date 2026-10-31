@@ -7,6 +7,10 @@ use Illuminate\Database\Eloquent\Model;
 /** An online digi-gold buy (Razorpay). Grams credit only on verified payment. */
 class DigiGoldPurchase extends Model
 {
+    use \App\Models\Concerns\LogsActivity;
+
+    public const ACTIVITY_CATEGORY = 'digi';
+
     protected $guarded = [];
 
     protected $casts = [

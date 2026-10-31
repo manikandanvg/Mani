@@ -6,6 +6,10 @@ use Illuminate\Database\Eloquent\Model;
 
 class DigiQueue extends Model
 {
+    use \App\Models\Concerns\LogsActivity;
+
+    public const ACTIVITY_CATEGORY = 'digi';
+
     protected $table = 'digi_queue';
 
     protected $casts = [

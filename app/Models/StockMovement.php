@@ -6,6 +6,10 @@ use Illuminate\Database\Eloquent\Model;
 
 class StockMovement extends Model
 {
+    use \App\Models\Concerns\LogsActivity;
+
+    public const ACTIVITY_CATEGORY = 'stock';
+
     protected $casts = [
         'qty_change' => 'decimal:4',
         'balance_after' => 'decimal:4',

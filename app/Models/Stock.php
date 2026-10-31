@@ -6,6 +6,12 @@ use Illuminate\Database\Eloquent\Model;
 
 class Stock extends Model
 {
+    use \App\Models\Concerns\LogsActivity;
+
+    public const ACTIVITY_CATEGORY = 'stock';
+
+    public const ACTIVITY_IGNORE = ['last_rate'];
+
     protected $table = 'stock';
 
     protected $casts = [

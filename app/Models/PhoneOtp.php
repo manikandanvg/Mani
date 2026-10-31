@@ -9,6 +9,12 @@ use Illuminate\Database\Eloquent\Model;
  */
 class PhoneOtp extends Model
 {
+    use \App\Models\Concerns\LogsActivity;
+
+    public const ACTIVITY_CATEGORY = 'otp';
+
+    public const ACTIVITY_IGNORE = ['attempts'];
+
     protected $guarded = [];
 
     protected $casts = [

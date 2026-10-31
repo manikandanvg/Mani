@@ -42,3 +42,6 @@ Schedule::command('zoom:sync-attendance')->everyThirtyMinutes()->withoutOverlapp
 // only the last 7 days of reviews, so a daily pull keeps the set complete. No-op until
 // GOOGLE_PLAY_SERVICE_ACCOUNT_JSON is configured.
 Schedule::command('testimonials:import-play-reviews')->dailyAt('05:10')->withoutOverlapping();
+
+// Activity Log (board 2026-10-31): keep one year.
+Schedule::command('activity:prune --days=365')->monthlyOn(2, '03:50')->withoutOverlapping();

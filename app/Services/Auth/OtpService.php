@@ -54,6 +54,13 @@ class OtpService
             "Your Lord ICL verification code is {$code}. It expires in " . self::CODE_TTL_MINUTES . ' minutes. Do not share it with anyone.'
         );
 
+        \App\Services\Activity\ActivityLogger::log('otp', 'otp_sent',
+            ucfirst($purpose) . ' OTP to ' . \App\Services\Activity\ActivityLogger::phone($phone) . (($result['ok'] ?? false) ? ' sent' : ' FAILED to send'), [
+                'channel' => 'whatsapp', 'status' => ($result['ok'] ?? false) ? 'ok' : 'failed',
+                'member' => \App\Models\Member::where('phone', $phone)->value('id'),
+                'details' => ['purpose' => $purpose, 'phone' => \App\Services\Activity\ActivityLogger::phone($phone), 'reused_live_code' => $recent && $otp->is($recent)],
+            ]);
+
         return [
             'otp' => $otp,
             'sent' => (bool) ($result['ok'] ?? false),
@@ -66,6 +73,20 @@ class OtpService
      * Returns true only for a matching, unexpired, unconsumed, within-attempts code.
      */
     public function verify(string $phone, string $code, string $purpose = 'login'): bool
+    {
+        $ok = $this->verifyCode($phone, $code, $purpose);
+        $masked = \App\Services\Activity\ActivityLogger::phone($this->normalize($phone));
+        \App\Services\Activity\ActivityLogger::log('otp', $ok ? 'otp_verified' : 'otp_rejected',
+            ucfirst($purpose) . ' OTP for ' . $masked . ($ok ? ' verified' : ' rejected (wrong / expired / too many attempts)'), [
+                'channel' => 'api', 'status' => $ok ? 'ok' : 'denied',
+                'member' => \App\Models\Member::where('phone', $this->normalize($phone))->value('id'),
+                'details' => ['purpose' => $purpose, 'phone' => $masked],
+            ]);
+
+        return $ok;
+    }
+
+    protected function verifyCode(string $phone, string $code, string $purpose = 'login'): bool
     {
         $phone = $this->normalize($phone);
         $otp = $this->latestLive($phone, $purpose);

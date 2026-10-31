@@ -10,6 +10,10 @@ use Illuminate\Database\Eloquent\Model;
  */
 class StockTransfer extends Model
 {
+    use \App\Models\Concerns\LogsActivity;
+
+    public const ACTIVITY_CATEGORY = 'stock';
+
     protected $guarded = [];
 
     protected $casts = [

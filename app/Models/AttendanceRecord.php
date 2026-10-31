@@ -10,6 +10,10 @@ use Illuminate\Database\Eloquent\Model;
  */
 class AttendanceRecord extends Model
 {
+    use \App\Models\Concerns\LogsActivity;
+
+    public const ACTIVITY_CATEGORY = 'payroll';
+
     protected $guarded = [];
 
     protected $casts = [

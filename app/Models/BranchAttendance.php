@@ -13,6 +13,10 @@ use Illuminate\Support\Carbon;
  */
 class BranchAttendance extends Model
 {
+    use \App\Models\Concerns\LogsActivity;
+
+    public const ACTIVITY_CATEGORY = 'lbox';
+
     protected $guarded = [];
 
     protected $casts = [

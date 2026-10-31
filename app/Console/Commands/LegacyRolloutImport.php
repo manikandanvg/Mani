@@ -60,6 +60,7 @@ class LegacyRolloutImport extends LegacyImport
 
     public function handle(): int
     {
+        \App\Services\Activity\ActivityLogger::$enabled = false;   // bulk import: no per-row activity rows
         $this->legacy = DB::connection('legacy');
         DB::connection()->disableQueryLog();
         $start = microtime(true);
@@ -383,10 +384,13 @@ class LegacyRolloutImport extends LegacyImport
                 'silver_gm_margin' => round($m['silver_gm_margin'], 2), 'stock_trans_margin' => round($m['stock_trans_margin'], 3),
                 'digi_cash_balance' => round($m['digi_cash_balance'], 2),
             ];
-            if ($m['level']) {
+            // Head Office keeps level = hq and no supplier: the legacy admin login (LJW01) carries a
+            // dealership designation that must not demote branch #1 (seen 2026-10-31 after a rebuild).
+            $isHq = (int) $branchId === (int) ($this->branchMap[1] ?? 0);
+            if ($m['level'] && ! $isHq) {
                 $upd['level'] = $m['level'];
             }
-            if ($m['source'] && $m['source'] !== $branchId) {
+            if ($m['source'] && $m['source'] !== $branchId && ! $isHq) {
                 $upd['source_branch_id'] = $m['source'];
             }
             if ($m['lat']) {

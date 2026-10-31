@@ -6,6 +6,10 @@ use Illuminate\Database\Eloquent\Model;
 
 class RdEntry extends Model
 {
+    use \App\Models\Concerns\LogsActivity;
+
+    public const ACTIVITY_CATEGORY = 'gold_saving';
+
     protected $casts = [
         'paid_on' => 'date',
         'value' => 'decimal:2',

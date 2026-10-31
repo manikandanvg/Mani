@@ -16,6 +16,12 @@ use Laravel\Sanctum\HasApiTokens;
  */
 class Device extends Authenticatable
 {
+    use \App\Models\Concerns\LogsActivity;
+
+    public const ACTIVITY_CATEGORY = 'lbox';
+
+    public const ACTIVITY_IGNORE = ['last_seen_at', 'battery_pct', 'rssi', 'uptime_s', 'ip', 'lat', 'lng', 'firmware_version', 'is_displaced'];
+
     use HasApiTokens;
     use SoftDeletes;
 

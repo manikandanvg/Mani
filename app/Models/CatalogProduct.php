@@ -11,6 +11,10 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  */
 class CatalogProduct extends Model
 {
+    use \App\Models\Concerns\LogsActivity;
+
+    public const ACTIVITY_CATEGORY = 'master';
+
     use SoftDeletes;
 
     protected $guarded = [];

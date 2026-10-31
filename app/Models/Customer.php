@@ -14,6 +14,10 @@ use Laravel\Sanctum\HasApiTokens;
  */
 class Customer extends Model implements AuthenticatableContract
 {
+    use \App\Models\Concerns\LogsActivity;
+
+    public const ACTIVITY_CATEGORY = 'sales';
+
     use Authenticatable;
     use HasApiTokens;
     use Notifiable;        // app inbox (database channel) + FCM push later

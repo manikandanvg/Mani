@@ -204,6 +204,10 @@ class SalesService
 
         $this->deliverPendingQr();
         $this->notifyBillingDocs($invoice);
+        \App\Services\Activity\ActivityLogger::log('sales', 'billed',
+            'Invoice ' . $invoice->invoice_no . ' billed to ' . ($invoice->customer?->member_code ?? $invoice->customer_name) . ' for ₹' . \App\Support\Money::group((float) $invoice->grand_total), [
+                'subject' => $invoice, 'details' => ['plan' => $invoice->plan?->code, 'grand_total' => (float) $invoice->grand_total, 'lines' => $invoice->lines->count(), 'payment' => $invoice->payment_type],
+            ]);
 
         return $invoice;
     }

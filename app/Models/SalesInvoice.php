@@ -6,6 +6,10 @@ use Illuminate\Database\Eloquent\Model;
 
 class SalesInvoice extends Model
 {
+    use \App\Models\Concerns\LogsActivity;
+
+    public const ACTIVITY_CATEGORY = 'sales';
+
     protected $casts = [
         'date' => 'date',
         'cross_total' => 'decimal:2',

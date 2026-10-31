@@ -11,6 +11,10 @@ use Illuminate\Database\Eloquent\Model;
  */
 class RedemptionInvoice extends Model
 {
+    use \App\Models\Concerns\LogsActivity;
+
+    public const ACTIVITY_CATEGORY = 'redemption';
+
     protected $guarded = [];
 
     protected $casts = [

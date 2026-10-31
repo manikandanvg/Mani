@@ -7,6 +7,10 @@ use Illuminate\Database\Eloquent\Model;
 /** Gram-level ledger behind member_wallets.digi_gold_grams (Phase 3). */
 class DigiGoldTxn extends Model
 {
+    use \App\Models\Concerns\LogsActivity;
+
+    public const ACTIVITY_CATEGORY = 'digi';
+
     protected $guarded = [];
 
     protected $casts = [

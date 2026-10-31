@@ -12,6 +12,10 @@ use Illuminate\Support\Carbon;
  */
 class TaskScore extends Model
 {
+    use \App\Models\Concerns\LogsActivity;
+
+    public const ACTIVITY_CATEGORY = 'tasks';
+
     protected $guarded = [];
 
     protected $casts = [

@@ -6,6 +6,10 @@ use Illuminate\Database\Eloquent\Model;
 
 class ResellerCommission extends Model
 {
+    use \App\Models\Concerns\LogsActivity;
+
+    public const ACTIVITY_CATEGORY = 'commission';
+
     /**
      * com_type_id values. 1-4 mirror the legacy tbl_reseller_com ids; 5 was added
      * 2026-07 so RD renewal margins stop masquerading as gold margin in approval.

@@ -16,7 +16,7 @@ return Application::configure(basePath: dirname(__DIR__))
         // Razorpay posts webhooks without a CSRF token; authenticity is verified by HMAC signature.
         $middleware->validateCsrfTokens(except: ['webhooks/*']);
         // Mobile app language: X-Locale header → app locale for every API response.
-        $middleware->api(append: [\App\Http\Middleware\SetApiLocale::class]);
+        $middleware->api(append: [\App\Http\Middleware\SetApiLocale::class, \App\Http\Middleware\LogApiActivity::class]);
         // Guests hitting an auth-guarded admin route (receipt / PDF streams) go to the
         // panel login — there is no plain "login" route, so the default would throw.
         $middleware->redirectGuestsTo(fn () => route('filament.admin.auth.login'));

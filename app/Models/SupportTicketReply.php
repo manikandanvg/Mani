@@ -8,6 +8,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 /** One reply on a support ticket's trail. */
 class SupportTicketReply extends Model
 {
+    use \App\Models\Concerns\LogsActivity;
+
+    public const ACTIVITY_CATEGORY = 'support';
+
     protected $guarded = [];
 
     protected static function booted(): void

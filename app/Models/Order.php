@@ -6,6 +6,10 @@ use Illuminate\Database\Eloquent\Model;
 
 class Order extends Model
 {
+    use \App\Models\Concerns\LogsActivity;
+
+    public const ACTIVITY_CATEGORY = 'orders';
+
     protected $casts = [
         'fx_rate' => 'decimal:8',
         'subtotal' => 'decimal:2',

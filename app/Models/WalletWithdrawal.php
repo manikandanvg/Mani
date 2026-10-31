@@ -11,6 +11,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class WalletWithdrawal extends Model
 {
+    use \App\Models\Concerns\LogsActivity;
+
+    public const ACTIVITY_CATEGORY = 'wallet';
+
     protected $guarded = [];
 
     protected $casts = [

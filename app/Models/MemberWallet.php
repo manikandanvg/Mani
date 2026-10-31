@@ -6,6 +6,10 @@ use Illuminate\Database\Eloquent\Model;
 
 class MemberWallet extends Model
 {
+    use \App\Models\Concerns\LogsActivity;
+
+    public const ACTIVITY_CATEGORY = 'wallet';
+
     protected $primaryKey = 'member_id';
     public $incrementing = false;
     protected $guarded = [];

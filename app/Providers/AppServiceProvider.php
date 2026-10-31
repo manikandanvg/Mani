@@ -70,6 +70,33 @@ class AppServiceProvider extends ServiceProvider
         // global unguard keeps every model mass-assignable without per-model $fillable.
         Model::unguard();
 
+        // Board 2026-10-31: logins / logouts / failed logins (panel + app) and console jobs land
+        // in the Activity Log; model changes log themselves (LogsActivity), API writes via middleware.
+        \Illuminate\Support\Facades\Event::listen(\Illuminate\Auth\Events\Login::class, function ($e) {
+            \App\Services\Activity\ActivityLogger::log('auth', 'login', self::actorLabel($e->user) . ' logged in (' . $e->guard . ')', ['actor' => $e->user, 'member' => $e->user instanceof \App\Models\Member ? $e->user : null]);
+        });
+        \Illuminate\Support\Facades\Event::listen(\Illuminate\Auth\Events\Logout::class, function ($e) {
+            if ($e->user) {
+                \App\Services\Activity\ActivityLogger::log('auth', 'logout', self::actorLabel($e->user) . ' logged out (' . $e->guard . ')', ['actor' => $e->user, 'member' => $e->user instanceof \App\Models\Member ? $e->user : null]);
+            }
+        });
+        \Illuminate\Support\Facades\Event::listen(\Illuminate\Auth\Events\Failed::class, function ($e) {
+            \App\Services\Activity\ActivityLogger::log('auth', 'login_failed', 'Failed login for ' . ($e->credentials['email'] ?? $e->credentials['phone'] ?? 'unknown') . ' (' . $e->guard . ')', ['status' => 'denied', 'actor' => $e->user]);
+        });
+        \Illuminate\Support\Facades\Event::listen(\Illuminate\Auth\Events\Lockout::class, function ($e) {
+            \App\Services\Activity\ActivityLogger::log('auth', 'lockout', 'Login locked out after too many attempts: ' . ($e->request->input('email') ?? $e->request->input('phone') ?? 'unknown'), ['status' => 'denied']);
+        });
+        \Illuminate\Support\Facades\Event::listen(\Illuminate\Console\Events\CommandFinished::class, function ($e) {
+            $cmd = (string) $e->command;
+            if (! preg_match('/^(engine:|tasks:|legacy:|branches:|members:|stock:|push:|pincodes:|testimonials:|zoom:|ranks:|activity:)/', $cmd)) {
+                return;
+            }
+            \App\Services\Activity\ActivityLogger::log('system', 'command', 'Console job ' . $cmd . ' finished with exit code ' . $e->exitCode, [
+                'actor' => 'console ' . $cmd, 'channel' => 'console', 'status' => $e->exitCode === 0 ? 'ok' : 'failed',
+                'details' => ['command' => $cmd, 'arguments' => $e->input->getArguments(), 'options' => array_filter($e->input->getOptions()), 'exit' => $e->exitCode],
+            ]);
+        });
+
         // OTP abuse guards: each /auth/otp/request is a paid WhatsApp send AND an
         // SMS-bombing vector against arbitrary phones, so it is throttled per target
         // phone (tight) and per caller IP (looser, so one office NAT can still serve
@@ -163,5 +190,15 @@ class AppServiceProvider extends ServiceProvider
                 }
             });
         }
+    }
+
+    /** Name for the auth log lines: "Admin Name (admin)" / "Member Name (LJW01)". */
+    protected static function actorLabel($user): string
+    {
+        if ($user instanceof \App\Models\Member) {
+            return trim($user->name . ' (' . $user->member_code . ')');
+        }
+
+        return (string) ($user->name ?? $user->email ?? 'user#' . ($user->id ?? '?'));
     }
 }

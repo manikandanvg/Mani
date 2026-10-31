@@ -20,6 +20,7 @@ class DatabaseSeeder extends Seeder
 
     public function run(): void
     {
+        \App\Services\Activity\ActivityLogger::$enabled = false;   // seeding is not user activity
         // --- Roles --- (super_admin sees all; staff roles drive menu visibility;
         // distributor = a dealer who logs into the panel as a branch-scoped "semi-admin")
         // 'support' = support-desk staff, restricted to the Support & Track group only

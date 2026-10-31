@@ -13,6 +13,10 @@ use Illuminate\Database\Eloquent\Model;
  */
 class SalesReturn extends Model
 {
+    use \App\Models\Concerns\LogsActivity;
+
+    public const ACTIVITY_CATEGORY = 'stock';
+
     public const STATUS_PENDING = 'pending';
 
     public const STATUS_COLLECTED = 'collected';

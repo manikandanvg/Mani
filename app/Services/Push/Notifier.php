@@ -27,9 +27,23 @@ class Notifier
         }
 
         try {
+            \App\Notifications\Channels\FcmChannel::$lastDelivery = null;
             $member->notify(new AppNotification($category, $title, $body, $route, $data));
+            $delivery = \App\Notifications\Channels\FcmChannel::$lastDelivery;
+            \App\Services\Activity\ActivityLogger::log('communication', 'notified',
+                'Push + inbox to ' . $member->member_code . ': ' . $title, [
+                    'member' => $member,
+                    'channel' => ($delivery['devices'] ?? 0) > 0 ? 'push' : 'inbox',
+                    'status' => ($delivery['failed'] ?? false) ? 'failed' : 'ok',
+                    'details' => ['category' => $category, 'title' => $title, 'body' => $body, 'route' => $route, 'delivery' => $delivery ?? ['devices' => 0, 'note' => 'no device registered — inbox only']],
+                ]);
         } catch (\Throwable $e) {
             Log::warning("Notify [{$category}] to member #{$member->id} failed: " . $e->getMessage());
+            \App\Services\Activity\ActivityLogger::log('communication', 'notify_failed',
+                'Push to ' . $member->member_code . ' FAILED: ' . $title, [
+                    'member' => $member, 'channel' => 'push', 'status' => 'failed',
+                    'details' => ['category' => $category, 'title' => $title, 'error' => $e->getMessage()],
+                ]);
         }
     }
 

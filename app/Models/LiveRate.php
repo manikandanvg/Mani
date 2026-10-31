@@ -6,6 +6,10 @@ use Illuminate\Database\Eloquent\Model;
 
 class LiveRate extends Model
 {
+    use \App\Models\Concerns\LogsActivity;
+
+    public const ACTIVITY_CATEGORY = 'rates';
+
     protected $casts = [
         'gold' => 'decimal:2',
         'silver' => 'decimal:2',

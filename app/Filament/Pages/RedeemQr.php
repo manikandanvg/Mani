@@ -301,6 +301,12 @@ class RedeemQr extends Page implements HasForms
             route: '/inbox',
         );
 
+        \App\Services\Activity\ActivityLogger::log('otp', 'redeem_otp_sent', 'Redemption OTP for QR ' . $qr->qr_code . ' sent to ' . $member->member_code . ' (app)', [
+            'member' => $member, 'subject' => $qr, 'channel' => 'push', 'branch' => $qr->branch_id,
+            'status' => $member->deviceTokens()->exists() ? 'ok' : 'failed',
+            'details' => ['qr' => $qr->qr_code, 'device_registered' => $member->deviceTokens()->exists()],
+        ]);
+
         $member->deviceTokens()->exists()
             ? Notification::make()->success()->title('OTP sent to the distributor\'s app')->body('Delivered as a push notification and to the app inbox.')->send()
             : Notification::make()->warning()->title('OTP saved to the app inbox — no device registered')

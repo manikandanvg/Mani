@@ -9,6 +9,10 @@ use Illuminate\Database\Eloquent\Model;
  */
 class Meeting extends Model
 {
+    use \App\Models\Concerns\LogsActivity;
+
+    public const ACTIVITY_CATEGORY = 'meetings';
+
     protected $guarded = [];
 
     protected $casts = [

@@ -6,6 +6,10 @@ use Illuminate\Database\Eloquent\Model;
 
 class Bond extends Model
 {
+    use \App\Models\Concerns\LogsActivity;
+
+    public const ACTIVITY_CATEGORY = 'contract';
+
     protected $guarded = [];
 
     protected $casts = [

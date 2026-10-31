@@ -11,6 +11,12 @@ use Laravel\Sanctum\HasApiTokens;
 
 class Member extends Model implements AuthenticatableContract
 {
+    use \App\Models\Concerns\LogsActivity;
+
+    public const ACTIVITY_CATEGORY = 'network';
+
+    public const ACTIVITY_IGNORE = ['downline_count', 'gbv', 'unpure_gbv'];
+
     use Authenticatable;   // acts as the mobile API user (token auth, no password)
     use HasApiTokens;
     use Notifiable;        // app inbox (database channel) + FCM push later

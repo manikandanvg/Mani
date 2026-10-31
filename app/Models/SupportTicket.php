@@ -13,6 +13,10 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  */
 class SupportTicket extends Model
 {
+    use \App\Models\Concerns\LogsActivity;
+
+    public const ACTIVITY_CATEGORY = 'support';
+
     protected $guarded = [];
 
     protected $casts = [

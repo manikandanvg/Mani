@@ -6,6 +6,10 @@ use Illuminate\Database\Eloquent\Model;
 
 class BranchOrderRequest extends Model
 {
+    use \App\Models\Concerns\LogsActivity;
+
+    public const ACTIVITY_CATEGORY = 'orders';
+
     protected $casts = [
         'cross_total' => 'decimal:2',
         'gst_total' => 'decimal:2',

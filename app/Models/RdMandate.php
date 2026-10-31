@@ -11,6 +11,10 @@ use Illuminate\Database\Eloquent\Model;
  */
 class RdMandate extends Model
 {
+    use \App\Models\Concerns\LogsActivity;
+
+    public const ACTIVITY_CATEGORY = 'gold_saving';
+
     protected $guarded = [];
 
     protected $casts = [

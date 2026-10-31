@@ -6,6 +6,10 @@ use Illuminate\Database\Eloquent\Model;
 
 class CbcEntry extends Model
 {
+    use \App\Models\Concerns\LogsActivity;
+
+    public const ACTIVITY_CATEGORY = 'commission';
+
     protected $casts = [
         'cbc_date' => 'date',
         'paid_on' => 'date',

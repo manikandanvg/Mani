@@ -119,6 +119,9 @@ class SalesCancelService
                 'cancelled_by' => $userId,
                 'cancel_reason' => $reason ? mb_substr($reason, 0, 255) : null,
             ]);
+            \App\Services\Activity\ActivityLogger::log('sales', 'cancelled', 'Invoice ' . $invoice->invoice_no . ' CANCELLED' . ($reason ? ' — ' . $reason : ''), [
+                'subject' => $invoice, 'details' => ['reason' => $reason, 'bond_id' => $bond?->id, 'grand_total' => (float) $invoice->grand_total],
+            ]);
 
             if ($member) {
                 \App\Services\Push\Notifier::to(

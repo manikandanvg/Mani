@@ -7,6 +7,10 @@ use Illuminate\Database\Eloquent\Model;
 /** Proof for a manual task (TOWN_VISIT, CUSTOM): text, photo, GPS — verified by HQ. */
 class TaskSubmission extends Model
 {
+    use \App\Models\Concerns\LogsActivity;
+
+    public const ACTIVITY_CATEGORY = 'tasks';
+
     protected $guarded = [];
 
     protected $casts = [

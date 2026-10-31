@@ -19,6 +19,9 @@ use Illuminate\Notifications\Notification;
  */
 class FcmChannel
 {
+    /** Result of the latest send, read by Notifier for the activity log: devices / fcm / apns / stale / failed. */
+    public static ?array $lastDelivery = null;
+
     public function __construct(protected PushSender $push, protected ApnsSender $apns) {}
 
     public function send(object $notifiable, Notification $notification): void
@@ -42,11 +45,20 @@ class FcmChannel
         $fcmTokens = $devices->where('provider', '!=', 'apns')->pluck('token')->all();
 
         $stale = [];
-        if ($fcmTokens) {
-            $stale = array_merge($stale, $this->push->sendToTokens($fcmTokens, $title, $body, $data)['stale'] ?? []);
+        $failed = false;
+        try {
+            if ($fcmTokens) {
+                $stale = array_merge($stale, $this->push->sendToTokens($fcmTokens, $title, $body, $data)['stale'] ?? []);
+            }
+            if ($apnsTokens) {
+                $stale = array_merge($stale, $this->apns->sendToTokens($apnsTokens, $title, $body, $data)['stale'] ?? []);
+            }
+        } catch (\Throwable $e) {
+            $failed = $e->getMessage();
         }
-        if ($apnsTokens) {
-            $stale = array_merge($stale, $this->apns->sendToTokens($apnsTokens, $title, $body, $data)['stale'] ?? []);
+        self::$lastDelivery = ['devices' => $devices->count(), 'fcm' => count($fcmTokens), 'apns' => count($apnsTokens), 'stale' => count($stale), 'failed' => $failed ?: false];
+        if ($failed) {
+            throw new \RuntimeException('Push delivery failed: ' . $failed);
         }
 
         // Prune tokens the gateway reported as unregistered so we stop pushing to dead devices.

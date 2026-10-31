@@ -10,6 +10,10 @@ use Illuminate\Database\Eloquent\Model;
  */
 class Firmware extends Model
 {
+    use \App\Models\Concerns\LogsActivity;
+
+    public const ACTIVITY_CATEGORY = 'lbox';
+
     protected $table = 'firmwares';   // Eloquent treats "firmware" as uncountable
 
     protected $guarded = [];

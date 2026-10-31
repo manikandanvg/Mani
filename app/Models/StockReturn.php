@@ -6,6 +6,10 @@ use Illuminate\Database\Eloquent\Model;
 
 class StockReturn extends Model
 {
+    use \App\Models\Concerns\LogsActivity;
+
+    public const ACTIVITY_CATEGORY = 'stock';
+
     protected $guarded = [];
 
     protected $casts = [

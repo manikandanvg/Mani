@@ -6,6 +6,10 @@ use Illuminate\Database\Eloquent\Model;
 
 class CommissionLedger extends Model
 {
+    use \App\Models\Concerns\LogsActivity;
+
+    public const ACTIVITY_CATEGORY = 'commission';
+
     protected $table = 'commission_ledger';
 
     protected $guarded = [];

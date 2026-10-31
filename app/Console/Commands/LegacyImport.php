@@ -49,6 +49,8 @@ class LegacyImport extends Command
 
     public function handle(): int
     {
+        \App\Services\Activity\ActivityLogger::$enabled = false;   // bulk import: no per-row activity rows
+
         $this->legacy = DB::connection('legacy');
         DB::connection()->disableQueryLog();
         $start = microtime(true);

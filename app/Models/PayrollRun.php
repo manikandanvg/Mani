@@ -7,6 +7,10 @@ use Illuminate\Database\Eloquent\Model;
 /** A month's payroll: one run per (year, month), holding a payslip per employee. */
 class PayrollRun extends Model
 {
+    use \App\Models\Concerns\LogsActivity;
+
+    public const ACTIVITY_CATEGORY = 'payroll';
+
     protected $guarded = [];
 
     protected $casts = [

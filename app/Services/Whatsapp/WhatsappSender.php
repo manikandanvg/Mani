@@ -29,7 +29,24 @@ class WhatsappSender
         return $this->send($phone, ['type' => 'media', 'message' => $caption, 'media_url' => $mediaUrl]);
     }
 
+    /** Board 2026-10-31: every WhatsApp send is an activity-log row (text / media, masked number, gateway answer). */
     protected function send(string $phone, array $payload): array
+    {
+        $res = $this->transmit($phone, $payload);
+        $ok = (bool) ($res['ok'] ?? false);
+        \App\Services\Activity\ActivityLogger::log('communication', 'whatsapp_' . ($payload['type'] ?? 'text'),
+            'WhatsApp ' . ($payload['type'] ?? 'text') . ' to ' . \App\Services\Activity\ActivityLogger::phone($phone) . ($ok ? ' sent' : ' FAILED'), [
+                'channel' => 'whatsapp',
+                'status' => $ok ? 'ok' : 'failed',
+                'member' => \App\Models\Member::where('phone', $phone)->value('id'),
+                'details' => ['to' => \App\Services\Activity\ActivityLogger::phone($phone), 'message' => \Illuminate\Support\Str::limit((string) ($payload['message'] ?? ''), 300),
+                    'media_url' => $payload['media_url'] ?? null, 'gateway' => $res['message'] ?? ($res['error'] ?? null)],
+            ]);
+
+        return $res;
+    }
+
+    protected function transmit(string $phone, array $payload): array
     {
         $cfg = WhatsappSetting::current()->effective();
 
