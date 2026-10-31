@@ -25,7 +25,7 @@ class MemberStatusTest extends TestCase
         $this->member = Member::create([
             'member_code' => 'ST1', 'name' => 'Status Holder', 'phone' => '9000000700',
             'joined_on' => now(), 'placement' => 'level', 'rank_id' => $rank->id, 'status' => 'active',
-            'bv' => 50000, 'gbv' => 125000,
+            'bv' => 50000, 'gbv' => 125000, 'unpure_bv' => 40000, 'unpure_gbv' => 100000,
         ]);
         MemberWallet::create(['member_id' => $this->member->id, 'earning_total' => 4093.05, 'coupon_balance' => 250]);
 
@@ -72,6 +72,10 @@ class MemberStatusTest extends TestCase
 
         $this->assertSame(50000, $res->json('widgets.business'));
         $this->assertSame(125000, $res->json('widgets.gross_bv'));
+        // TBP tiles = UNPURE volumes, like legacy "MY TBP Gross BVolume" (user 2026-10-31)
+        $this->assertSame(100000, $res->json('widgets.tbp_gross_bv'));
+        $this->assertSame(100000, $res->json('tbp.gross_bv'));
+        $this->assertSame(40000, $res->json('tbp.own_bv'));
         $this->assertSame(250, $res->json('widgets.gift'));
     }
 

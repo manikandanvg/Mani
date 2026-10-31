@@ -353,9 +353,12 @@ class MemberBusinessController extends Controller
                 ],
                 'ep_estimate' => round($ep, 2),
             ],
+            // TBP figures are the UNPURE (allocation-adjusted) volumes — the ones the rank engine
+            // qualifies on (NetworkService). Legacy dashboard: "MY TBP Gross BVolume" = unpuregbv,
+            // "MY Gross BVolume" = mygbv (user 2026-10-31: the two tiles showed the same number).
             'tbp' => [
-                'own_bv' => (float) $member->bv,
-                'gross_bv' => (float) $member->gbv,
+                'own_bv' => (float) $member->unpure_bv,
+                'gross_bv' => (float) $member->unpure_gbv,
                 'direct_downlines' => Member::where('upline_id', $member->id)->count(),
                 'top_distributors' => $top,
                 'levels_covered' => $level,
@@ -377,7 +380,7 @@ class MemberBusinessController extends Controller
                 'gross_bv' => (float) $member->gbv,
                 'earning' => (float) ($w?->earning_total ?? 0),
                 'withdraw' => (float) ($w?->withdrawn_total ?? 0),
-                'tbp_gross_bv' => (float) $member->gbv,
+                'tbp_gross_bv' => (float) $member->unpure_gbv,
                 'gift' => (float) ($w?->coupon_balance ?? 0),
             ],
         ]);
