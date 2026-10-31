@@ -131,6 +131,13 @@ class ZoomCheck extends Command
             $this->line('  → in the General app, add this origin to the allow-list: ' . url('/'));
             $this->line('  → Marketplace review is NOT needed: unpublished apps may join meetings hosted by the same Zoom account,');
             $this->line('    and every meeting here is created by our own account via the Server-to-Server app.');
+            // Nothing server-side can see the account's Meeting-SDK entitlement — Zoom has no
+            // REST endpoint for it. The native SDK tells us only at auth time.
+            $this->line('  → phone says ACCOUNT_NOT_ENABLE_SDK (Android 8 / iOS 4) while everything above is green: Zoom has switched');
+            $this->line('    the Meeting SDK OFF for the whole account on THEIR side (Basic / lapsed-Pro wave, Sept–Oct 2026 — devforum');
+            $this->line('    #147257, #147419, #145743). No server or APK change helps; post in devforum.zoom.us › Meeting SDK or open a');
+            $this->line('    Developer Support ticket quoting the Client ID ' . substr($sdkId, 0, 4) . '… and the account owner e-mail, and ask');
+            $this->line('    for the SDK to be re-enabled. Members use "Open in the Zoom app" until then. Template: docs/ZOOM-SDK-TICKET.md');
 
             // Split test for a native 5/124: the Web SDK page uses the SAME key and
             // signer. If it joins from a desktop browser the key is good and the
