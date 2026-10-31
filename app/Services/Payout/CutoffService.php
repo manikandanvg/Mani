@@ -134,7 +134,9 @@ class CutoffService
             $level = 0;
             while ($upline && $level < self::MAX_LEVELS) {
                 $level++;
-                $amount = round((float) ($amounts[$level - 1] ?? 0), 2);
+                // legacy's register column is an INTEGER: every level amount lands as whole rupees
+                // (MySQL rounds half away from zero, like PHP round()) — 2500.5 → 2501.
+                $amount = round((float) ($amounts[$level - 1] ?? 0));
                 $depth = $ranks[$upline->rank_id] ?? 0;
                 $this->say('Checking  ' . $upline->member_code . ' DEPTH : ' . $depth . ' for level ' . $level);
                 if ($amount > 0 && $depth >= $level) {

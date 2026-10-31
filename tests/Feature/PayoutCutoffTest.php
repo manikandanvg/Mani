@@ -134,6 +134,18 @@ class PayoutCutoffTest extends TestCase
         $this->assertSame(0, CommissionLedger::where('member_id', $newUp->id)->count());
     }
 
+    public function test_level_amounts_are_whole_rupees_like_the_legacy_register(): void
+    {
+        $plan = $this->plan();
+        $up = $this->member('RUP', null, 2);
+        $seller = $this->member('S4', $up->id, 0);
+        $this->bond($seller, $plan, '2026-11-10', [2500.5, 0, 0, 0, 0]);
+        $this->bond($seller, $plan, '2026-11-11', [1250.25, 0, 0, 0, 0]);
+
+        $run = app(CutoffService::class)->run(Carbon::parse('2026-11-30'), [], null);
+        $this->assertEquals([1250.0, 2501.0], CommissionLedger::where('payout_run_id', $run->id)->orderBy('amount')->pluck('amount')->map(fn ($a) => (float) $a)->all());
+    }
+
     public function test_dry_run_writes_nothing_and_plan_percentages_are_the_fallback(): void
     {
         $plan = $this->plan();
