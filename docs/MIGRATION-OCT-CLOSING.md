@@ -111,6 +111,7 @@ Decision to take with the board before approval runs on the new system:
 | Gold Saving instalments | `tbl_rdentry` | `rd_entries` per bond | count + SUM equal |
 | Contract documents / settlements | not in legacy | `member_contracts` **is empty for legacy bonds** (new system creates it at billing only). Sales & Contracts shows the bonds; the Settlements page (expired contract → Generate settlement → wallet) only sees contracts created in the new system | decision: build a one-off `contracts:backfill` that creates a contract row per legacy active bond (start = bond date, end = + plan term) if the board wants legacy maturities settled through the new screen |
 | Pending gold QRs | `tbl_digi_queue` INVOICE PENDING | `redeemable_qrs` pending | count equal |
+| Orphan contracts | 14 `tbl_bond` rows whose distributor was deleted from `tbl_member` (8 still active, e.g. bond 1465 G12 ₹1,00,000) | imported under an **inactive placeholder member** (code kept, name from the bond, upline from the bond) so the contract and the uplines' GAP survive; listed in the import warnings | the only skipped bonds are the 16 blank rows with no plan and no value |
 
 ## 7. Ship to the server (T+1 h)
 

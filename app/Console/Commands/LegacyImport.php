@@ -450,8 +450,16 @@ class LegacyImport extends Command
                 foreach ($rows as $b) {
                     $memberId = $this->memberMap[$this->clip($b->memuserid, 30)] ?? null;
                     $planId = $this->planMap[(int) $b->planid] ?? null;
+                    if (! $memberId && $planId && filled($b->memuserid)) {
+                        // Orphan contract: the distributor row was deleted in legacy but the contract
+                        // still runs (14 on 2026-10-31, e.g. bond 1465 G12 ₹1,00,000) and its uplines
+                        // still earn GAP on it. A placeholder (inactive) member keeps the contract
+                        // and its payouts; HQ can see it under Distributor List → inactive.
+                        $memberId = $this->placeholderMember($b);
+                    }
                     if (! $memberId || ! $planId) {
                         $skip++;
+                        $this->warnings[] = sprintf('bond %d skipped: %s', (int) $b->bondid, ! $planId ? 'no plan (planid ' . var_export($b->planid, true) . ', value ' . var_export($b->bvalue, true) . ')' : 'no member ' . $b->memuserid);
                         continue;
                     }
                     $date = $this->date($b->bdate) ?? '2020-01-01';
@@ -489,6 +497,31 @@ class LegacyImport extends Command
                 }
             });
         $this->note('bonds', $in, $skip);
+    }
+
+    /** A deleted legacy distributor that still owns contracts → inactive placeholder member. */
+    protected function placeholderMember(object $b): ?int
+    {
+        $code = $this->clip($b->memuserid, 30);
+        if (isset($this->memberMap[$code])) {
+            return $this->memberMap[$code];
+        }
+        $upline = $this->memberMap[$this->clip($b->uplineuserid ?? '', 30)] ?? null;
+        $id = DB::table('members')->insertGetId([
+            'member_code' => $code,
+            'name' => $this->clip($b->memname ?: ($code . ' (deleted in legacy)'), 120),
+            'phone' => '',   // not nullable; no login is possible for a placeholder anyway
+            'joined_on' => $this->date($b->bdate) ?? '2020-01-01',
+            'upline_id' => $upline,
+            'placement' => 'level',
+            'rank_id' => Rank::where('depth', 0)->value('id'),
+            'status' => 'inactive',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $this->memberMap[$code] = $id;
+        $this->warnings[] = sprintf('member %s was deleted in legacy but owns bond %d → inactive placeholder member #%d', $code, (int) $b->bondid, $id);
+
+        return $id;
     }
 
     protected function importRdEntries(): void
