@@ -32,7 +32,7 @@ class OtherReport extends ReportPage
     public const REPORTS = [
         'stock_movements' => 'Stock movement',
         'stock_transfers' => 'Stock transfers',
-        'rd_collections' => 'RD collections',
+        'rd_collections' => 'GS collections (Gold Saving)',
         'redemption_register' => 'Redemption register',
         'deductions' => 'Deductions (TDS + service charge)',
         'statutory' => 'Statutory register (PF / ESI / salary TDS)',

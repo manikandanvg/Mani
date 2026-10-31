@@ -44,6 +44,9 @@ class TestimonialResource extends BaseResource
             Tables\Columns\TextColumn::make('name')->searchable()->sortable(),
             Tables\Columns\TextColumn::make('location'),
             Tables\Columns\TextColumn::make('rating')->badge(),
+            Tables\Columns\TextColumn::make('source')->label('Source')->badge()
+                ->formatStateUsing(fn (?string $s) => $s === 'google_play' ? 'Google Play' : 'Manual')
+                ->color(fn (?string $s) => $s === 'google_play' ? 'success' : 'gray'),
             Tables\Columns\IconColumn::make('is_published')->boolean(),
             Tables\Columns\TextColumn::make('sort')->sortable(),
         ])->actions([Tables\Actions\EditAction::make()])

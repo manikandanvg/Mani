@@ -30,7 +30,7 @@ class SalesReturnService
     {
         $branchId = (int) $data['branch_id'];
         $cp = ! empty($data['catalog_product_id']) ? CatalogProduct::find($data['catalog_product_id']) : CustomizeOrderPricing::coinProduct();
-        abort_if(! $cp, 422, 'No coin product is configured — set the RD coin catalog item under Commission Setup → Customize Order pricing.');
+        abort_if(! $cp, 422, 'No coin product is configured — set the Gold Saving coin catalog item under Commission Setup → Customize Order pricing.');
 
         $qty = (float) ($data['quantity'] ?? 0);
         abort_if($qty <= 0, 422, 'Enter how many coins / pieces the customer is returning.');

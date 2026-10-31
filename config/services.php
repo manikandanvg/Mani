@@ -154,4 +154,12 @@ return [
     // Only the listed demo phones get a fixed OTP (OtpService); leave empty on dev.
     'review_logins' => env('REVIEW_LOGINS', ''),
 
+    // Google Play Developer API (board 2026-10-31 item 14: Play reviews → testimonials).
+    // A service account invited in Play Console (Users & permissions → "View app
+    // information", "Reply to reviews"); its JSON key file path + the app package name.
+    'google_play' => [
+        'package' => env('GOOGLE_PLAY_PACKAGE', 'com.app.lordicl'),
+        'service_account_json' => env('GOOGLE_PLAY_SERVICE_ACCOUNT_JSON'),
+    ],
+
 ];

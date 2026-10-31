@@ -95,7 +95,7 @@ class TrackDistributor extends TrackPage
             ])->all()];
 
         $rd = RdEntry::where('member_id', $member->id)->latest('paid_on')->limit(10)->get();
-        $this->sections[] = ['heading' => __('Recent RD collections'),
+        $this->sections[] = ['heading' => __('Recent Gold Saving collections'),
             'columns' => [__('Paid on'), __('Amount'), __('Instalment #'), __('Bond')],
             'rows' => $rd->map(fn ($r) => [
                 $this->dmy($r->paid_on), $this->money($r->value), (string) $r->due_count, (string) $r->bond_id,

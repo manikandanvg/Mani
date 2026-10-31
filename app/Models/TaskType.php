@@ -33,7 +33,7 @@ class TaskType extends Model
         ['key' => 'OPEN_HOURS', 'scope' => 'branch', 'unit' => 'days', 'default_target' => 26, 'default_per_day' => 8, 'name' => 'Branch open (hours per day)', 'description' => 'Days the branch stayed open at least the set hours, L-BOX present (RFID open/close taps; auto-closed at 8 PM).'],
         ['key' => 'OPEN_DAYS', 'scope' => 'branch', 'unit' => 'days', 'default_target' => 26, 'name' => 'Days opened', 'description' => 'Days with an opening tap at the L-BOX.'],
         ['key' => 'STOCK_KEPT', 'scope' => 'branch', 'unit' => 'days', 'direction' => 'down', 'default_target' => 0, 'name' => 'Opening stock kept', 'description' => 'Shortfall days — days on which any metal item was below its Opening level at the 8 PM snapshot. Target = allowed shortfall days.'],
-        ['key' => 'RD_RENEWALS', 'scope' => 'branch', 'unit' => 'count', 'default_target' => 20, 'name' => 'RD renewals collected', 'description' => 'RD collections recorded at the branch in the month.'],
+        ['key' => 'RD_RENEWALS', 'scope' => 'branch', 'unit' => 'count', 'default_target' => 20, 'name' => 'Gold Saving renewals collected', 'description' => 'Gold Saving collections recorded at the branch in the month.'],
         ['key' => 'BILLING', 'scope' => 'branch', 'unit' => 'amount', 'default_target' => 500000, 'name' => 'Billing (₹)', 'description' => 'Net value of the branch\'s sales invoices in the month.'],
         ['key' => 'BILLING_G10', 'scope' => 'branch', 'unit' => 'amount', 'default_target' => 200000, 'name' => 'Billing through G10 (₹)', 'description' => 'Sales invoices on gold / silver purchase plans (G10), customized orders included.'],
         // ── Employee ──

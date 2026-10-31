@@ -41,7 +41,7 @@ class RdCollectionService
             $userId = $data['created_by'] ?? auth()->id();
             $amount = round((float) $data['amount'], 2);
 
-            abort_unless($plan && $plan->type === 'rd', 422, 'Not an RD / Gold-Saving bond.');
+            abort_unless($plan && $plan->type === 'rd', 422, 'Not a Gold Saving bond.');
             abort_unless($bond->status === 'active', 422, 'This bond is not active.');
 
             // G11 gold-QR plans (rd_qr_grams): the renewal amount is FIXED at the current
@@ -151,7 +151,7 @@ class RdCollectionService
             // joining consumed installment 1; renewals may fill the remaining validity-1
             $collected = RdEntry::where('bond_id', $bond->id)->count();
             abort_if($collected + 1 > $validity - 1, 422,
-                "RD limit reached: this {$validity}-month scheme has no dues left to renew.");
+                "Gold Saving limit reached: this {$validity}-month scheme has no dues left to renew.");
 
             return;
         }
@@ -167,7 +167,7 @@ class RdCollectionService
 
         $paid = $monthly + (float) RdEntry::where('bond_id', $bond->id)->sum('value');
         abort_if($paid + $amount > $monthly * $validity + 0.01, 422,
-            "RD limit reached: total collections cannot exceed {$validity} × the monthly amount.");
+            "Gold Saving limit reached: total collections cannot exceed {$validity} × the monthly amount.");
     }
 
     /**
@@ -224,7 +224,7 @@ class RdCollectionService
             $bond = Bond::with('member', 'plan')->find($bondId);
             if ($bond?->member && $bond->plan?->is_contract) {
                 \App\Services\Push\Notifier::to($bond->member, 'rd',
-                    'RD payment received — contract updated',
+                    'Gold Saving payment received — contract updated',
                     'Dear ' . $bond->member->name . ', your renewal was recorded and your contract ' . $bond->invoice_no . ' has been updated. Tap to view.',
                     route: '/contracts/' . $bond->id,
                     data: [
@@ -234,7 +234,7 @@ class RdCollectionService
                 );
             }
         } catch (\Throwable $e) {
-            \Illuminate\Support\Facades\Log::warning('RD renewal document send failed: ' . $e->getMessage());
+            \Illuminate\Support\Facades\Log::warning('Gold Saving renewal document send failed: ' . $e->getMessage());
         }
     }
 

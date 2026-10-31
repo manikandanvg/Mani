@@ -111,7 +111,8 @@ class SalesTest extends TestCase
         $this->assertEquals(1, $u3->fresh()->downline_count);
 
         // stock deducted
-        $this->assertEquals(40, Stock::where('branch_id', $branch->id)->where('catalog_product_id', $cp->id)->value('quantity'));
+        // 10 g of a "2g Gold" coin = 5 pieces (unit weight read off the name since board 2026-10-31)
+        $this->assertEquals(45, Stock::where('branch_id', $branch->id)->where('catalog_product_id', $cp->id)->value('quantity'));
 
         // bill margin (2% of cross) to the non-HQ branch
         $this->assertDatabaseHas('reseller_commissions', ['invoice_no' => $invoice->invoice_no, 'com_value' => 20.00]);

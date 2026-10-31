@@ -24,8 +24,6 @@
     "Pages": "Pages",
     "Plans": "Plans",
     "Products (E-com)": "Produits (e-com)",
-    "RD Collection Entry": "Saisie collecte RD",
-    "RD Collections": "Collectes RD",
     "Redeem QR": "Échanger QR",
     "Redemption Invoices": "Factures de rachat",
     "Sales (Billing)": "Ventes (facturation)",
@@ -263,5 +261,8 @@
     "Blessed Gold": "Or béni",
     "Lord's Branch": "Agence Lord",
     "Dealer": "Revendeur",
-    "Utility": "Articles utilitaires"
+    "Utility": "Articles utilitaires",
+    "Gold Saving Collection Entry": "Saisie collecte Épargne Or",
+    "GS Collection (Gold Saving)": "Collecte GS (Épargne Or)",
+    "Cloud Data": "Données cloud"
 }

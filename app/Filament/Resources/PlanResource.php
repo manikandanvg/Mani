@@ -45,11 +45,11 @@ class PlanResource extends BaseResource
                         ->helperText('Dealership ladder position (1 = Regional); blank for non-hierarchy schemes'),
                     Forms\Components\Select::make('plan_type')
                         ->label('Scheme type')
-                        ->options([1 => 'RD', 2 => 'Digital (Cash/Gold/Silver)', 3 => 'Gold', 4 => 'Silver'])
+                        ->options([1 => 'Gold Saving', 2 => 'Digital (Cash/Gold/Silver)', 3 => 'Gold', 4 => 'Silver'])
                         ->default(1)->required(),
                     Forms\Components\Select::make('type')
                         ->label('Settlement')
-                        ->options(['rd' => 'RD', 'digital' => 'Digital', 'gold' => 'Gold', 'silver' => 'Silver', 'others' => 'Others'])
+                        ->options(['rd' => 'Gold Saving', 'digital' => 'Digital', 'gold' => 'Gold', 'silver' => 'Silver', 'others' => 'Others'])
                         ->default('rd')->required(),
                     Forms\Components\TextInput::make('min_value')->label('Min value')->required()->numeric(),
                     Forms\Components\TextInput::make('max_value')->label('Max value')->numeric()
@@ -87,7 +87,7 @@ class PlanResource extends BaseResource
                 ]),
                 Forms\Components\Section::make('Branch margins (%)')->columns(2)->schema([
                     Forms\Components\TextInput::make('billing_margin')->label('Billing margin')->numeric()->default(0),
-                    Forms\Components\TextInput::make('renewal_margin')->label('RD renewal margin')->numeric()->default(0),
+                    Forms\Components\TextInput::make('renewal_margin')->label('Gold Saving renewal margin')->numeric()->default(0),
                 ]),
                 Forms\Components\Section::make()->columns(3)->schema([
                     Forms\Components\TextInput::make('epin_count')->label('E-pin count')->numeric()->default(0),
@@ -108,7 +108,7 @@ class PlanResource extends BaseResource
                         ->default(Plan::AVAILABLE_ALL)->required()->inline()
                         ->helperText("Lord's Branch = a company branch run by a branch in-charge (Branch → Kind). Dealer = an independent dealership."),
                 ]),
-                Forms\Components\Section::make('RD gold QR')->columns(3)->schema([
+                Forms\Components\Section::make('Gold Saving gold QR')->columns(3)->schema([
                     Forms\Components\TextInput::make('rd_qr_grams')->label('Gold weight (g)')->numeric()
                         ->helperText('QR + fixed renewal amount backed by this gold weight (e.g. 0.100 = 100 mg); blank = value-based QR'),
                     Forms\Components\Select::make('rd_qr_on')->label('QR minted')
@@ -124,8 +124,8 @@ class PlanResource extends BaseResource
                         ->helperText('Months from contract start to the settlement event; blank = never settles'),
                     Forms\Components\TextInput::make('settlement_qr_pct')->label('QR worth %')->numeric()
                         ->helperText('Settlement gold-QR worth as % of the contract amount'),
-                    Forms\Components\TextInput::make('settlement_bonus_months')->label('RD bonus months')->numeric()->default(0)
-                        ->helperText('G11 RD: QR = paid total + bonus months × monthly'),
+                    Forms\Components\TextInput::make('settlement_bonus_months')->label('Gold Saving bonus months')->numeric()->default(0)
+                        ->helperText('G11 Gold Saving: QR = paid total + bonus months × monthly'),
                     Forms\Components\Toggle::make('settlement_close')->label('Close contract at settlement'),
                     Forms\Components\Toggle::make('settlement_suspend')->label('Suspend dealer login'),
                     Forms\Components\Textarea::make('settlement')->label('Settlement note')->rows(2)->maxLength(255),

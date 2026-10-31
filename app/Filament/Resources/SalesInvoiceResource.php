@@ -27,22 +27,34 @@ class SalesInvoiceResource extends BaseResource
 
     protected static ?string $navigationIcon = 'heroicon-o-document-text';
 
-    /** An invoice is editable only BEFORE its stock QR is redeemed. */
+    /**
+     * Board 2026-10-31 (8 / 16): a sales invoice is never edited and never deleted. It can
+     * only be CANCELLED (super admin), which restores stock and reverses every activity of
+     * the bill; dealer logins just see their own bills.
+     */
     public static function canEdit($record): bool
     {
-        return ! \App\Models\RedeemableQr::where('invoice_no', $record->invoice_no)
-            ->where('status', 'redeemed')->exists();
+        return false;
     }
 
-    /** Deleting a sale is a super-admin-only operation. */
     public static function canDelete($record): bool
     {
-        return (bool) auth()->user()?->hasRole('super_admin');
+        return false;
     }
 
     public static function canDeleteAny(): bool
     {
-        return (bool) auth()->user()?->hasRole('super_admin');
+        return false;
+    }
+
+    public static function canCreate(): bool
+    {
+        return false;   // bills are raised on Trade → Sales
+    }
+
+    public static function canCancel(SalesInvoice $record): bool
+    {
+        return (bool) auth()->user()?->isSuperAdmin() && $record->status !== 'cancelled';
     }
 
     public static function form(Form $form): Form
@@ -170,6 +182,12 @@ class SalesInvoiceResource extends BaseResource
                     ->sortable(),
                 Tables\Columns\TextColumn::make('payment_type'),
                 Tables\Columns\TextColumn::make('remarks'),
+                Tables\Columns\TextColumn::make('status')->badge()
+                    ->formatStateUsing(fn (?string $state) => ucfirst((string) ($state ?: 'active')))
+                    ->color(fn (?string $state) => $state === 'cancelled' ? 'danger' : 'success')
+                    ->description(fn (SalesInvoice $r) => $r->status === 'cancelled' && $r->cancelled_at
+                        ? 'Cancelled ' . $r->cancelled_at->format('d M Y') . ($r->cancel_reason ? ' — ' . $r->cancel_reason : '')
+                        : null),
                 Tables\Columns\TextColumn::make('created_at')
                     ->dateTime()
                     ->sortable()
@@ -179,7 +197,10 @@ class SalesInvoiceResource extends BaseResource
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
+            ->recordClasses(fn (SalesInvoice $r) => $r->status === 'cancelled' ? 'opacity-60 line-through' : null)
             ->filters([
+                Tables\Filters\SelectFilter::make('status')
+                    ->options(['active' => 'Active', 'cancelled' => 'Cancelled']),
                 \App\Filament\Support\CommonFilters::branch(),
                 \App\Filament\Support\CommonFilters::dateRange('date', 'Billed'),
                 Tables\Filters\TernaryFilter::make('b2b')
@@ -202,13 +223,38 @@ class SalesInvoiceResource extends BaseResource
                     ),
             ])
             ->actions([
-                Tables\Actions\EditAction::make(),
+                Tables\Actions\ViewAction::make()->modalWidth('5xl'),
+                // "Delete" = CANCEL (board 2026-10-31 item 8): stock comes back, contract /
+                // coupons / incentive / margins / volumes / QR of the bill are reversed.
+                Tables\Actions\Action::make('cancelInvoice')
+                    ->label('Cancel invoice')
+                    ->icon('heroicon-o-x-circle')
+                    ->color('danger')
+                    ->visible(fn (SalesInvoice $r) => static::canCancel($r))
+                    ->requiresConfirmation()
+                    ->modalHeading(fn (SalesInvoice $r) => 'Cancel invoice ' . $r->invoice_no)
+                    ->modalDescription(fn (SalesInvoice $r) => ($why = app(\App\Services\SalesCancelService::class)->blocker($r))
+                        ? 'This bill cannot be cancelled: ' . $why
+                        : 'The sold stock returns to the branch; the contract, promotional coupons, sales incentive lines, dealer margins, network volumes and the stock QR of this bill are reversed. The bill stays on record as CANCELLED. This cannot be undone.')
+                    ->form(fn (SalesInvoice $r) => app(\App\Services\SalesCancelService::class)->blocker($r) ? [] : [
+                        Forms\Components\Textarea::make('reason')->label('Reason for cancellation')->required()->rows(2)->maxLength(255),
+                    ])
+                    ->modalSubmitAction(fn ($action, SalesInvoice $r) => app(\App\Services\SalesCancelService::class)->blocker($r) ? $action->hidden() : $action)
+                    ->action(function (SalesInvoice $r, array $data) {
+                        try {
+                            app(\App\Services\SalesCancelService::class)->cancel($r, auth()->id(), $data['reason'] ?? null);
+                        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
+                            \Filament\Notifications\Notification::make()->danger()
+                                ->title('Invoice not cancelled')->body($e->getMessage())->persistent()->send();
+
+                            return;
+                        }
+                        \Filament\Notifications\Notification::make()->success()
+                            ->title('Invoice ' . $r->invoice_no . ' cancelled')
+                            ->body('Stock restored; contract, coupons, incentive, margins and QR reversed.')->send();
+                    }),
             ])
-            ->bulkActions([
-                Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
-                ]),
-            ]);
+            ->bulkActions([]);
     }
 
     public static function getRelations(): array
@@ -222,8 +268,6 @@ class SalesInvoiceResource extends BaseResource
     {
         return [
             'index' => Pages\ListSalesInvoices::route('/'),
-            'create' => Pages\CreateSalesInvoice::route('/create'),
-            'edit' => Pages\EditSalesInvoice::route('/{record}/edit'),
         ];
     }
 }

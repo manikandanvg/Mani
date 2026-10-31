@@ -35,12 +35,42 @@ class CatalogProduct extends Model
      * vessel products (85 = eighty-five 500 g bars) and RUPEES for cash. These two
      * converters keep every stock mutation and display on that single definition.
      */
+    /**
+     * Grams per piece. Legacy-imported items carried no default_weight, so the figure is
+     * read off the name ("8 g Gold", "500 mg Silver") when the column is empty
+     * (board 2026-10-31: app price list showed every item at ₹0).
+     */
+    public function unitWeight(): float
+    {
+        $w = (float) $this->default_weight;
+        if ($w > 0 || $this->material === 'cash') {
+            return $w;
+        }
+
+        return self::weightFromName(\App\Support\Translatable::pick($this->name) ?? '');
+    }
+
+    /** "8 g Gold" → 8.0, "500 mg Silver" → 0.5, "1 kg" → 1000.0; 0 when no weight is named. */
+    public static function weightFromName(string $name): float
+    {
+        if (! preg_match('/(\d+(?:[.,]\d+)?)\s*(mg|g|gm|gms|gram|grams|kg)\b/iu', $name, $m)) {
+            return 0.0;
+        }
+        $n = (float) str_replace(',', '.', $m[1]);
+
+        return match (strtolower($m[2])) {
+            'mg' => round($n / 1000, 4),
+            'kg' => $n * 1000,
+            default => $n,
+        };
+    }
+
     public function piecesFromWeight(float $grams): float
     {
         if ($this->material === 'cash') {
             return $grams;   // "weight" is the rupee amount for cash lines
         }
-        $unit = (float) $this->default_weight;
+        $unit = $this->unitWeight();
 
         return $unit > 0 ? round($grams / $unit, 4) : $grams;
     }

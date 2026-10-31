@@ -320,7 +320,7 @@ class NextAccountsSource implements AccountsSource
         return [
             'Source: the new system (lordicl-next). Stock is read from the stock table as it stands now (pieces × last cost per piece); there is no dated stock snapshot.',
             'Cash in Hand = the cash product in stock (rupees) plus branch Digi cash wallets.',
-            'Running contracts (bonds) plus their RD installments are shown as Gold Saving Scheme / Customer Collections; pending redeemable QRs as Customer Advances.',
+            'Running contracts (bonds) plus their Gold Saving installments are shown as Gold Saving Scheme / Customer Collections; pending redeemable QRs as Customer Advances.',
             'Every purchase bill is recorded as paid (cash / online / cheque) — the new system keeps no credit purchases, so Sundry Creditors is nil from this source. Approved dealer orders not fully paid are Dealer / Branch Receivables.',
             'Distributor commissions paid in the period (commission ledger, status paid) are shown as an operating expense; approved / pending ones as Other Payables.',
             'Payroll (payslips gross) fills Employee Salaries; there is no expense register, so the other expense lines come from the manual inputs.',

@@ -225,8 +225,6 @@
     "Pages": "பக்கங்கள்",
     "Plans": "திட்டங்கள்",
     "Products (E-com)": "பொருட்கள் (இ-வணிகம்)",
-    "RD Collection Entry": "RD வசூல் பதிவு",
-    "RD Collections": "RD வசூல்கள்",
     "Redeem QR": "QR மீட்பு",
     "Redemption Invoices": "மீட்பு விலைப்பட்டியல்கள்",
     "Sales (Billing)": "விற்பனை (பில்லிங்)",
@@ -696,5 +694,9 @@
     "Blessed Gold": "ஆசீர்வதிக்கப்பட்ட தங்கம்",
     "Lord's Branch": "லார்ட் கிளை",
     "Dealer": "டீலர்",
-    "Utility": "பயன்பாட்டுப் பொருட்கள்"
+    "Utility": "பயன்பாட்டுப் பொருட்கள்",
+    "Gold Saving Collection Entry": "தங்க சேமிப்பு வசூல் பதிவு",
+    "GS Collection (Gold Saving)": "GS வசூல் (தங்க சேமிப்பு)",
+    "Cloud Data": "கிளவுட் தரவு",
+    "Gold Saving Collection": "தங்க சேமிப்பு வசூல்"
 }

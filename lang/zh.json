@@ -24,8 +24,6 @@
     "Pages": "页面",
     "Plans": "方案",
     "Products (E-com)": "产品（电商）",
-    "RD Collection Entry": "RD 收款录入",
-    "RD Collections": "RD 收款",
     "Redeem QR": "兑换二维码",
     "Redemption Invoices": "兑换发票",
     "Sales (Billing)": "销售（开票）",
@@ -263,5 +261,8 @@
     "Blessed Gold": "祝福黄金",
     "Lord's Branch": "Lord 分店",
     "Dealer": "经销商",
-    "Utility": "实用器具"
+    "Utility": "实用器具",
+    "Gold Saving Collection Entry": "黄金储蓄收款录入",
+    "GS Collection (Gold Saving)": "GS 收款（黄金储蓄）",
+    "Cloud Data": "云数据"
 }

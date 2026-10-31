@@ -182,7 +182,7 @@ class SalesService
             $this->applyNetworkDeltas($member, $plan, $allocation, $isNew);
             $this->payBillMargin($plan, $invoice, $branchId, $userId, $crossTotal, $member);
             $this->payGmMargin($cart, $invoice, $branchId, $userId, $member);
-            $this->deductStock($cart, $branchId, $billDate, $userId);
+            $this->deductStock($cart, $branchId, $billDate, $userId, $invoice->id);
             if ($custom) {
                 app(\App\Services\CustomizeOrderService::class)->onBilled($custom, $customLineIds, $invoice, $userId);
             }
@@ -647,7 +647,7 @@ class SalesService
      * Deduct sold PIECES from branch stock and log -movements. stock.quantity is a
      * piece count (cash = ₹), so a sale of 2 × 100 mg coins deducts 2 — never 0.2.
      */
-    protected function deductStock(array $cart, int $branchId, string $billDate, ?int $userId): void
+    protected function deductStock(array $cart, int $branchId, string $billDate, ?int $userId, ?int $invoiceId = null): void
     {
         foreach ($cart as $line) {
             if (empty($line['catalog_product_id'])) {
@@ -672,6 +672,7 @@ class SalesService
                 'qty_change' => -$qty,
                 'balance_after' => $stock->fresh()->quantity,
                 'ref_type' => 'sale',
+                'ref_id' => $invoiceId,   // lets a cancellation restore exactly these pieces
                 'moved_on' => $billDate,
                 'created_by' => $userId,
             ]);

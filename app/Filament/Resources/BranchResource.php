@@ -124,6 +124,15 @@ class BranchResource extends BaseResource
                     Forms\Components\TextInput::make('longitude')->numeric()->step('0.0000001')
                         ->placeholder('e.g. 76.9558'),
                 ]),
+                // Launch without L-BOX (board 2026-10-31, common 3): each branch has its own
+                // STATIC payment QR; the app shows it so distributors scan and pay the branch.
+                Forms\Components\Section::make('Payment QR (static UPI)')
+                    ->description('Enter the branch UPI ID (a QR is generated from it for the app) and/or upload the printed QR image.')
+                    ->columns(2)->schema([
+                        Forms\Components\TextInput::make('upi_id')->label('UPI ID')->placeholder('branchname@upi')->maxLength(80),
+                        Forms\Components\FileUpload::make('payment_qr_path')->label('QR image (optional)')
+                            ->image()->directory('branch-qr')->maxSize(4096),
+                    ]),
                 Forms\Components\Section::make('Earned dealer margin balances (₹)')
                     ->description('Accrued automatically by sales/redemption; gold & silver GM kept separate.')
                     ->columns(2)->schema([
@@ -187,6 +196,12 @@ class BranchResource extends BaseResource
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
+                // Pincode drives the network hierarchy (board 2026-10-31, common 1): list the
+                // branches that still lack one — the Export toolbar then gives the Excel file.
+                Tables\Filters\Filter::make('missing_pincode')
+                    ->label('Missing pincode')
+                    ->toggle()
+                    ->query(fn (\Illuminate\Database\Eloquent\Builder $query) => $query->where(fn ($w) => $w->whereNull('pincode')->orWhere('pincode', ''))),
                 Tables\Filters\SelectFilter::make('kind')->label('Kind')
                     ->options(['branch' => "Lord's Branches", 'dealer' => 'Dealers']),
                 Tables\Filters\SelectFilter::make('level')->label('Dealership level')

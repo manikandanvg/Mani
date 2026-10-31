@@ -158,8 +158,10 @@ class BoardRolloutCorrectionsTest extends TestCase
         $this->assertStringContainsString('data-code="FC"', $folder);
         $this->assertStringNotContainsString('class="icl-tree"', $folder);
 
+        // board 2026-10-31 item 2: the chart view is retired — ?view=chart still shows the folder view
         $chart = $this->actingAs($admin)->get('/admin/genealogy?view=chart')->assertSuccessful()->getContent();
-        $this->assertStringContainsString('class="icl-tree"', $chart);
+        $this->assertStringNotContainsString('class="icl-tree"', $chart);
+        $this->assertStringContainsString('icl-folder', $chart);
     }
 
     public function test_order_requests_filter_by_a_date_interval(): void

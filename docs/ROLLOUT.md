@@ -45,11 +45,12 @@ Change the super admin password (`admin@lordicl.com`) immediately after seeding.
 - **Schemes** are matched to the board's v2 sheet **by name** (codes were reshuffled: legacy 208 Zonal → P207, 211 Area Distributor → P210, 212 G10 Silver → P211 …). Existing scheme configuration is never modified. "G12 Smart Gold Savings Plan" (legacy 207, retired) has no v2 twin → kept as inactive `L207` so its bonds still resolve.
 - **Dealers** (ci_users) → `distributor` logins, branch-scoped, **bcrypt passwords kept** (dealers log in with their old password). Their branch gets the dealership level (Reseller/Taluk/District/Zonal/Wholesaler/Area Dealer), accrued margins, digi cash and its stock source (the upline dealer's branch). Every branch starts as **kind = dealer**; convert to Lord's Branch on Master → Branches.
 - **Members** get the branch of the login that entered them and their TBP rank (legacy `mylevel`).
-- **One line per distributor** instead of history rows:
-  - Sales Incentive (IC): 5.2 lakh rows → ≤2 ledger lines per member (`LEGACY-IC ×n` paid / pending / approved).
-  - Turnover salary (GAP): the monthly payout log (net, TDS, service charge) → ≤2 lines per member. **Pending Oct-2026 GAP (≈₹4.6 Cr) lands in Commission Approval as pending** — approve there to credit wallets.
-  - Dealer billing margin: 53k rows → 1 line per dealer branch (`LEGACY-BM ×n`).
-  - Digi gold: purchases − withdrawals (all statuses, as legacy deducted at request) → 1 `OPENING` line per member + wallet grams. Pending withdrawals / pending QR queue rows stay as rows.
+- **Commission history row by row** (board 2026-10-31: "don't merge commission from legacy — show the complete earning data"):
+  - Sales Incentive (IC): all 5.2 lakh legacy rows, one ledger line each (bond, from-member, bill no, status).
+  - Turnover salary (GAP): the monthly payout log → one line per monthly payout (net, TDS, service charge, `GAP <month> ×n` reference). **Pending Oct-2026 GAP (≈₹4.6 Cr) lands in Commission Approval as pending** — approve there to credit wallets.
+  - Dealer billing margin: all 53k rows, one line each.
+  - Digi gold only is summarised: purchases − withdrawals → 1 `OPENING` line per member + wallet grams. Pending withdrawals / pending QR queue rows stay as rows.
+  - A live database imported before 2026-10-31 carries the old single-line history: re-run `legacy:rollout --fresh --seed-plans` from the cut-over dump (≈15 min with the row-level commissions), or accept the summary lines.
 - **Row-level** (cannot shrink): bonds (contracts), RD instalments, **CBC coupons** (individually redeemable), sales invoices + lines.
 - **Not imported** (historic/operational, decided 2026-10-24): branch order requests, dealer requests, estimates/quotations, memos, events, online orders, employee table (empty).
 
@@ -94,6 +95,23 @@ php artisan legacy:rollout --dry-run
 php -d memory_limit=1024M -d max_execution_time=0 artisan legacy:rollout --fresh --seed-plans   # ~8 min
 php artisan db:seed --class=CashStockSeeder --force
 ```
+
+### Board 2026-10-31 corrections — after `migrate` on the live server
+
+```bash
+php artisan migrate --force                 # invoice cancel columns, branch payment QR, catalog unit weights,
+                                            # premium CMS pages + FAQ (CmsContentSeeder runs inside the migration)
+php artisan pincodes:import storage/app/pincodes/all_india.csv   # only if the pincodes master is empty (fresh DB) — the filler + Sales PIN auto-fill read it
+php artisan branches:pincodes --fill        # auto-fill missing pincodes from address / city (pincode master, India Post API fallback)
+php artisan branches:pincodes --export=/www/backup/branches-without-pincode.xlsx   # the rest, for the board
+php artisan branches:geocode                # store-locator pins for branches without coordinates (Nominatim, ~1 s each)
+php artisan stock:import-opening --template=/www/backup/opening-stock.xlsx         # sheet to hand to the branches
+php artisan stock:import-opening /path/filled.xlsx --dry-run && php artisan stock:import-opening /path/filled.xlsx
+```
+
+- `.env`: `MONTHLY_TASKS_ENABLED=false` (default) keeps the Monthly Tasks screens idle until the L-BOX launch; `GOOGLE_PLAY_PACKAGE` + `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` enable the daily Play-review → Testimonials import (`testimonials:import-play-reviews`).
+- Branch payment QR: Master → Branches → "Payment QR (static UPI)" — UPI id and/or the printed QR image; the app's store list carries `upi_id`, `upi_link`, `payment_qr_url`.
+- Redemption OTPs now go out as app push + inbox only (no WhatsApp).
 
 ### Either way, afterwards on the live server
 

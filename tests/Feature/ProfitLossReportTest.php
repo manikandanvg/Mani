@@ -145,7 +145,7 @@ class ProfitLossReportTest extends TestCase
         $scheme = $s['1. Scheme-wise incoming amount — bond allocation / investment (01 Apr 2026 – 30 Jun 2026)'];
         $this->assertSame('15', $scheme['kv']['Contracts started']);
         $this->assertSame('10,10,000.00', $scheme['kv']['Investment received']);
-        $this->assertSame('40,000.00', $scheme['kv']['RD installments received']);
+        $this->assertSame('40,000.00', $scheme['kv']['Gold Saving installments received']);
         $this->assertSame('G12 Forward contractors', $scheme['rows'][0][1]);
         $this->assertSame('0.00', $scheme['rows'][0][7]);                         // no stock allocation on G12
         $this->assertSame('0.00 %', $scheme['rows'][0][8]);

@@ -21,7 +21,7 @@ class MemberResource extends BaseResource
     use HqOnly;
     protected static ?string $model = Member::class;
 
-    protected static ?string $navigationGroup = 'Network';
+    protected static ?string $navigationGroup = 'Cloud Data';
 
     protected static ?int $navigationSort = 1;
 
@@ -33,6 +33,30 @@ class MemberResource extends BaseResource
     protected static ?string $pluralModelLabel = 'Distributor List';
 
     protected static ?string $navigationLabel = 'Distributor List';
+
+    /**
+     * Board 2026-10-31 (1): only the HQ super admin may open a distributor for editing or
+     * delete one. Every other back-office login sees the list read-only (no row click).
+     */
+    public static function canEdit($record): bool
+    {
+        return (bool) auth()->user()?->isSuperAdmin();
+    }
+
+    public static function canDelete($record): bool
+    {
+        return (bool) auth()->user()?->isSuperAdmin();
+    }
+
+    public static function canDeleteAny(): bool
+    {
+        return (bool) auth()->user()?->isSuperAdmin();
+    }
+
+    public static function canCreate(): bool
+    {
+        return (bool) auth()->user()?->isSuperAdmin();
+    }
 
     public static function form(Form $form): Form
     {
@@ -305,13 +329,17 @@ class MemberResource extends BaseResource
                     }),
             ])
             ->filtersFormWidth('md')
+            // Non-super-admin staff: no row click, no edit, no delete (board 2026-10-31 item 1).
+            ->recordUrl(fn (Member $record) => auth()->user()?->isSuperAdmin()
+                ? static::getUrl('edit', ['record' => $record])
+                : null)
             ->actions([
-                Tables\Actions\EditAction::make(),
+                Tables\Actions\EditAction::make()->visible(fn () => (bool) auth()->user()?->isSuperAdmin()),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
                     Tables\Actions\DeleteBulkAction::make(),
-                ]),
+                ])->visible(fn () => (bool) auth()->user()?->isSuperAdmin()),
             ]);
     }
 

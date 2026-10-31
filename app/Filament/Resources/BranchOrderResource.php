@@ -188,7 +188,7 @@ class BranchOrderResource extends BaseResource
             ->actions([
                 // No 'view' page registered (board phase-1, 2026-08-21) — the same
                 // button now opens the infolist below as a popup modal.
-                Tables\Actions\ViewAction::make()->modalWidth('5xl'),
+                Tables\Actions\ViewAction::make()->modalWidth('7xl'),   // board 2026-10-31 item 4: full-width item list
                 Tables\Actions\Action::make('approve')
                     ->icon('heroicon-m-check-circle')->color('success')->requiresConfirmation()
                     ->modalDescription(fn (BranchOrderRequest $r) => $r->isCustomize()
@@ -311,7 +311,7 @@ class BranchOrderResource extends BaseResource
     public static function infolist(Infolist $infolist): Infolist
     {
         return $infolist->schema([
-            Infolists\Components\Section::make('Order')->columns(3)->schema([
+            Infolists\Components\Section::make('Order')->columns(['default' => 1, 'sm' => 2, 'lg' => 3])->schema([
                 Infolists\Components\TextEntry::make('request_no'),
                 Infolists\Components\TextEntry::make('status')->badge(),
                 Infolists\Components\TextEntry::make('source')->label('Type')->badge()
@@ -377,7 +377,8 @@ class BranchOrderResource extends BaseResource
                 ]),
             // Product NAME, not just the code (board 2026-08-26 item 2.3); customised lines
             // show the distributor's description and the per-gram price build-up.
-            Infolists\Components\RepeatableEntry::make('lines')->label('Items')->columns(5)->schema([
+            Infolists\Components\RepeatableEntry::make('lines')->label('Items')->columnSpanFull()
+                ->columns(['default' => 1, 'sm' => 2, 'lg' => 5])->schema([
                 Infolists\Components\TextEntry::make('material')->badge(),
                 Infolists\Components\TextEntry::make('catalogProduct.code')->label('Product')
                     ->state(fn ($record) => $record->catalogProduct

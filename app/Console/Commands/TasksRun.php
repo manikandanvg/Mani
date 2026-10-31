@@ -36,7 +36,7 @@ class TasksRun extends Command
         }
 
         if ($only === 'lock') {
-            $target = $month ?? Carbon::now()->subMonth()->startOfMonth();
+            $target = $month ?? Carbon::now()->subMonthNoOverflow()->startOfMonth()   // 31st: subMonth() would overflow into THIS month;
             $n = $engine->lockMonth($target);
             $this->info("Locked {$target->format('F Y')}: {$n} score(s) written.");
 

@@ -35,6 +35,18 @@ Route::get('/digigold/{purchase}/pay', [\App\Http\Controllers\DigiGoldPayControl
 Route::post('/digigold/payment/verify', [\App\Http\Controllers\DigiGoldPayController::class, 'verify'])
     ->name('digigold.verify');
 
+// Branch static payment QR (board 2026-10-31, common 3): PNG of the branch's UPI link,
+// used by the app's store cards when no printed QR image was uploaded. Public — the QR
+// carries nothing but the branch's own UPI id, exactly like the sticker on the counter.
+Route::get('/branches/{branch}/payment-qr.png', function (\App\Models\Branch $branch) {
+    abort_unless($branch->upiLink(), 404);
+
+    return response(app(\App\Services\Qr\QrCodeService::class)->png($branch->upiLink()), 200, [
+        'Content-Type' => 'image/png',
+        'Cache-Control' => 'public, max-age=86400',
+    ]);
+})->name('branch.payment-qr');
+
 // Admin: stream a bond's contract / MOU as a PDF (auth-guarded).
 Route::get('/admin/contracts/{bond}/pdf', fn (Bond $bond) => app(ContractService::class)->stream($bond))
     ->middleware(['web', 'auth'])->name('contract.pdf');

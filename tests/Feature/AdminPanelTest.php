@@ -46,7 +46,7 @@ class AdminPanelTest extends TestCase
             // trade
             'purchases',
             // sales + commissions + digi-gold
-            'epins', 'sales-invoices',
+            'epins',
             'digi-orders', 'digi-queues', 'digi-withdrawals',
             // website / cms
             'cms-pages', 'posts', 'testimonials', 'faqs',
@@ -66,7 +66,8 @@ class AdminPanelTest extends TestCase
 
         // index-only resources (no create page). commission-ledgers became a read-only
         // VIEW-backed ledger (board 2026-08-10) — rows are written by the engines.
-        foreach (['stocks', 'orders', 'rd-entries', 'branch-orders', 'bonds', 'payout-statements', 'commission-ledgers'] as $slug) {
+        // sales-invoices: no create/edit pages since board 2026-10-31 (bills are raised on Trade → Sales, only cancelled here)
+        foreach (['stocks', 'orders', 'rd-entries', 'branch-orders', 'bonds', 'payout-statements', 'commission-ledgers', 'sales-invoices'] as $slug) {
             $this->actingAs($this->adminUser)->get("/admin/{$slug}")->assertSuccessful();
         }
     }

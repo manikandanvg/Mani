@@ -441,7 +441,7 @@ class BusinessModelReport extends ReportPage
             __('Contracts (bonds) started in period') => $o['contracts'].' / ₹'.$this->money($o['contracts_amount']),
             __('Active as on To date') => $o['active'].' / ₹'.$this->money($o['active_amount']),
             __('Closed as on To date') => $o['closed'].' / ₹'.$this->money($o['closed_amount']),
-            __('Installments (RD) received in period') => $o['rd'].' / ₹'.$this->money($o['rd_amount']),
+            __('Gold Saving installments received in period') => $o['rd'].' / ₹'.$this->money($o['rd_amount']),
             __('Gold QR allocations in period') => $o['qrs'].' / '.$this->grams($o['qrs_grams']).' / ₹'.$this->money($o['qrs_amount']),
             __('Contract settlements paid in period') => $o['settlements'].' / ₹'.$this->money($o['settlements_amount']),
         ];

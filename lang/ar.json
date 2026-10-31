@@ -24,8 +24,6 @@
     "Pages": "الصفحات",
     "Plans": "الخطط",
     "Products (E-com)": "المنتجات (متجر)",
-    "RD Collection Entry": "إدخال تحصيل RD",
-    "RD Collections": "تحصيلات RD",
     "Redeem QR": "استرداد QR",
     "Redemption Invoices": "فواتير الاسترداد",
     "Sales (Billing)": "المبيعات (الفوترة)",
@@ -263,5 +261,8 @@
     "Blessed Gold": "الذهب المبارك",
     "Lord's Branch": "فرع لورد",
     "Dealer": "وكيل",
-    "Utility": "أدوات منزلية"
+    "Utility": "أدوات منزلية",
+    "Gold Saving Collection Entry": "إدخال تحصيل ادخار الذهب",
+    "GS Collection (Gold Saving)": "تحصيلات GS (ادخار الذهب)",
+    "Cloud Data": "بيانات سحابية"
 }

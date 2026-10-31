@@ -18,6 +18,7 @@ class SalesInvoice extends Model
         'gold_rate' => 'decimal:2',
         'silver_rate' => 'decimal:2',
         'diamond_rate' => 'decimal:2',
+        'cancelled_at' => 'datetime',
     ];
 
     public function customer() { return $this->belongsTo(Member::class, 'customer_member_id'); }

@@ -97,12 +97,29 @@ class MemberContractResource extends BaseResource
                     ->color('success'),
             ])
             ->filters([
-                Tables\Filters\SelectFilter::make('status')
-                    ->options(['active' => 'Active', 'matured' => 'Matured (needs decision)', 'closed' => 'Closed']),
+                // Board 2026-10-31 (7): Settlements opens on the CLOSED / expired contracts —
+                // the ones that need (or had) a settlement; running contracts live under Sales & Contracts.
+                Tables\Filters\SelectFilter::make('stage')
+                    ->label('Show')
+                    ->options([
+                        'closed' => 'Closed / expired contracts',
+                        'matured' => 'Matured (needs decision)',
+                        'active' => 'Running contracts',
+                        'all' => 'All contracts',
+                    ])
+                    ->default('closed')
+                    ->selectablePlaceholder(false)
+                    ->query(fn (Builder $query, array $data) => match ($data['value'] ?? 'closed') {
+                        'closed' => $query->where(fn ($w) => $w->whereIn('status', ['closed', 'matured'])
+                            ->orWhereDate('end_date', '<', now()->toDateString())),
+                        'matured' => $query->where('status', 'matured'),
+                        'active' => $query->where('status', 'active')->whereDate('end_date', '>=', now()->toDateString()),
+                        default => $query,
+                    }),
                 Tables\Filters\Filter::make('expired')
                     ->label('Expired, awaiting settlement')
                     ->toggle()
-                    ->query(fn (Builder $q) => $q
+                    ->query(fn (Builder $query) => $query
                         ->where(fn ($w) => $w->where('status', 'matured')
                             ->orWhere(fn ($x) => $x->where('status', '!=', 'closed')->whereDate('end_date', '<', now()->toDateString())))
                         ->whereDoesntHave('settlements')),

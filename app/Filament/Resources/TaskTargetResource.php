@@ -25,6 +25,12 @@ class TaskTargetResource extends BaseResource
 {
     use HqOnly;
 
+    /** Monthly Tasks is idle until the L-BOX launch (board 2026-10-31): no nav entry. */
+    public static function shouldRegisterNavigation(): bool
+    {
+        return \App\Support\Features::monthlyTasks() && static::hqOnlyAllowed();
+    }
+
     protected static ?string $model = TaskTarget::class;
 
     protected static ?string $navigationGroup = 'Monthly Tasks';

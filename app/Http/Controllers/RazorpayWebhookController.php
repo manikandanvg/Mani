@@ -54,9 +54,9 @@ class RazorpayWebhookController extends Controller
             'subscription.activated', 'subscription.authenticated' => $mandate->update(['status' => 'active']),
             'subscription.pending' => $mandate->update(['status' => 'pending']),
             'subscription.halted' => $this->markAndNotify($mandate, 'halted',
-                'Auto-debit halted', 'Your RD auto-debit could not be charged and has been halted. Please pay this month\'s instalment at your branch and contact them to resume auto-debit.'),
+                'Auto-debit halted', 'Your Gold Saving auto-debit could not be charged and has been halted. Please pay this month\'s instalment at your branch and contact them to resume auto-debit.'),
             'subscription.cancelled' => $this->markAndNotify($mandate, 'cancelled',
-                'Auto-debit cancelled', 'Your RD auto-debit mandate was cancelled. Monthly instalments continue at your branch as usual.'),
+                'Auto-debit cancelled', 'Your Gold Saving auto-debit mandate was cancelled. Monthly instalments continue at your branch as usual.'),
             'subscription.completed' => $mandate->update(['status' => 'completed']),
             default => null,
         };
@@ -108,8 +108,8 @@ class RazorpayWebhookController extends Controller
         \App\Services\Push\Notifier::to(
             \App\Models\Member::find($mandate->member_id),
             'rd',
-            'Auto-debit received — RD instalment recorded',
-            \App\Support\Money::inr((float) $mandate->amount) . ' was auto-debited and your RD instalment is recorded. Your contract passbook is updated.',
+            'Auto-debit received — Gold Saving instalment recorded',
+            \App\Support\Money::inr((float) $mandate->amount) . ' was auto-debited and your Gold Saving instalment is recorded. Your contract passbook is updated.',
             route: '/contracts/' . $mandate->bond_id,
         );
     }

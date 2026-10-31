@@ -120,7 +120,7 @@ class CommissionSetup extends Page implements HasForms
                     ->label('GST %')
                     ->numeric()->minValue(0)->maxValue(30)->required()->suffix('%'),
                 Forms\Components\Select::make('customize.coin_product_id')
-                    ->label('RD coin catalog item')
+                    ->label('Gold Saving coin catalog item')
                     ->options(fn () => \App\Support\CustomizeOrderPricing::coinProductOptions())
                     ->searchable()->native(false),
             ]);

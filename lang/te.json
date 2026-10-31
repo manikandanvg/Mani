@@ -24,8 +24,6 @@
     "Pages": "పేజీలు",
     "Plans": "ప్లాన్లు",
     "Products (E-com)": "ఉత్పత్తులు (ఇ-కామ్)",
-    "RD Collection Entry": "RD వసూలు ఎంట్రీ",
-    "RD Collections": "RD వసూళ్లు",
     "Redeem QR": "QR రిడీమ్",
     "Redemption Invoices": "రిడెంప్షన్ ఇన్‌వాయిస్‌లు",
     "Sales (Billing)": "అమ్మకాలు (బిల్లింగ్)",
@@ -263,5 +261,8 @@
     "Blessed Gold": "ఆశీర్వదించిన బంగారం",
     "Lord's Branch": "లార్డ్ శాఖ",
     "Dealer": "డీలర్",
-    "Utility": "ఉపయోగ వస్తువులు"
+    "Utility": "ఉపయోగ వస్తువులు",
+    "Gold Saving Collection Entry": "గోల్డ్ సేవింగ్ వసూలు ఎంట్రీ",
+    "GS Collection (Gold Saving)": "GS వసూలు (గోల్డ్ సేవింగ్)",
+    "Cloud Data": "క్లౌడ్ డేటా"
 }

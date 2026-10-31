@@ -94,7 +94,7 @@ class AdminPanelProvider extends PanelProvider
             // System → Report; support staff = Support & Track only. "Track" is the
             // dealer-facing twin of "Support & Track" (same screens, different group).
             ->navigationGroups([
-                \Filament\Navigation\NavigationGroup::make('Network')->label(fn () => __('Network')),
+                \Filament\Navigation\NavigationGroup::make('Cloud Data')->label(fn () => __('Cloud Data')),
                 \Filament\Navigation\NavigationGroup::make('Trade')->label(fn () => __('Trade')),
                 \Filament\Navigation\NavigationGroup::make('Sales & Contracts')->label(fn () => __('Sales & Contracts')),
                 \Filament\Navigation\NavigationGroup::make('Commissions')->label(fn () => __('Commissions')),

@@ -20,7 +20,7 @@ class GenealogyTree extends Page
 
     protected static ?string $navigationIcon = 'heroicon-o-share';
 
-    protected static ?string $navigationGroup = 'Network';
+    protected static ?string $navigationGroup = 'Cloud Data';
 
     protected static ?string $navigationLabel = 'Distributor Place';
 
@@ -37,7 +37,8 @@ class GenealogyTree extends Page
      * network is shown as a FOLDER tree (system file-explorer style: each distributor is a
      * folder holding the distributors placed under them). The chart remains one click away.
      *   /admin/genealogy            → folder view (default)
-     *   /admin/genealogy?view=chart → org chart
+     *   /admin/genealogy?view=chart → org chart — RETIRED by the board on 2026-10-31
+     *   (item 2: "Distributor Place: don't show chart view"); the mode is always 'folder'.
      */
     public string $mode = 'folder';
 
@@ -47,7 +48,7 @@ class GenealogyTree extends Page
         if ((int) ini_get('memory_limit') > 0 && (int) ini_get('memory_limit') < 512) {
             ini_set('memory_limit', '512M');
         }
-        $this->mode = request()->query('view') === 'chart' ? 'chart' : 'folder';
+        $this->mode = 'folder';   // chart view retired (board 2026-10-31 item 2)
     }
 
     public function getMaxContentWidth(): MaxWidth

@@ -33,7 +33,8 @@ class UtilityController extends Controller
             ->get()
             ->map(function (CatalogProduct $p) use ($rates) {
                 $rate = $rates[$p->material] ?? 0.0;
-                $metal = $rate * (float) $p->default_weight;
+                $weight = $p->unitWeight();   // name-derived when legacy left default_weight empty
+                $metal = $rate * $weight;
                 $charges = (float) $p->making_charge_pct + (float) $p->wastage_charge_pct;
                 $price = $metal * (1 + $charges / 100) + (float) $p->hallmark_charge;
                 $price *= 1 + ((float) $p->gst_pct) / 100;
@@ -41,10 +42,11 @@ class UtilityController extends Controller
                 return [
                     'name' => Translatable::pick($p->name),
                     'material' => $p->material,
-                    'weight' => (float) $p->default_weight,
+                    'weight' => $weight,
                     'price' => round($price, 2),
                 ];
             })
+            ->filter(fn (array $row) => $row['weight'] > 0 && $row['price'] > 0)
             ->values();
 
         return response()->json([
@@ -223,8 +225,15 @@ class UtilityController extends Controller
                     'incharge' => $b->incharge,
                     'phone' => $b->phone,
                     'address' => trim(implode(', ', array_filter([$b->address, $b->city, $b->pincode]))),
+                    'city' => $b->city,
+                    'pincode' => $b->pincode,
                     'latitude' => $b->latitude !== null ? (float) $b->latitude : null,
                     'longitude' => $b->longitude !== null ? (float) $b->longitude : null,
+                    // Launch without L-BOX (board 2026-10-31, common 3): the branch's own static
+                    // payment QR — the app shows it for scan-and-pay at this branch.
+                    'upi_id' => $b->upi_id ?: null,
+                    'upi_link' => $b->upiLink(),
+                    'payment_qr_url' => $b->paymentQrUrl(),
                 ])->values(),
         ]);
     }

@@ -29,11 +29,10 @@ class EarningReport extends ReportPage
             Forms\Components\Section::make()->columns(4)->schema([
                 Forms\Components\DatePicker::make('from')->required()->native(false),
                 Forms\Components\DatePicker::make('to')->required()->native(false),
+                // Board 2026-10-31 (17): only the streams this business pays, under their board names
+                // (no "pair match" — that was a placeholder from the generic MLM schema).
                 Forms\Components\Select::make('type')->label('Stream')
-                    ->options(array_combine(
-                        $t = ['IC', 'GAP', 'CBC', 'BILL_MARGIN', 'RESELLER', 'PAIRMATCH', 'REFERRAL', 'ROI', 'REWARD'],
-                        $t
-                    ))
+                    ->options(\App\Services\CommissionApprovalService::streamOptions())
                     ->placeholder(__('All streams'))
                     ->native(false),
                 Forms\Components\Select::make('status')
@@ -75,7 +74,7 @@ class EarningReport extends ReportPage
             ],
             'columns' => [__('Stream'), __('Entries'), __('Gross'), __('Pending'), __('TDS'), __('Service'), __('Net credited')],
             'rows' => $streams->map(fn ($s) => [
-                $s->type, (string) $s->c, $this->money($s->gross), $this->money($s->pending),
+                \App\Services\CommissionApprovalService::label($s->type), (string) $s->c, $this->money($s->gross), $this->money($s->pending),
                 $this->money($s->tds), $this->money($s->svc), $this->money($s->net),
             ])->all()];
 
@@ -102,7 +101,7 @@ class EarningReport extends ReportPage
         $this->sections[] = ['heading' => __('Entries (latest 300)'),
             'columns' => [__('Earned on'), __('Member'), __('Stream'), __('Level'), __('Gross'), __('TDS'), __('Service'), __('Net'), __('Status')],
             'rows' => $rows->map(fn ($r) => [
-                $this->dmy($r->earned_on), $r->member?->member_code, $r->type,
+                $this->dmy($r->earned_on), $r->member?->member_code, \App\Services\CommissionApprovalService::label($r->type),
                 $r->level !== null ? (string) $r->level : '—', $this->money($r->amount),
                 $this->money($r->tds), $this->money($r->service_charge), $this->money($r->net_amount),
                 ucfirst((string) $r->status),

@@ -6,7 +6,6 @@ use App\Models\Branch;
 use App\Models\CatalogProduct;
 use App\Models\RedeemableQr;
 use App\Services\Redeem\RedemptionService;
-use App\Services\Whatsapp\WhatsappSender;
 use App\Support\Translatable;
 use Filament\Forms\Components\Actions as FormActions;
 use Filament\Forms\Components\Actions\Action as FormAction;
@@ -28,7 +27,7 @@ use Illuminate\Support\HtmlString;
  * Redeem QR — the operator-facing screen for the actual sale against a stock QR
  * (legacy admin/trade/redeeminvqr). Flow: scan/enter the QR + redeeming branch →
  * Fetch (contract + worth + mode) → build the cart (Mode A is auto from the original
- * sale, Mode B is a manual catalog pick priced live) → Send OTP over WhatsApp → enter
+ * sale, Mode B is a manual catalog pick priced live) → Send OTP by app push → enter
  * OTP, optionally tick "Open Distributor A/C" (eligible plans only) → Redeem.
  *
  * All money/stock logic lives in RedemptionService; this page only collects input.
@@ -185,8 +184,8 @@ class RedeemQr extends Page implements HasForms
                     ->schema([
                         FormActions::make([
                             FormAction::make('sendOtp')
-                                ->label('Send OTP on WhatsApp')
-                                ->icon('heroicon-o-chat-bubble-left-right')
+                                ->label('Send OTP to the app')
+                                ->icon('heroicon-o-device-phone-mobile')
                                 ->color('success')
                                 ->action('sendOtp'),
                         ])->columnSpanFull(),
@@ -283,29 +282,29 @@ class RedeemQr extends Page implements HasForms
 
         $otp = app(RedemptionService::class)->generateOtp($qr);
         $member = $qr->member;
-        $phone = (string) ($member?->phone ?? '');
 
-        if ($phone === '') {
-            Notification::make()->warning()->title('No phone on file')
-                ->body('OTP generated: ' . $otp . ' (could not send — distributor has no phone).')->send();
+        if (! $member) {
+            Notification::make()->warning()->title('No distributor on this QR')
+                ->body('OTP generated: ' . $otp . ' (could not send — the QR has no distributor).')->send();
 
             return;
         }
 
-        $msg = "LORD JEWELLER: Your stock-QR redemption OTP is {$otp}. Share it with the counter to complete the redemption.";
-        $res = app(WhatsappSender::class)->sendText($phone, $msg);   // OTP stays on WhatsApp (board 2026-08-11)
-
-        // Push acknowledgement so the attempt also lands in the app inbox.
+        // Board 2026-10-31 (common 4): the redemption OTP goes out as an app push
+        // notification + inbox entry — never over WhatsApp.
         \App\Services\Push\Notifier::to(
-            $qr->member,
+            $member,
             'redeem',
-            'Redemption OTP sent',
-            'An OTP was sent to your WhatsApp for redeeming QR ' . $qr->qr_code . '. If this was not you, contact your branch immediately.',
+            'Redemption OTP: ' . $otp,
+            'Your OTP to redeem QR ' . $qr->qr_code . ' is ' . $otp . '. Share it with the counter to complete the redemption. '
+                . 'If this was not you, contact your branch immediately.',
+            route: '/inbox',
         );
 
-        ($res['ok'] ?? false)
-            ? Notification::make()->success()->title('OTP sent on WhatsApp')->body('Sent to the distributor\'s number.')->send()
-            : Notification::make()->warning()->title('OTP generated, WhatsApp send failed')->body($res['message'] ?? 'Gateway error.')->send();
+        $member->deviceTokens()->exists()
+            ? Notification::make()->success()->title('OTP sent to the distributor\'s app')->body('Delivered as a push notification and to the app inbox.')->send()
+            : Notification::make()->warning()->title('OTP saved to the app inbox — no device registered')
+                ->body('The distributor has not logged into the app on any phone, so no push could be delivered. OTP: ' . $otp)->send();
     }
 
     public function redeem(): void

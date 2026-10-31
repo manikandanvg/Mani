@@ -39,5 +39,8 @@ class RolloutSeeder extends Seeder
                 'group' => $p['group'], 'title' => ['en' => $p['title']], 'body' => ['en' => $p['body']], 'is_published' => true, 'sort' => 1,
             ]);
         }
+
+        // Board 2026-10-31: premium copy for every page except About Us + the portal FAQ.
+        $this->call(CmsContentSeeder::class);
     }
 }

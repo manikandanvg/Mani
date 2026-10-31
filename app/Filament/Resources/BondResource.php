@@ -146,8 +146,10 @@ class BondResource extends BaseResource
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
+                // Board 2026-10-31 (6): the list opens on ACTIVE contracts; clear the filter for all.
                 Tables\Filters\SelectFilter::make('status')
-                    ->options(['active' => 'Active', 'closed' => 'Closed', 'cancelled' => 'Cancelled']),
+                    ->options(['active' => 'Active', 'closed' => 'Closed', 'cancelled' => 'Cancelled'])
+                    ->default('active'),
             ])
             ->actions([
                 Tables\Actions\Action::make('contract')

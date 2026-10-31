@@ -23,7 +23,7 @@ class GoldQrPricing
 
         $rate = LiveRate::where('country', $country)->latest('effective_at')->first();
         $perGram = (float) ($rate->gold ?? 0);
-        abort_if($perGram <= 0, 422, 'No live gold rate configured — set it before RD billing / renewal.');
+        abort_if($perGram <= 0, 422, 'No live gold rate configured — set it before Gold Saving billing / renewal.');
 
         $cp = $plan->rd_qr_product_id ? CatalogProduct::find($plan->rd_qr_product_id) : null;
 

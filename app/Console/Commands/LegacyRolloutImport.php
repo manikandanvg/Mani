@@ -27,15 +27,15 @@ use Illuminate\Support\Str;
  *    every branch starts as kind = dealer (HQ = branch); the board converts dealers into
  *    Lord's Branches on the Branch form afterwards.
  *  - Members get their branch (the login that entered them) and their TBP rank.
- *  - HUGE history is DISCLOSED AS ONE LINE per distributor instead of row-by-row:
- *      · Sales Incentive (IC, 5.2 lakh rows)   → one ledger line per member per status
- *      · Turnover salary (GAP payout log)      → one line per member per status (TDS/SC kept)
- *      · Dealer billing margin (53k rows)      → one line per dealer branch
- *      · Digi gold (1.3 lakh buys / 47k draws) → one OPENING balance line per member
- *    Each line carries the row count it stands for ("LEGACY-IC ×1,234").
- *  - CBC coupons, bonds, RD instalments, sales invoices and their lines stay row-level: CBC
- *    coupons are individually redeemable and contracts/invoices are legal documents, so they
- *    cannot be shrunk.
+ *  - Commission history is imported ROW BY ROW (board 2026-10-31: "don't merge commission
+ *    from legacy — show the complete earning data"):
+ *      · Sales Incentive (IC, 5.2 lakh rows)   → one ledger line per legacy row
+ *      · Turnover salary (GAP payout log)      → one line per monthly payout (TDS/SC kept)
+ *      · Dealer billing margin (53k rows)      → one line per legacy row
+ *    Only Digi gold (1.3 lakh buys / 47k draws) is summarised: one OPENING balance line
+ *    per member (the purse balance is what matters; the legacy rows carry no documents).
+ *  - CBC coupons, bonds, Gold Saving instalments, sales invoices and their lines stay
+ *    row-level: coupons are individually redeemable and contracts/invoices are legal documents.
  *  - Pending digi withdrawals / digi QR queue rows stay as rows (they are actionable).
  *
  *   php artisan legacy:rollout --fresh --seed-plans
@@ -47,7 +47,7 @@ class LegacyRolloutImport extends LegacyImport
         {--seed-plans : Seed the board-approved v2 scheme sheet first (fresh database)}
         {--dry-run : Report what would be imported without writing}';
 
-    protected $description = 'ROLL-OUT import of the legacy lordicl database (Sivakasi HQ, v2 schemes, dealer logins, single-line history)';
+    protected $description = 'ROLL-OUT import of the legacy lordicl database (Sivakasi HQ, v2 schemes, dealer logins, row-level commission history)';
 
     /** legacy ci_users.id => new users.id */
     protected array $userMap = [];
@@ -399,112 +399,45 @@ class LegacyRolloutImport extends LegacyImport
         $this->note('dealer logins', $in, $skip);
     }
 
-    // ------------------------------------------------ single-line history
+    // ------------------------------------------------ commission history (row-level)
 
-    /** IC (5.2 lakh legacy rows) → one ledger line per member per status. */
-    protected function importIcCommissions(): void
-    {
-        [$in, $skip] = [0, 0];
-        $batch = [];
-        $rows = $this->legacy->table('tbl_iccom')
-            ->selectRaw('comusername, UPPER(status) st, COUNT(*) n, SUM(comamount) amt, MIN(billdate) d0, MAX(billdate) d1')
-            ->groupBy('comusername', 'st')->get();
-        foreach ($rows as $r) {
-            $memberId = $this->memberMap[$this->clip($r->comusername, 30)] ?? null;
-            if (! $memberId) {
-                $skip++;
-                continue;
-            }
-            $status = match ($r->st) { 'PAID' => 'paid', 'PASSED' => 'approved', default => 'pending' };
-            $amount = round((float) $r->amt, 2);
-            $date = $this->date($r->d1) ?? '2020-01-01';
-            $batch[] = [
-                'type' => 'IC', 'member_id' => $memberId, 'from_member_id' => null, 'bond_id' => null,
-                'invoice_no' => $this->legacyRef('LEGACY-IC', (int) $r->n, $r->d0, $r->d1),
-                'level' => null, 'amount' => $amount, 'status' => $status, 'pay_via' => null,
-                'earned_on' => $date, 'paid_on' => $status === 'paid' ? $date : null, 'branch_id' => null,
-                'tds' => 0, 'service_charge' => 0, 'net_amount' => $amount,
-                'created_at' => $date, 'updated_at' => $date,
-            ];
-            $in++;
-        }
-        foreach (array_chunk($batch, 1000) as $chunk) {
-            DB::table('commission_ledger')->insert($chunk);
-        }
-        $this->note('commission_ledger IC (1 line / member / status)', $in, $skip);
-    }
+    // Board 2026-10-31 (item 11 / common 5): "don't merge commission from legacy — show the
+    // complete earning data". IC and dealer-margin rows are imported one-for-one by the
+    // parent importer (LegacyImport::importIcCommissions / importResellerCommissions);
+    // GAP comes from the monthly payout log below, one line per month with its TDS and
+    // service charge — nothing is compressed into a single line any more.
 
-    /** GAP = the monthly payout log (net, TDS, service charge) → one line per member per status. */
+    /** GAP = tbl_gap_log, ONE LINE PER MONTHLY PAYOUT (net, TDS, service charge kept). */
     protected function importGapCommissions(): void
     {
         [$in, $skip] = [0, 0];
-        $batch = [];
-        $rows = $this->legacy->table('tbl_gap_log')
-            ->selectRaw('username, UPPER(status) st, COUNT(*) n, SUM(nettotal) amt, SUM(tds) tds, SUM(servicetax) sc, SUM(grandtotal) net, MIN(date) d0, MAX(date) d1')
-            ->groupBy('username', 'st')->get();
-        foreach ($rows as $r) {
-            $memberId = $this->memberMap[$this->clip($r->username, 30)] ?? null;
-            if (! $memberId) {
-                $skip++;
-                continue;
-            }
-            $status = $r->st === 'PAID' ? 'paid' : 'pending';
-            $date = $this->date($r->d1) ?? '2020-01-01';
-            $batch[] = [
-                'type' => 'GAP', 'member_id' => $memberId, 'from_member_id' => null, 'bond_id' => null,
-                'invoice_no' => $this->legacyRef('LEGACY-GAP', (int) $r->n, $r->d0, $r->d1),
-                'level' => null, 'amount' => round((float) $r->amt, 2), 'status' => $status, 'pay_via' => null,
-                'earned_on' => $date, 'paid_on' => $status === 'paid' ? $date : null, 'branch_id' => null,
-                'tds' => round((float) $r->tds, 2), 'service_charge' => round((float) $r->sc, 2),
-                'net_amount' => round((float) $r->net, 2),
-                'created_at' => $date, 'updated_at' => $date,
-            ];
-            $in++;
-        }
-        foreach (array_chunk($batch, 1000) as $chunk) {
-            DB::table('commission_ledger')->insert($chunk);
-        }
-        $this->note('commission_ledger GAP (1 line / member / status)', $in, $skip);
-    }
-
-    /** Dealer billing margin (53k rows) → one line per dealer branch. */
-    protected function importResellerCommissions(): void
-    {
-        [$in, $skip] = [0, 0];
-        $usersByCode = User::whereNotNull('member_code')->pluck('id', 'member_code')->all();
-        $batch = [];
-        $rows = $this->legacy->table('tbl_reseller_com')
-            ->selectRaw('userid, brid, UPPER(status) st, COUNT(*) n, SUM(comvalue) amt, MIN(billdate) d0, MAX(billdate) d1')
-            ->groupBy('userid', 'brid', 'st')->get();
-        foreach ($rows as $r) {
-            $branchId = $this->branchMap[(int) $r->brid] ?? null;
-            $code = $this->clip($r->userid, 30);
-            if (! $branchId && ! isset($usersByCode[$code])) {
-                $skip++;
-                continue;
-            }
-            $status = match ($r->st) { 'PAID' => 'paid', 'PASSED' => 'passed', default => 'pending' };
-            $date = $this->date($r->d1) ?? '2020-01-01';
-            $batch[] = [
-                'bill_date' => $date,
-                'invoice_no' => $this->legacyRef('LEGACY-BM', (int) $r->n, $r->d0, $r->d1),
-                'com_type_id' => 1,
-                'user_id' => $usersByCode[$code] ?? null,
-                'branch_id' => $branchId,
-                'mapped_uid' => $code,
-                'com_value' => round((float) $r->amt, 2),
-                'reference_member_id' => $this->memberMap[$code] ?? null,
-                'status' => $status,
-                'paid_on' => $status === 'paid' ? $date : null,
-                'tds' => 0, 'service_charge' => 0, 'net_amount' => round((float) $r->amt, 2),
-                'created_at' => $date, 'updated_at' => $date,
-            ];
-            $in++;
-        }
-        foreach (array_chunk($batch, 1000) as $chunk) {
-            DB::table('reseller_commissions')->insert($chunk);
-        }
-        $this->note('reseller_commissions (1 line / dealer)', $in, $skip);
+        $this->legacy->table('tbl_gap_log')->orderBy('id')
+            ->chunk(2000, function ($rows) use (&$in, &$skip) {
+                $batch = [];
+                foreach ($rows as $r) {
+                    $memberId = $this->memberMap[$this->clip($r->username, 30)] ?? null;
+                    if (! $memberId) {
+                        $skip++;
+                        continue;
+                    }
+                    $status = strtoupper((string) $r->status) === 'PAID' ? 'paid' : 'pending';
+                    $date = $this->date($r->date) ?? '2020-01-01';
+                    $batch[] = [
+                        'type' => 'GAP', 'member_id' => $memberId, 'from_member_id' => null, 'bond_id' => null,
+                        'invoice_no' => $this->clip('GAP ' . ($r->remarks ?: substr($date, 0, 7)) . ' ×' . (int) $r->pmcount, 40),
+                        'level' => null, 'amount' => $this->num($r->nettotal), 'status' => $status, 'pay_via' => null,
+                        'earned_on' => $date, 'paid_on' => $status === 'paid' ? $date : null, 'branch_id' => null,
+                        'tds' => $this->num($r->tds), 'service_charge' => $this->num($r->servicetax),
+                        'net_amount' => $this->num($r->grandtotal),
+                        'created_at' => $date, 'updated_at' => $date,
+                    ];
+                }
+                if ($batch) {
+                    DB::table('commission_ledger')->insert($batch);
+                    $in += count($batch);
+                }
+            });
+        $this->note('commission_ledger GAP (row-level, monthly payout log)', $in, $skip);
     }
 
     /**
@@ -652,15 +585,6 @@ class LegacyRolloutImport extends LegacyImport
         $this->note('digi_withdrawals (pending only)', $in, $skip);
     }
 
-    protected function legacyRef(string $prefix, int $n, $from, $to): string
-    {
-        $f = $this->date($from);
-        $t = $this->date($to);
-        $span = $f && $t ? substr($f, 0, 7) . '→' . substr($t, 0, 7) : '';
-
-        return $this->clip(trim(sprintf('%s ×%s %s', $prefix, number_format($n), $span)), 40);
-    }
-
     // ---------------------------------------------------------------- dry run
 
     protected function dryRun(): int
@@ -677,9 +601,9 @@ class LegacyRolloutImport extends LegacyImport
             ['tbl_rdentry', $c('tbl_rdentry'), 'rd_entries (row-level)'],
             ['tbl_cbc', $c('tbl_cbc'), 'cbc_entries (row-level — coupons are redeemable)'],
             ['tbl_salesinvoice / cart', $c('tbl_salesinvoice') . ' / ' . $c('tbl_sales_cart'), 'sales_invoices / sale_lines (row-level)'],
-            ['tbl_iccom', $c('tbl_iccom'), number_format($L->table('tbl_iccom')->distinct()->count('comusername')) . ' members → ≤2 IC lines each'],
-            ['tbl_gap_log', $c('tbl_gap_log'), number_format($L->table('tbl_gap_log')->distinct()->count('username')) . ' members → ≤2 GAP lines each'],
-            ['tbl_reseller_com', $c('tbl_reseller_com'), number_format($L->table('tbl_reseller_com')->distinct()->count('userid')) . ' dealers → 1 margin line each'],
+            ['tbl_iccom', $c('tbl_iccom'), 'commission_ledger IC (row-level — never merged)'],
+            ['tbl_gap_log', $c('tbl_gap_log'), 'commission_ledger GAP (row-level — one line per monthly payout)'],
+            ['tbl_reseller_com', $c('tbl_reseller_com'), 'reseller_commissions (row-level)'],
             ['tbl_order_digiunique', $c('tbl_order_digiunique'), number_format($L->table('tbl_order_digiunique')->distinct()->count('cus_type')) . ' members → 1 OPENING line each'],
             ['tbl_digiwithdrawal', $c('tbl_digiwithdrawal'), $c('tbl_digiwithdrawal', fn ($q) => $q->where('status', 'PENDING')) . ' pending kept as rows'],
             ['tbl_digi_queue', $c('tbl_digi_queue'), $c('tbl_digi_queue', fn ($q) => $q->where('deliverystatus', 'PENDING')) . ' pending kept as rows'],

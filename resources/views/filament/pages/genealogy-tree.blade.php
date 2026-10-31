@@ -1,15 +1,7 @@
 <x-filament-panels::page>
-{{-- ============================================================ view switch (board 2026-10-24) --}}
+{{-- view switch retired (board 2026-10-31 item 2): folder view only --}}
 <div class="icl-switch">
-    <a href="{{ url('/admin/genealogy') }}" class="icl-switch-btn {{ $this->mode === 'folder' ? 'icl-switch-on' : '' }}">
-        <svg viewBox="0 0 24 24" class="icl-switch-ico"><path fill="currentColor" d="M3 6.5A2.5 2.5 0 0 1 5.5 4h4.2c.7 0 1.3.3 1.8.8L13 6.5h5.5A2.5 2.5 0 0 1 21 9v8.5a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z"/></svg>
-        Folder view
-    </a>
-    <a href="{{ url('/admin/genealogy?view=chart') }}" class="icl-switch-btn {{ $this->mode === 'chart' ? 'icl-switch-on' : '' }}">
-        <svg viewBox="0 0 24 24" class="icl-switch-ico"><path fill="currentColor" d="M11 3h2v4h4a2 2 0 0 1 2 2v2h-2V9h-4v2h2v2h-2v2h4v-2h2v2a2 2 0 0 1-2 2h-4v4h-2v-4H7a2 2 0 0 1-2-2v-2h2v2h4v-2H9v-2h2V9H7v2H5V9a2 2 0 0 1 2-2h4z"/></svg>
-        Chart view
-    </a>
-    <span class="icl-switch-hint">{{ $this->mode === 'folder' ? 'Each distributor is a folder holding the distributors placed under them. Click the arrow to open a folder; click a name for details and the placement path.' : 'Org chart: click a node for details · drag to pan · scroll to zoom.' }}</span>
+    <span class="icl-switch-hint">{{ __('Each distributor is a folder holding the distributors placed under them. Click the arrow to open a folder; click a name for details and the placement path.') }}</span>
 </div>
 
 @if ($this->mode === 'folder')

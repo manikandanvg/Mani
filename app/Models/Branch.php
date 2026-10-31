@@ -51,6 +51,27 @@ class Branch extends Model
     }
 
     /** True for HQ and every converted "Lord's Branch"; false for an independent dealer. */
+    /** upi://pay deep link for this branch's static QR (null when no UPI id is set). */
+    public function upiLink(): ?string
+    {
+        if (blank($this->upi_id)) {
+            return null;
+        }
+
+        return 'upi://pay?pa=' . rawurlencode(trim((string) $this->upi_id))
+            . '&pn=' . rawurlencode(mb_substr(trim((string) $this->name), 0, 40)) . '&cu=INR';
+    }
+
+    /** The uploaded QR image, else a generated QR of the UPI link, else null. */
+    public function paymentQrUrl(): ?string
+    {
+        if (filled($this->payment_qr_path)) {
+            return media_url($this->payment_qr_path);
+        }
+
+        return $this->upiLink() ? route('branch.payment-qr', $this) : null;
+    }
+
     public function isLordBranch(): bool
     {
         return $this->kind === self::KIND_BRANCH || $this->level === 'hq';

@@ -414,7 +414,7 @@ class ProfitLossReport extends ReportPage
                 __('Active contracts') => number_format((int) $s->sum('active_contracts')),
                 __('Closed (inactive) contracts') => number_format((int) $s->sum('closed_contracts')),
                 __('Investment received') => $this->money($invested),
-                __('RD installments received') => $this->money($installments),
+                __('Gold Saving installments received') => $this->money($installments),
                 __('Total incoming') => $this->money($invested + $installments),
                 __('Gold-stock allocation') => $this->money($allocation),
                 __('Allocation share of investment') => $this->pct($allocation, $invested),
@@ -422,7 +422,7 @@ class ProfitLossReport extends ReportPage
                 __('CBC + IC provisions') => $this->money($cbc + $ic),
                 __('Retained after allocation + provisions') => $this->money($invested + $installments - $allocation - $cbc - $ic),
             ],
-            'columns' => ['#', __('Scheme'), __('Contracts'), __('Investment received (₹)'), __('Installments (no.)'), __('RD installments (₹)'), __('Total incoming (₹)'),
+            'columns' => ['#', __('Scheme'), __('Contracts'), __('Investment received (₹)'), __('Installments (no.)'), __('Gold Saving installments (₹)'), __('Total incoming (₹)'),
                 __('Gold-stock allocation (₹)'), __('Allocation %'), __('Holding (₹)'), __('CBC provision (₹)'), __('IC provision (₹)'), __('Retained (₹)'), __('Treatment')],
             'rows' => $rows,
         ];
@@ -600,7 +600,7 @@ class ProfitLossReport extends ReportPage
             $r(__('Jewellery sales — metal value (gold + silver)'), $l['sales_metal'], __('tbl_sales_cart, metal at the day\'s rate')),
             $r(__('Making & wastage charges (sales profit)'), $l['sales_profit'], __('line total − metal value')),
             $r(__('Scheme investment received (new contracts)'), $l['invested'], __('tbl_bond epinvalue')),
-            $r(__('RD installments received'), $l['installments'], __('tbl_rdentry')),
+            $r(__('Gold Saving installments received'), $l['installments'], __('tbl_rdentry')),
             $r(__('Total income'), $l['total_income']),
             $r(__('B. COST OF GOODS & ALLOCATIONS'), null),
             $r(__('Metal cost of jewellery sold'), -$l['metal_cost'], __('metal value at sale = cost')),
@@ -675,7 +675,7 @@ class ProfitLossReport extends ReportPage
         return [
             'heading' => __('Month-by-month trend (:from – :to)', ['from' => $this->dmy($f['from']), 'to' => $this->dmy($f['to'])]),
             'kv' => [__('Net inflow') => __('investment + installments + sales profit − IC − CBC − GAP (gross) − billing margin')],
-            'columns' => [__('Month'), __('New contracts'), __('Investment (₹)'), __('RD installments (₹)'), __('Jewellery sales – metal (₹)'), __('Sales profit (₹)'),
+            'columns' => [__('Month'), __('New contracts'), __('Investment (₹)'), __('Gold Saving installments (₹)'), __('Jewellery sales – metal (₹)'), __('Sales profit (₹)'),
                 __('Sales Incentive (₹)'), __('CBC issued (₹)'), __('GAP gross (₹)'), __('Billing margin (₹)'), __('Net inflow (₹)')],
             'rows' => $rows,
         ];

@@ -70,7 +70,7 @@ class BusinessReport extends ReportPage
             __('Sales invoices') => "{$sales->c} / " . $this->money($sales->t),
             __('Purchases') => "{$purchases->c} / " . $this->money($purchases->t),
             __('Redemption invoices') => "{$redemptions->c} / " . $this->money($redemptions->t),
-            __('RD collected') => "{$rd->c} / " . $this->money($rd->t),
+            __('GS collected (Gold Saving)') => "{$rd->c} / " . $this->money($rd->t),
             __('Stock returns (approved)') => "{$returns->c} / " . $this->money($returns->t),
             __('Online orders (paid)') => "{$orders->c} / " . $this->money($orders->t),
         ]];
@@ -95,7 +95,7 @@ class BusinessReport extends ReportPage
             ])->all();
 
             $this->sections[] = ['heading' => __('Per branch'),
-                'columns' => [__('Branch'), __('Sales'), __('Purchases'), __('Redemptions'), __('RD collected')],
+                'columns' => [__('Branch'), __('Sales'), __('Purchases'), __('Redemptions'), __('GS collected (Gold Saving)')],
                 'rows' => $rows];
         }
     }

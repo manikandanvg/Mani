@@ -57,6 +57,10 @@ class MonthlyTasksTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        // Month arithmetic in these scenarios ("last month", "day 3", windows) must not depend on
+        // the calendar day the suite happens to run on (the 31st overflowed subMonth() into the
+        // current month on 2026-10-31): pin "now" to the 15th of the current month.
+        Carbon::setTestNow(Carbon::now()->startOfMonth()->addDays(14)->setTime(10, 0));
         $this->seed(DatabaseSeeder::class);
         app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
         $this->admin = User::where('email', 'admin@lordicl.com')->firstOrFail();
@@ -77,6 +81,12 @@ class MonthlyTasksTest extends TestCase
         MemberWallet::create(['member_id' => $m->id]);
 
         return $m;
+    }
+
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+        parent::tearDown();
     }
 
     protected function rule(string $key, ?int $rankId = null, ?string $level = null, float $target = 1, ?float $perDay = null, int $weight = 1): TaskTarget
@@ -243,7 +253,7 @@ class MonthlyTasksTest extends TestCase
         $this->rule('DIRECT_NEW', rankId: $rank->id, target: 2, weight: 3);   // achieved 1 of 2 → 50 %
         $this->rule('ATTENDANCE', rankId: $rank->id, target: 10, weight: 1);   // 0 %
         $this->rule('ZOOM_INVITED', rankId: $rank->id, target: 0, weight: 0);  // info only
-        $last = Carbon::now()->subMonth()->startOfMonth();
+        $last = Carbon::now()->subMonthNoOverflow()->startOfMonth();
         $upline = $this->member('U1', 1);
         $this->member('U1D', 0, uplineId: $upline->id)->update(['joined_on' => $last->copy()->day(3)]);
         $engine = app(TaskEngine::class);

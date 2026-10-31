@@ -81,15 +81,15 @@ class TrackContract extends TrackPage
                 __('Settlement cycle (months)') => $plan->settlement_cycle_months,
                 __('Settlement QR %') => $plan->settlement_qr_pct,
                 __('Bonus months') => $plan->settlement_bonus_months,
-                __('RD QR grams') => $plan->rd_qr_grams,
-                __('RD QR issued') => $plan->rd_qr_on,
+                __('Gold Saving QR grams') => $plan->rd_qr_grams,
+                __('Gold Saving QR issued') => $plan->rd_qr_on,
                 __('Renewal margin') => $plan->renewal_margin,
             ]];
         }
 
         if ($contract->bond_id) {
             $rd = RdEntry::where('bond_id', $contract->bond_id)->orderBy('paid_on')->limit(60)->get();
-            $this->sections[] = ['heading' => __('RD collections'),
+            $this->sections[] = ['heading' => __('GS collections (Gold Saving)'),
                 'columns' => [__('Instalment #'), __('Paid on'), __('Amount'), __('Branch')],
                 'rows' => $rd->map(fn ($r) => [
                     (string) $r->due_count, $this->dmy($r->paid_on), $this->money($r->value), $r->branch?->name,

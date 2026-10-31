@@ -12,8 +12,8 @@ use Filament\Tables;
 use Filament\Tables\Table;
 
 /**
- * Manage RD / Gold-Saving collections — the renewal installments recorded via the
- * RD Collection Entry page. Read-only list (entries are created by the collection flow).
+ * Manage Gold Saving (GS) collections — the renewal installments recorded via the
+ * Gold Saving Collection Entry page. Read-only list (entries are created by the collection flow).
  */
 class RdEntryResource extends BaseResource
 {
@@ -27,11 +27,15 @@ class RdEntryResource extends BaseResource
 
     protected static ?string $navigationIcon = 'heroicon-o-calendar-days';
 
-    protected static ?string $navigationLabel = 'RD Collections';
+    protected static ?string $navigationLabel = 'GS Collection (Gold Saving)';
+
+    protected static ?string $modelLabel = 'Gold Saving collection';
+
+    protected static ?string $pluralModelLabel = 'GS Collection (Gold Saving)';
 
     public static function canCreate(): bool
     {
-        return false;   // collections are recorded through the RD Collection Entry page
+        return false;   // collections are recorded through the Gold Saving Collection Entry page
     }
 
     public static function table(Table $table): Table

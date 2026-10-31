@@ -44,7 +44,8 @@ class StockTracking extends Page implements HasForms
 
     public static function shouldRegisterNavigation(): bool
     {
-        return static::canAccess();
+        // Monthly Tasks is idle until the L-BOX launch (board 2026-10-31): no nav entry.
+        return \App\Support\Features::monthlyTasks() && static::canAccess();
     }
 
     public function mount(): void

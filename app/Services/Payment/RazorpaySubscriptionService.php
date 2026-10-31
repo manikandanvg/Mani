@@ -50,7 +50,7 @@ class RazorpaySubscriptionService
         $total = (int) ($bond->lvlcom_count ?: 0);
         $remaining = max(1, $total - $bond->rdEntries()->count());
 
-        $plan = $this->createPlan($amount, 'RD ' . ($bond->invoice_no ?: $bond->id));
+        $plan = $this->createPlan($amount, 'Gold Saving ' . ($bond->invoice_no ?: $bond->id));
         if (! $plan || empty($plan['id'])) {
             return null;
         }

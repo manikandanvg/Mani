@@ -24,7 +24,7 @@ use Filament\Pages\Page;
 use Illuminate\Support\HtmlString;
 
 /**
- * Trade — RD / Gold-Saving Collection Entry. Records one monthly installment against an
+ * Trade — Gold Saving Collection Entry (board 2026-10-31: the word "RD" is retired everywhere). Records one monthly installment against an
  * EXISTING RD bond (legacy admin/trade/rdsales): pick the saver, see their schedule,
  * deduct the branch's cash stock, save the renewal. Branch comes from the session.
  */
@@ -39,11 +39,11 @@ class RdCollection extends Page implements HasForms
 
     protected static ?string $navigationGroup = 'Trade';
 
-    protected static ?string $navigationLabel = 'RD Collection Entry';
+    protected static ?string $navigationLabel = 'Gold Saving Collection Entry';
 
     protected static ?int $navigationSort = 9;
 
-    protected static ?string $title = 'RD / Gold-Saving Collection';
+    protected static ?string $title = 'Gold Saving Collection';
 
     protected static string $view = 'filament.pages.rd-collection';
 
@@ -63,7 +63,7 @@ class RdCollection extends Page implements HasForms
             ->schema([
                 Section::make('Saver & schedule')->columns(2)->schema([
                     Select::make('bond_id')
-                        ->label('Gold-Saving / RD profile')
+                        ->label('Gold Saving profile')
                         ->required()
                         ->searchable()
                         ->getSearchResultsUsing(fn (string $search) => $this->bondOptions($search))
@@ -128,7 +128,7 @@ class RdCollection extends Page implements HasForms
                     '%s (%s) — %s — ₹%s',
                     $b->member?->name ?? 'Distributor',
                     $b->member?->member_code ?? '—',
-                    $b->plan ? Translatable::pick($b->plan->name, $locale) : 'RD',
+                    $b->plan ? Translatable::pick($b->plan->name, $locale) : 'Gold Saving',
                     \App\Support\Money::group((float) $b->value)
                 ),
             ])

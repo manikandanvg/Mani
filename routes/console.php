@@ -37,3 +37,8 @@ Schedule::command('notify:meeting-reminders')->everyFifteenMinutes()->withoutOve
 // Verified minutes safety net (2026-08-25): reconcile ended Zoom meetings with
 // Zoom's participant report in case the participant webhooks did not arrive.
 Schedule::command('zoom:sync-attendance')->everyThirtyMinutes()->withoutOverlapping();
+
+// Play Store reviews → Website → Testimonials (board 2026-10-31 item 14). Google serves
+// only the last 7 days of reviews, so a daily pull keeps the set complete. No-op until
+// GOOGLE_PLAY_SERVICE_ACCOUNT_JSON is configured.
+Schedule::command('testimonials:import-play-reviews')->dailyAt('05:10')->withoutOverlapping();

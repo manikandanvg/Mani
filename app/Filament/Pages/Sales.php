@@ -123,7 +123,9 @@ class Sales extends Page implements HasForms
                     ->columnSpan(4)
                     ->columns(3)
                     ->schema([
+                        // Existing distributor (board 2026-10-31 item 3): every detail below is read-only.
                         TextInput::make('customer.name')->label('Name')
+                            ->readOnly(self::lockedExisting())
                             ->required(fn (Get $get) => $get('mode') === 'new'),
                         // Dialling country code — defaults to India (+91); change for foreign customers.
                         Select::make('customer.phone_country_code')->label('Code')
@@ -131,9 +133,11 @@ class Sales extends Page implements HasForms
                             ->default('+91')
                             ->searchable()
                             ->native(false)
+                            ->disabled(self::lockedExisting())->dehydrated()
                             // live so the phone hint + validation follow the chosen country
                             ->live(),
                         TextInput::make('customer.phone')->label('Phone')->tel()
+                            ->readOnly(self::lockedExisting())
                             ->required(fn (Get $get) => $get('mode') === 'new')
                             // Per-country digit length (India = 10). Only enforced for NEW
                             // distributors — legacy numbers on existing members must not block a bill.
@@ -149,12 +153,13 @@ class Sales extends Page implements HasForms
                                     }
                                 },
                             ]),
-                        TextInput::make('customer.dob')->label('Date of Birth')->type('date'),
-                        TextInput::make('customer.father_name')->label("Father / Husband's Name"),
-                        TextInput::make('customer.city')->label('City'),
+                        TextInput::make('customer.dob')->label('Date of Birth')->type('date')->readOnly(self::lockedExisting()),
+                        TextInput::make('customer.father_name')->label("Father / Husband's Name")->readOnly(self::lockedExisting()),
+                        TextInput::make('customer.city')->label('City')->readOnly(self::lockedExisting()),
                         // Pincode auto-fills Taluka / District / State from the offline
                         // master (live India Post API as fallback). Fields stay editable.
                         TextInput::make('customer.pincode')->label('Pincode')
+                            ->readOnly(self::lockedExisting())
                             ->live(onBlur: true)
                             ->afterStateUpdated(function ($state, Set $set) {
                                 $geo = app(\App\Services\Geo\PincodeService::class)->lookup((string) $state);
@@ -171,29 +176,38 @@ class Sales extends Page implements HasForms
                                 ? __('Taluka / District / State fill automatically for a known PIN.')
                                 : null),
                         TextInput::make('customer.taluka')->label('Taluka (City)')
+                            ->readOnly(self::lockedExisting())
                             ->datalist(fn (Get $get) => \App\Models\Pincode::where('pincode', trim((string) $get('customer.pincode')))
                                 ->pluck('taluka')->filter()->unique()->values()->all()),
-                        TextInput::make('customer.district')->label('District'),
-                        TextInput::make('customer.state')->label('State'),
+                        TextInput::make('customer.district')->label('District')->readOnly(self::lockedExisting()),
+                        TextInput::make('customer.state')->label('State')->readOnly(self::lockedExisting()),
                         // B2B: a GSTIN here classifies the invoice as B2B in the GSTR-1
                         // export; blank = B2C consumer sale (board 2026-08-11).
                         TextInput::make('buyer_gst')->label('Buyer GSTIN (B2B only)')
                             ->placeholder('33ABCDE1234F1Z5')->maxLength(15)
                             ->rule('regex:/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][0-9A-Z]{3}$/i')
                             ->validationMessages(['regex' => 'That does not look like a valid 15-character GSTIN.']),
-                        TextInput::make('customer.address')->label('Address')->columnSpan(2),
-                        TextInput::make('customer.email')->label('Email ID')->email(),
+                        TextInput::make('customer.address')->label('Address')->columnSpan(2)->readOnly(self::lockedExisting()),
+                        // e-mail validation is skipped for existing distributors: a masked value (ma***@x.com) is not an address
+                        TextInput::make('customer.email')->label('Email ID')
+                            ->email(fn (Get $get) => $get('mode') !== 'existing')
+                            ->readOnly(self::lockedExisting()),
                         TextInput::make('customer.pan')->label('PAN Number')
+                            ->readOnly(self::lockedExisting())
                             ->live(onBlur: true)
                             ->suffixAction(
                                 FormAction::make('verifyPan')->icon('heroicon-m-check-badge')->label('Verify')
+                                    // masked PAN (dealer login) cannot be verified
+                                    ->hidden(fn (Get $get) => $get('mode') === 'existing' && ! self::showsSensitive())
                                     ->action(fn (Get $get) => $this->verifyPan($get('customer.pan'), $get('customer.name'), $get('customer.dob')))
                             )
                             ->helperText(fn () => $this->panShield()),
                         TextInput::make('customer.aadhaar')->label('Aadhaar Number')
+                            ->readOnly(self::lockedExisting())
                             ->live(onBlur: true)
                             ->suffixAction(
                                 FormAction::make('verifyAadhaar')->icon('heroicon-m-check-badge')
+                                    ->hidden(fn (Get $get) => $get('mode') === 'existing' && ! self::showsSensitive())
                                     ->label(fn () => app(AadhaarVerifier::class)->supportsOtp() ? 'Verify (OTP)' : 'Verify')
                                     ->modalHeading('Aadhaar OTP verification')
                                     ->modalSubmitActionLabel('Verify OTP')
@@ -213,9 +227,9 @@ class Sales extends Page implements HasForms
                             )
                             ->helperText(fn () => $this->aadhaarShield()),
                         Fieldset::make('Nominee')->columns(3)->schema([
-                            TextInput::make('customer.nominee_name')->label('Name'),
-                            TextInput::make('customer.nominee_age')->label('Age')->numeric(),
-                            TextInput::make('customer.nominee_relation')->label('Relationship'),
+                            TextInput::make('customer.nominee_name')->label('Name')->readOnly(self::lockedExisting()),
+                            TextInput::make('customer.nominee_age')->label('Age')->numeric()->readOnly(self::lockedExisting()),
+                            TextInput::make('customer.nominee_relation')->label('Relationship')->readOnly(self::lockedExisting()),
                         ]),
                     ]),
             ]),
@@ -592,6 +606,23 @@ class Sales extends Page implements HasForms
 
     // ---------------- helpers ----------------
 
+    /** Board 2026-10-31 (3): an existing distributor's details are fixed text on the bill — not editable. */
+    protected static function lockedExisting(): \Closure
+    {
+        return fn (Get $get) => $get('mode') === 'existing';
+    }
+
+    /**
+     * Board 2026-10-31 (19): only Head Office staff see an existing distributor's real
+     * phone / PAN / Aadhaar / e-mail; dealer and support logins get masked values.
+     */
+    public static function showsSensitive(): bool
+    {
+        $u = auth()->user();
+
+        return $u !== null && ! $u->isDistributor() && ! $u->isSupport();
+    }
+
     protected function fillExisting($id, Set $set): void
     {
         // selecting a different customer clears any prior verification shields
@@ -605,7 +636,8 @@ class Sales extends Page implements HasForms
         $set('customer.name', $m->name);
         $set('customer.dob', $m->dob?->format('Y-m-d'));
         $set('customer.father_name', $m->father_name);
-        $set('customer.phone', $m->phone);
+        $mask = ! self::showsSensitive();   // board 2026-10-31 item 19
+        $set('customer.phone', $mask ? \App\Support\Mask::phone($m->phone) : $m->phone);
         $set('customer.phone_country_code', $m->phone_country_code ?: '+91');
         $set('customer.address', $m->address);
         $set('customer.city', $m->city);
@@ -613,9 +645,9 @@ class Sales extends Page implements HasForms
         $set('customer.taluka', $m->taluka);
         $set('customer.district', $m->district);
         $set('customer.state', $m->state);
-        $set('customer.email', $m->email);
-        $set('customer.pan', $m->pan);
-        $set('customer.aadhaar', $m->aadhaar);
+        $set('customer.email', $mask ? \App\Support\Mask::email($m->email) : $m->email);
+        $set('customer.pan', $mask ? \App\Support\Mask::pan($m->pan) : $m->pan);
+        $set('customer.aadhaar', $mask ? \App\Support\Mask::aadhaar($m->aadhaar) : $m->aadhaar);
         $set('customer.nominee_name', $m->nominee_name);
         $set('customer.nominee_age', $m->nominee_age);
         $set('customer.nominee_relation', $m->nominee_relation);

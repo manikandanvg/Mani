@@ -24,8 +24,6 @@
     "Pages": "Halaman",
     "Plans": "Pelan",
     "Products (E-com)": "Produk (E-com)",
-    "RD Collection Entry": "Kemasukan Kutipan RD",
-    "RD Collections": "Kutipan RD",
     "Redeem QR": "Tebus QR",
     "Redemption Invoices": "Invois Penebusan",
     "Sales (Billing)": "Jualan (Bil)",
@@ -263,5 +261,8 @@
     "Blessed Gold": "Emas Berkat",
     "Lord's Branch": "Cawangan Lord",
     "Dealer": "Pengedar",
-    "Utility": "Barangan Utiliti"
+    "Utility": "Barangan Utiliti",
+    "Gold Saving Collection Entry": "Kemasukan Kutipan Simpanan Emas",
+    "GS Collection (Gold Saving)": "Kutipan GS (Simpanan Emas)",
+    "Cloud Data": "Data Awan"
 }

@@ -188,14 +188,29 @@ class CommissionLedgerResource extends BaseResource
                     ->requiresConfirmation()
                     ->modalHeading('Send a commission-dispute notification')
                     ->action(function (\App\Models\CommissionEntry $r, array $data) {
-                        \App\Services\Push\Notifier::to(
-                            \App\Models\Member::find($r->member_id),
-                            'commission',
-                            'Commission entry under dispute',
-                            'Your ' . $r->type . ' entry of ₹' . \App\Support\Money::group((float) $r->amount)
-                                . ' dated ' . $r->earned_on?->format('d M Y') . ' is under review. ' . $data['note'],
-                            route: '/earnings',
-                        );
+                        // Board 2026-10-31 (10): the notice crashed the page on live — any
+                        // failure now surfaces as a message instead of a server error.
+                        try {
+                            $member = \App\Models\Member::find($r->member_id);
+                            if (! $member) {
+                                throw new \RuntimeException('This entry is not linked to a distributor.');
+                            }
+                            $earned = $r->earned_on ? \Illuminate\Support\Carbon::parse($r->earned_on)->format('d M Y') : '—';
+                            \App\Services\Push\Notifier::to(
+                                $member,
+                                'commission',
+                                'Commission entry under dispute',
+                                'Your ' . \App\Services\CommissionApprovalService::label($r->type) . ' entry of ₹'
+                                    . \App\Support\Money::group((float) $r->amount) . ' dated ' . $earned . ' is under review. ' . $data['note'],
+                                route: '/earnings',
+                            );
+                        } catch (\Throwable $e) {
+                            \Illuminate\Support\Facades\Log::error('Dispute notice failed: ' . $e->getMessage(), ['uid' => $r->uid]);
+                            \Filament\Notifications\Notification::make()->danger()
+                                ->title('Dispute notice not sent')->body($e->getMessage())->persistent()->send();
+
+                            return;
+                        }
                         \Filament\Notifications\Notification::make()->success()
                             ->title('Dispute notification sent')->send();
                     }),

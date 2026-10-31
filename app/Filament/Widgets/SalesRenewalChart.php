@@ -20,7 +20,7 @@ use Filament\Widgets\ChartWidget;
  */
 class SalesRenewalChart extends ChartWidget
 {
-    protected static ?string $heading = 'Sales & RD renewal trend';
+    protected static ?string $heading = 'Sales & Gold Saving renewal trend';
 
     protected static ?int $sort = 10;   // board 2026-08-09: all stat widgets first, trend chart last
 
@@ -90,7 +90,7 @@ class SalesRenewalChart extends ChartWidget
         return [
             'datasets' => [
                 ['label' => trim("Sales value ({$symbol})"), 'data' => $sales, 'backgroundColor' => '#ab222f', 'borderColor' => '#ab222f'],
-                ['label' => trim("RD renewal ({$symbol})"), 'data' => $renewal, 'backgroundColor' => '#e6ad46', 'borderColor' => '#e6ad46'],
+                ['label' => trim("Gold Saving renewal ({$symbol})"), 'data' => $renewal, 'backgroundColor' => '#e6ad46', 'borderColor' => '#e6ad46'],
             ],
             'labels' => $labels,
         ];

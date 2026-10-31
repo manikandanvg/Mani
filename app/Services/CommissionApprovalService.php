@@ -46,8 +46,31 @@ class CommissionApprovalService
         'GOLD_MARGIN' => 'Gold Margin',
         'SILVER_MARGIN' => 'Silver Margin',
         'STOCK_TRANSFER_MARGIN' => 'Stock Transfer Margin',
-        'RD_RENEWAL_MARGIN' => 'RD Renewal Margin',
+        'RD_RENEWAL_MARGIN' => 'Gold Saving Renewal Margin',
     ];
+
+    /** Board display name of a stream key (unknown keys fall back to a readable form). */
+    public static function label(?string $type): string
+    {
+        $t = strtoupper((string) $type);
+
+        return self::TYPES[$t] ?? match ($t) {
+            'RESELLER' => 'Dealer Margins',
+            default => ucwords(strtolower(str_replace('_', ' ', $t))),
+        };
+    }
+
+    /** Stream picker options for the reports (ledger streams + the dealer-margin group). */
+    public static function streamOptions(): array
+    {
+        return [
+            'IC' => self::TYPES['IC'],
+            'GAP' => self::TYPES['GAP'],
+            'CBC' => self::TYPES['CBC'],
+            'BILL_MARGIN' => self::TYPES['BILL_MARGIN'],
+            'RESELLER' => 'Dealer Margins (gold / silver / stock transfer / renewal)',
+        ];
+    }
 
     /** reseller_commissions.com_type_id for each margin type. */
     protected const RESELLER_COM = [

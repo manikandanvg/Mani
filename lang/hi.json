@@ -24,8 +24,6 @@
     "Pages": "पृष्ठ",
     "Plans": "योजनाएं",
     "Products (E-com)": "उत्पाद (ई-कॉम)",
-    "RD Collection Entry": "आरडी संग्रह प्रविष्टि",
-    "RD Collections": "आरडी संग्रह",
     "Redeem QR": "क्यूआर रिडीम",
     "Redemption Invoices": "रिडेम्पशन चालान",
     "Sales (Billing)": "बिक्री (बिलिंग)",
@@ -263,5 +261,9 @@
     "Blessed Gold": "धन्य सोना",
     "Lord's Branch": "लॉर्ड शाखा",
     "Dealer": "डीलर",
-    "Utility": "उपयोगी वस्तुएँ"
+    "Utility": "उपयोगी वस्तुएँ",
+    "Gold Saving Collection Entry": "गोल्ड सेविंग संग्रह प्रविष्टि",
+    "GS Collection (Gold Saving)": "GS संग्रह (गोल्ड सेविंग)",
+    "Cloud Data": "क्लाउड डेटा",
+    "Gold Saving Collection": "गोल्ड सेविंग संग्रह"
 }

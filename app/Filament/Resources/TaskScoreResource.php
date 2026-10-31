@@ -21,6 +21,12 @@ use Illuminate\Support\Carbon;
  */
 class TaskScoreResource extends BaseResource
 {
+    /** Monthly Tasks is idle until the L-BOX launch (board 2026-10-31): no nav entry. */
+    public static function shouldRegisterNavigation(): bool
+    {
+        return \App\Support\Features::monthlyTasks() && parent::shouldRegisterNavigation();
+    }
+
     use HiddenFromSupport;
 
     protected static ?string $model = TaskScore::class;

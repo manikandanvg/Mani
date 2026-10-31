@@ -80,7 +80,7 @@ class CronTick extends Command
 
                     if (now()->addDays(10)->isSameDay($dueDate)) {
                         \App\Services\Push\Notifier::to($bond->member, 'rd',
-                            'RD renewal due on ' . $dueDate->format('d M Y'),
+                            'Gold Saving renewal due on ' . $dueDate->format('d M Y'),
                             'Your ' . ($bond->plan->code ?? 'savings') . ' instalment (due #' . ($nextMonthNo - 1)
                                 . ') is due in 10 days. Pay at your branch or via auto-debit to keep your gold growing.',
                             route: '/contracts/' . $bond->id,
@@ -91,7 +91,7 @@ class CronTick extends Command
                     // Missed-instalment follow-up, exactly 3 days past the due date.
                     if (now()->subDays(3)->isSameDay($dueDate)) {
                         \App\Services\Push\Notifier::to($bond->member, 'rd',
-                            'RD instalment missed — due was ' . $dueDate->format('d M Y'),
+                            'Gold Saving instalment missed — due was ' . $dueDate->format('d M Y'),
                             'We haven\'t received due #' . ($nextMonthNo - 1) . ' of your '
                                 . ($bond->plan->code ?? 'savings scheme') . '. Pay at your branch to keep your benefits on track.',
                             route: '/contracts/' . $bond->id,
@@ -100,7 +100,7 @@ class CronTick extends Command
                     }
                 }
             });
-        $this->line("  RD reminders sent: {$sent}");
+        $this->line("  Gold Saving reminders sent: {$sent}");
     }
 
     /** Birthday greetings — a jeweller never forgets a birthday (board 2026-08-11). */

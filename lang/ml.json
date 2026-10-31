@@ -24,8 +24,6 @@
     "Pages": "പേജുകൾ",
     "Plans": "പ്ലാനുകൾ",
     "Products (E-com)": "ഉൽപ്പന്നങ്ങൾ (ഇ-കോം)",
-    "RD Collection Entry": "RD ശേഖരണ എൻട്രി",
-    "RD Collections": "RD ശേഖരണങ്ങൾ",
     "Redeem QR": "QR റിഡീം",
     "Redemption Invoices": "റിഡംപ്ഷൻ ഇൻവോയ്സുകൾ",
     "Sales (Billing)": "വിൽപ്പന (ബില്ലിംഗ്)",
@@ -263,5 +261,8 @@
     "Blessed Gold": "അനുഗ്രഹീത സ്വർണം",
     "Lord's Branch": "ലോർഡ് ബ്രാഞ്ച്",
     "Dealer": "ഡീലർ",
-    "Utility": "ഉപയോഗ വസ്തുക്കൾ"
+    "Utility": "ഉപയോഗ വസ്തുക്കൾ",
+    "Gold Saving Collection Entry": "ഗോൾഡ് സേവിംഗ് ശേഖരണ എൻട്രി",
+    "GS Collection (Gold Saving)": "GS ശേഖരണം (ഗോൾഡ് സേവിംഗ്)",
+    "Cloud Data": "ക്ലൗഡ് ഡാറ്റ"
 }

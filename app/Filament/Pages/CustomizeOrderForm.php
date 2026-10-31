@@ -195,7 +195,7 @@ class CustomizeOrderForm extends Page implements HasForms
                 // ---------- Coins (existing customers only) ----------
                 Section::make('Customer coins (optional)')
                     ->icon('heroicon-o-circle-stack')
-                    ->description('Existing RD customers may apply the value of their accumulated 100 mg coins. Recording them raises a Sales Return: collect the coins at the agreed date & time and mark them collected under Trade → Sales Returns before the supplier approves the order.')
+                    ->description('Existing Gold Saving customers may apply the value of their accumulated 100 mg coins. Recording them raises a Sales Return: collect the coins at the agreed date & time and mark them collected under Trade → Sales Returns before the supplier approves the order.')
                     ->visible(fn (Get $get) => $get('customer_mode') !== 'new')
                     ->columns(4)
                     ->schema([
