@@ -206,6 +206,15 @@ class BoardCorrectionsOct31Test extends TestCase
         Livewire::test(\App\Filament\Resources\BranchResource\Pages\ListBranches::class)
             ->mountTableAction('staticQr', $dealer)
             ->assertSee('lbox-QR-' . $dealer->id . '.png');
+
+        // the dealer prints the same card from its own login: L-BOX → My Branch QR
+        $this->get('/admin/my-branch-qr')->assertForbidden();   // HQ admin has no branch login
+        $dealerUser = User::create(['name' => 'Dealer SQ', 'email' => 'dealersq@test.local', 'password' => 'secret123', 'status' => 'active', 'branch_id' => $dealer->id]);
+        $dealerUser->assignRole('distributor');
+        app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+        $html = $this->actingAs($dealerUser)->get('/admin/my-branch-qr')->assertSuccessful()->getContent();
+        $this->assertStringContainsString('lbox-QR-' . $dealer->id . '.png', $html);
+        $this->assertStringContainsString('My Branch QR', $html);
     }
 
     public function test_app_price_list_prices_every_item_from_the_name_weight_and_stores_carry_the_payment_qr(): void
