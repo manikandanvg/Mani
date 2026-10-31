@@ -25,7 +25,9 @@
         </div>
 
         <div style="margin-top:0.55rem; padding-top:0.55rem; border-top:1px dashed #e6ad46; font-size:0.72rem; color:#a8a29e;">
-            {{ __('Print this QR on the box — distributors scan it to withdraw their wallet at this branch.') }}
+            {{ $device->isStaticQr()
+                ? __('Print this QR at the counter — distributors scan it in the app to pay or withdraw their wallet at this branch.')
+                : __('Print this QR on the box — distributors scan it to withdraw their wallet at this branch.') }}
         </div>
     </div>
 </div>

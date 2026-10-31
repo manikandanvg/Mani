@@ -256,6 +256,12 @@ class DeviceResource extends BaseResource
             ]);
     }
 
+    /** Virtual static-QR "devices" (no box) live under Master → Branches → Static QR. */
+    public static function getEloquentQuery(): \Illuminate\Database\Eloquent\Builder
+    {
+        return parent::getEloquentQuery()->where('board_type', '!=', Device::BOARD_STATIC_QR);
+    }
+
     public static function getRelations(): array
     {
         return [

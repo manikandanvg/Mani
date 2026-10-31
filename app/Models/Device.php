@@ -98,6 +98,14 @@ class Device extends Authenticatable
      * (moved >150 m ⇒ withdrawals suspended) is for boxes fixed at a branch —
      * the Lite. A roaming box is never DISPLACED.
      */
+    /** Virtual device = a printed static QR with no box behind it (launch without L-BOX). */
+    public const BOARD_STATIC_QR = 'qr';
+
+    public function isStaticQr(): bool
+    {
+        return $this->board_type === self::BOARD_STATIC_QR;
+    }
+
     public function isRoaming(): bool
     {
         return $this->board_type === 'pro';

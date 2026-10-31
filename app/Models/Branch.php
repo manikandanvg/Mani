@@ -62,9 +62,46 @@ class Branch extends Model
             . '&pn=' . rawurlencode(mb_substr(trim((string) $this->name), 0, 40)) . '&cu=INR';
     }
 
-    /** The uploaded QR image, else a generated QR of the UPI link, else null. */
+    /**
+     * Board 2026-10-31: the branch payment QR IS the L-BOX static QR — the same QR the app's
+     * Wallet → Withdraw at branch screen scans. Launching without boxes, every dealer gets a
+     * virtual "static QR" device (board_type qr) so the existing app flow works unchanged.
+     */
+    public function staticQrDevice(): ?Device
+    {
+        return Device::where('branch_id', $this->id)->where('status', 'active')
+            ->orderByRaw("CASE WHEN board_type = 'qr' THEN 1 ELSE 0 END")   // a real box wins
+            ->orderBy('id')->first();
+    }
+
+    /** Create the virtual static-QR device for this branch if it has no active device yet. */
+    public function ensureStaticQr(): Device
+    {
+        return $this->staticQrDevice() ?? Device::create([
+            'name' => trim((string) $this->name) . ' — payment QR',
+            'serial_no' => 'QR-' . $this->id,
+            'board_type' => Device::BOARD_STATIC_QR,
+            'branch_id' => $this->id,
+            'status' => 'active',
+            'registered_at' => now(),
+            'notes' => 'Static payment QR (no L-BOX) — board 2026-10-31',
+        ]);
+    }
+
+    /** PNG of the branch's static QR (device uuid), or null when none was generated. */
+    public function staticQrUrl(): ?string
+    {
+        $device = $this->staticQrDevice();
+
+        return $device ? app(\App\Services\Qr\QrCodeService::class)->store($device->uuid, 'lbox-' . $device->serial_no) : null;
+    }
+
+    /** The static QR first; else the uploaded image; else a generated QR of the UPI link. */
     public function paymentQrUrl(): ?string
     {
+        if ($url = $this->staticQrUrl()) {
+            return $url;
+        }
         if (filled($this->payment_qr_path)) {
             return media_url($this->payment_qr_path);
         }

@@ -31,6 +31,12 @@ class WalletWithdrawalService
             throw new \RuntimeException('This QR does not belong to an active branch L-BOX.');
         }
 
+        // Static payment QR (no box, board 2026-10-31): the box-based controls below cannot
+        // apply — the dealer handles the cash payout at the counter.
+        if ($device->isStaticQr()) {
+            return $device;
+        }
+
         // Branch-offline controls: a moved box or an unopened branch takes no money.
         if ($device->is_displaced && ! $device->isRoaming()) {
             throw new \RuntimeException('This L-BOX has been moved from its branch — withdrawals are suspended. Contact Head Office.');

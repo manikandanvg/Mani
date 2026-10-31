@@ -104,13 +104,14 @@ php artisan migrate --force                 # invoice cancel columns, branch pay
 php artisan pincodes:import storage/app/pincodes/all_india.csv   # only if the pincodes master is empty (fresh DB) — the filler + Sales PIN auto-fill read it
 php artisan branches:pincodes --fill        # auto-fill missing pincodes from address / city (pincode master, India Post API fallback)
 php artisan branches:pincodes --export=/www/backup/branches-without-pincode.xlsx   # the rest, for the board
-php artisan branches:geocode                # store-locator pins for branches without coordinates (Nominatim, ~1 s each)
+php artisan branches:geocode                # store-locator pins for branches without coordinates (Nominatim, ~1 s each; 480 branches ≈ 9 min)
+php artisan branches:static-qr              # static payment QR (virtual L-BOX device) for every dealer
 php artisan stock:import-opening --template=/www/backup/opening-stock.xlsx         # sheet to hand to the branches
 php artisan stock:import-opening /path/filled.xlsx --dry-run && php artisan stock:import-opening /path/filled.xlsx
 ```
 
 - `.env`: `MONTHLY_TASKS_ENABLED=false` (default) keeps the Monthly Tasks screens idle until the L-BOX launch; `GOOGLE_PLAY_PACKAGE` + `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` enable the daily Play-review → Testimonials import (`testimonials:import-play-reviews`).
-- Branch payment QR: Master → Branches → "Payment QR (static UPI)" — UPI id and/or the printed QR image; the app's store list carries `upi_id`, `upi_link`, `payment_qr_url`.
+- Branch payment QR = the L-BOX static QR without a box: `php artisan branches:static-qr` generates one virtual device per dealer; print from Master → Branches → Static QR; the app scans it under Wallet → Withdraw at branch, and the store list carries `payment_qr_url` (UPI id / image stay optional extras).
 - Redemption OTPs now go out as app push + inbox only (no WhatsApp).
 
 ### Either way, afterwards on the live server

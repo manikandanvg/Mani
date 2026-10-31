@@ -126,8 +126,8 @@ class BranchResource extends BaseResource
                 ]),
                 // Launch without L-BOX (board 2026-10-31, common 3): each branch has its own
                 // STATIC payment QR; the app shows it so distributors scan and pay the branch.
-                Forms\Components\Section::make('Payment QR (static UPI)')
-                    ->description('Enter the branch UPI ID (a QR is generated from it for the app) and/or upload the printed QR image.')
+                Forms\Components\Section::make('Payment QR')
+                    ->description('The branch payment QR is its L-BOX static QR (Static QR button on the branch list — generated for every dealer, scanned in the app under Wallet → Withdraw at branch). The UPI fields below are optional extras for the store card.')
                     ->columns(2)->schema([
                         Forms\Components\TextInput::make('upi_id')->label('UPI ID')->placeholder('branchname@upi')->maxLength(80),
                         Forms\Components\FileUpload::make('payment_qr_path')->label('QR image (optional)')
@@ -218,6 +218,25 @@ class BranchResource extends BaseResource
                         && $record->distributorUser()->exists())
                     ->url(fn (Branch $record): string => route('impersonate.start', $record->distributorUser->getKey()))
                     ->openUrlInNewTab(),
+                // Board 2026-10-31: branch payment QR = L-BOX static QR, generated for dealers
+                // (no box needed) — print it at the counter; the app scans it for payments.
+                Tables\Actions\Action::make('staticQr')
+                    ->label('Static QR')
+                    ->icon('heroicon-o-qr-code')
+                    ->color('gray')
+                    ->visible(fn (Branch $record) => ! auth()->user()?->isDistributor() || (int) auth()->user()->branch_id === (int) $record->id)
+                    ->modalHeading(fn (Branch $record) => __('Static payment QR') . ' — ' . $record->name)
+                    ->modalContent(function (Branch $record) {
+                        $device = $record->ensureStaticQr();
+
+                        return view('filament.modals.device-static-qr', [
+                            'device' => $device,
+                            'qrUrl' => app(\App\Services\Qr\QrCodeService::class)->store($device->uuid, "lbox-{$device->serial_no}"),
+                        ]);
+                    })
+                    ->modalWidth('md')
+                    ->modalSubmitAction(false)
+                    ->modalCancelActionLabel(__('Close')),
                 Tables\Actions\EditAction::make(),
             ])
             ->bulkActions([

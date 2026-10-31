@@ -180,6 +180,34 @@ class BoardCorrectionsOct31Test extends TestCase
         $this->assertStringContainsString('7,050', $data['body'] ?? '');
     }
 
+    public function test_dealer_static_payment_qr_is_a_virtual_lbox_that_the_wallet_flow_resolves_without_a_box(): void
+    {
+        $dealer = Branch::create(['name' => 'Dealer SQ', 'country' => 'IN', 'is_active' => true]);
+        $lords = Branch::create(['name' => 'Lord SQ', 'country' => 'IN', 'kind' => 'branch', 'is_active' => true]);
+
+        $this->artisan('branches:static-qr')->assertSuccessful();
+
+        $device = $dealer->fresh()->staticQrDevice();
+        $this->assertNotNull($device);
+        $this->assertSame('qr', $device->board_type);
+        $this->assertSame('QR-' . $dealer->id, $device->serial_no);
+        $this->assertNull($lords->fresh()->staticQrDevice(), 'dealers only by default');
+        $this->assertSame($device->id, $dealer->ensureStaticQr()->id, 'idempotent');
+
+        // the app's existing Wallet → Withdraw at branch scan works without a box check-in
+        $resolved = app(\App\Services\Lbox\WalletWithdrawalService::class)->resolveQr($device->uuid);
+        $this->assertSame($dealer->id, $resolved->branch_id);
+
+        // store locator carries the same QR; the L-BOX device list does not show the virtual device
+        $store = collect($this->getJson('/api/v1/stores')->assertOk()->json('data'))->firstWhere('id', $dealer->id);
+        $this->assertStringContainsString('lbox-QR-' . $dealer->id . '.png', $store['payment_qr_url']);
+        $this->actingAs($this->admin);
+        $this->assertFalse(\App\Filament\Resources\DeviceResource::getEloquentQuery()->whereKey($device->id)->exists());
+        Livewire::test(\App\Filament\Resources\BranchResource\Pages\ListBranches::class)
+            ->mountTableAction('staticQr', $dealer)
+            ->assertSee('lbox-QR-' . $dealer->id . '.png');
+    }
+
     public function test_app_price_list_prices_every_item_from_the_name_weight_and_stores_carry_the_payment_qr(): void
     {
         LiveRate::create(['country' => 'IN', 'currency_code' => 'INR', 'gold' => 7000, 'silver' => 90, 'diamond' => 0, 'source' => 'manual', 'is_override' => true, 'effective_at' => now()]);
