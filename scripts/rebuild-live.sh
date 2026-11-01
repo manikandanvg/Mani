@@ -7,7 +7,8 @@
 #
 # Steps: load dump → lordicl_octclosing (pristine legacy copy) → drop/create lordicl_live →
 # migrate → RolloutSeeder → legacy:rollout --fresh --seed-plans → CashStockSeeder → pincodes →
-# static QR → settle digi withdrawals → auto-map reports → audit → [payout:cutoff dry-run].
+# static QR → settle digi withdrawals → legacy contracts → push settings → auto-map reports →
+# audit → [payout:cutoff dry-run].
 set -euo pipefail
 
 DUMP="${1:?usage: rebuild-live.sh <dump.sql|dump.sql.gz> [--cutoff=YYYY-MM-DD]}"
@@ -53,6 +54,9 @@ php artisan pincodes:import storage/app/pincodes/all_india.csv --no-ansi | tail 
 php artisan branches:pincodes --fill --no-ansi | tail -2 | tee -a "$LOG"
 php artisan branches:static-qr --no-ansi | tee -a "$LOG"
 php artisan legacy:settle-digi-withdrawals --no-ansi | tail -6 | tee -a "$LOG"
+php artisan contracts:backfill-legacy --no-ansi | tail -1 | tee -a "$LOG"
+# FCM / APNs credentials live in push_settings (not in the dump) — carry the dev row over when present.
+"$MYSQL" -uroot -e "INSERT INTO \`$TARGET_DB\`.push_settings SELECT * FROM lordicl_next.push_settings WHERE NOT EXISTS (SELECT 1 FROM \`$TARGET_DB\`.push_settings)" 2>/dev/null || true
 php artisan branches:auto-map --no-ansi | tail -2 | tee -a "$LOG" || true
 php artisan members:auto-map --no-ansi | tail -2 | tee -a "$LOG" || true
 php artisan branches:audit-sources --no-ansi | tail -1 | tee -a "$LOG" || true

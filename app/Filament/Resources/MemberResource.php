@@ -8,6 +8,8 @@ use App\Filament\Concerns\HqOnly;
 use App\Filament\Resources\MemberResource\Pages;
 use App\Filament\Resources\MemberResource\RelationManagers;
 use App\Models\Member;
+use App\Models\Rank;
+use App\Support\Money;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
@@ -15,6 +17,7 @@ use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
+use Illuminate\Support\Facades\DB;
 
 class MemberResource extends BaseResource
 {
@@ -183,8 +186,43 @@ class MemberResource extends BaseResource
             ]);
     }
 
+    /**
+     * ONE global search box (board 2026-11-01): every word typed is matched as a sub-string
+     * against name, father, phone, code, email, address, city, pincode, PAN, Aadhaar, bank,
+     * nominee AND the senior / referred distributor's name or code — whether or not the
+     * column is toggled on (Filament only searches visible columns, which is why a word
+     * from the father-name column found nothing while that column was hidden).
+     */
+    public static function applyGlobalSearch(Builder $query, string $search): Builder
+    {
+        $like = '%' . trim($search) . '%';
+        $cols = ['name', 'father_name', 'phone', 'member_code', 'email', 'address', 'city', 'taluka', 'district',
+            'state', 'pincode', 'pan', 'aadhaar', 'bank_name', 'bank_acno', 'ifsc', 'upi', 'nominee_name', 'nominee_phone'];
+
+        return $query->where(function (Builder $q) use ($cols, $like) {
+            foreach ($cols as $i => $col) {
+                $q->{$i === 0 ? 'where' : 'orWhere'}('members.' . $col, 'like', $like);
+            }
+            $q->orWhereIn('members.upline_id', fn ($s) => $s->select('id')->from('members', 'u')
+                ->where(fn ($w) => $w->where('u.name', 'like', $like)->orWhere('u.member_code', 'like', $like)));
+            $q->orWhereIn('members.referrer_id', fn ($s) => $s->select('id')->from('members', 'r')
+                ->where(fn ($w) => $w->where('r.name', 'like', $like)->orWhere('r.member_code', 'like', $like)));
+        });
+    }
+
+    /** Sort by a related distributor's name (upline / referrer) without a join. */
+    protected static function sortByRelatedName(string $fk): \Closure
+    {
+        return fn (Builder $query, string $direction) => $query->orderBy(
+            DB::table('members', 'rel')->select('rel.name')->whereColumn('rel.id', 'members.' . $fk)->limit(1),
+            $direction,
+        );
+    }
+
     public static function table(Table $table): Table
     {
+        $cash = fn () => DB::table('member_wallets')->select('cash_balance')->whereColumn('member_wallets.member_id', 'members.id')->limit(1);
+
         return $table
             // Board spec 2026-08-09: internal ids (user/placement/left/right/stage/branch)
             // are hidden; senior + referrer render as "Name (Distributor Code)".
@@ -197,42 +235,45 @@ class MemberResource extends BaseResource
                     ->circular()->size(40)
                     ->defaultImageUrl(asset('images/logo.png')),
                 Tables\Columns\TextColumn::make('name')
-                    ->searchable()->sortable(),
+                    ->searchable(query: fn (Builder $query, string $search) => static::applyGlobalSearch($query, $search))
+                    ->sortable(),
                 Tables\Columns\TextColumn::make('father_name')
-                    ->searchable()->toggleable(),
+                    ->sortable()->toggleable(),
                 Tables\Columns\TextColumn::make('address')
-                    ->searchable()->toggleable()->limit(40),
+                    ->sortable()->toggleable()->limit(40),
                 Tables\Columns\TextColumn::make('city')
-                    ->searchable()->toggleable(),
+                    ->sortable()->toggleable(),
                 Tables\Columns\TextColumn::make('pincode')
-                    ->searchable()->toggleable(),
+                    ->sortable()->toggleable(),
                 Tables\Columns\TextColumn::make('phone')
-                    ->searchable(),
+                    ->sortable(),
                 Tables\Columns\TextColumn::make('member_code')
                     ->label('Distributor Code')
-                    ->searchable()->sortable(),
+                    ->sortable(),
                 Tables\Columns\TextColumn::make('upline.name')
                     ->label('Senior Distributor')
                     ->formatStateUsing(fn ($state, Member $record) => $record->upline
                         ? "{$record->upline->name} ({$record->upline->member_code})"
                         : '—')
-                    ->searchable(query: fn ($query, string $search) => $query->whereHas(
-                        'upline',
-                        fn ($q) => $q->where('name', 'like', "%{$search}%")->orWhere('member_code', 'like', "%{$search}%")
-                    )),
+                    ->sortable(query: static::sortByRelatedName('upline_id')),
                 Tables\Columns\TextColumn::make('referrer.name')
                     ->label('Referred Distributor')
                     ->formatStateUsing(fn ($state, Member $record) => $record->referrer
                         ? "{$record->referrer->name} ({$record->referrer->member_code})"
                         : '—')
-                    ->searchable(query: fn ($query, string $search) => $query->whereHas(
-                        'referrer',
-                        fn ($q) => $q->where('name', 'like', "%{$search}%")->orWhere('member_code', 'like', "%{$search}%")
-                    )),
+                    ->sortable(query: static::sortByRelatedName('referrer_id')),
                 Tables\Columns\TextColumn::make('joined_on')
                     ->label('Joined on')
                     ->date()
                     ->sortable(),
+                // Cash wallet (go-live 2026-11-01): distributors will bill and ask for payouts
+                // from day one — HQ must see the spendable balance on the list itself.
+                Tables\Columns\TextColumn::make('wallet.cash_balance')
+                    ->label('Cash wallet')
+                    ->formatStateUsing(fn ($state) => Money::inr((float) $state))
+                    ->placeholder(Money::inr(0))
+                    ->alignEnd()
+                    ->sortable(query: fn (Builder $query, string $direction) => $query->orderBy($cash(), $direction)),
                 // Green KYC badge (board 2026-08-12 item 1) — shown wherever members list.
                 Tables\Columns\TextColumn::make('kyc_verified')
                     ->label('KYC')
@@ -243,31 +284,33 @@ class MemberResource extends BaseResource
                     ->color(fn (string $state) => match ($state) {
                         'Verified' => 'success', 'Partial' => 'warning', default => 'gray',
                     })
-                    ->icon(fn (string $state) => $state === 'Verified' ? 'heroicon-m-check-badge' : null),
+                    ->icon(fn (string $state) => $state === 'Verified' ? 'heroicon-m-check-badge' : null)
+                    ->sortable(query: fn (Builder $query, string $direction) => $query
+                        ->orderByRaw('(COALESCE(members.pan_verified, 0) + COALESCE(members.aadhaar_verified, 0)) ' . ($direction === 'desc' ? 'desc' : 'asc'))),
                 Tables\Columns\TextColumn::make('email')
-                    ->searchable()->toggleable(),
+                    ->sortable()->toggleable(),
                 Tables\Columns\TextColumn::make('dob')
                     ->date()->sortable()->toggleable(),
                 Tables\Columns\TextColumn::make('country')
-                    ->searchable()->toggleable(),
+                    ->sortable()->toggleable(),
                 Tables\Columns\TextColumn::make('pan')
-                    ->searchable()->toggleable(),
+                    ->sortable()->toggleable(),
                 Tables\Columns\TextColumn::make('aadhaar')
-                    ->searchable()->toggleable(),
+                    ->sortable()->toggleable(),
                 Tables\Columns\TextColumn::make('bank_name')
-                    ->searchable()->toggleable(),
+                    ->sortable()->toggleable(),
                 Tables\Columns\TextColumn::make('bank_acno')
-                    ->searchable()->toggleable(),
+                    ->sortable()->toggleable(),
                 Tables\Columns\TextColumn::make('ifsc')
-                    ->searchable()->toggleable(),
+                    ->sortable()->toggleable(),
                 Tables\Columns\TextColumn::make('upi')
-                    ->searchable()->toggleable(),
+                    ->sortable()->toggleable(),
                 Tables\Columns\TextColumn::make('nominee_name')
-                    ->searchable()->toggleable(),
+                    ->sortable()->toggleable(),
                 Tables\Columns\TextColumn::make('nominee_relation')
-                    ->searchable()->toggleable(),
+                    ->sortable()->toggleable(),
                 Tables\Columns\TextColumn::make('nominee_phone')
-                    ->searchable()->toggleable(),
+                    ->sortable()->toggleable(),
                 Tables\Columns\TextColumn::make('bv')
                     ->label('Business Volume (BV)')
                     ->numeric()
@@ -288,9 +331,20 @@ class MemberResource extends BaseResource
                     ->label('Team size')
                     ->numeric()
                     ->sortable(),
+                Tables\Columns\TextColumn::make('rank.name')
+                    ->label('TBP Stage')
+                    ->sortable(query: fn (Builder $query, string $direction) => $query->orderBy(
+                        DB::table('ranks')->select('depth')->whereColumn('ranks.id', 'members.rank_id')->limit(1), $direction))
+                    ->toggleable(),
+                Tables\Columns\TextColumn::make('branch.name')
+                    ->label('Branch')
+                    ->sortable(query: fn (Builder $query, string $direction) => $query->orderBy(
+                        DB::table('branches')->select('name')->whereColumn('branches.id', 'members.branch_id')->limit(1), $direction))
+                    ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('status')
                     ->badge()
-                    ->color(fn ($state) => $state === 'active' ? 'success' : 'gray'),
+                    ->color(fn ($state) => $state === 'active' ? 'success' : 'gray')
+                    ->sortable(),
                 Tables\Columns\TextColumn::make('created_at')
                     ->dateTime()
                     ->sortable()
@@ -304,7 +358,61 @@ class MemberResource extends BaseResource
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
+            ->searchPlaceholder('Search name, phone, code, city, PAN, bank, senior...')
+            ->persistSearchInSession()
+            ->persistSortInSession()
+            ->persistFiltersInSession()
+            // No "all" page size: 17k distributors with photos in one page is the 500 the
+            // board saw while paging; 25 rows a page, up to 100.
+            ->paginated([10, 25, 50, 100])
+            ->defaultPaginationPageOption(25)
+            ->defaultSort('joined_on', 'desc')
             ->filters([
+                Tables\Filters\SelectFilter::make('status')
+                    ->label('Status')
+                    ->options(['active' => 'Active', 'inactive' => 'Inactive']),
+                Tables\Filters\SelectFilter::make('rank_id')
+                    ->label('TBP Stage')
+                    ->options(fn () => Rank::query()->orderBy('depth')->get()
+                        ->mapWithKeys(fn (Rank $r) => [$r->id => is_array($r->name) ? ($r->name['en'] ?? reset($r->name)) : (string) $r->name])->all()),
+                Tables\Filters\SelectFilter::make('branch_id')
+                    ->label('Branch')
+                    ->relationship('branch', 'name')
+                    ->searchable()->preload(),
+                Tables\Filters\SelectFilter::make('kyc')
+                    ->label('KYC')
+                    ->options(['verified' => 'Verified', 'partial' => 'Partial', 'pending' => 'Pending'])
+                    ->query(fn (Builder $query, array $data) => match ($data['value'] ?? null) {
+                        'verified' => $query->where('pan_verified', 1)->where('aadhaar_verified', 1),
+                        'partial' => $query->where(fn ($w) => $w->where('pan_verified', 1)->orWhere('aadhaar_verified', 1))
+                            ->where(fn ($w) => $w->where('pan_verified', 0)->orWhereNull('pan_verified')
+                                ->orWhere('aadhaar_verified', 0)->orWhereNull('aadhaar_verified')),
+                        'pending' => $query->where(fn ($w) => $w->where('pan_verified', 0)->orWhereNull('pan_verified'))
+                            ->where(fn ($w) => $w->where('aadhaar_verified', 0)->orWhereNull('aadhaar_verified')),
+                        default => $query,
+                    }),
+                Tables\Filters\Filter::make('place')
+                    ->label('Place')
+                    ->form([
+                        Forms\Components\TextInput::make('city')->label('City'),
+                        Forms\Components\TextInput::make('pincode')->label('Pincode'),
+                    ])
+                    ->columns(2)
+                    ->query(fn (Builder $query, array $data) => $query
+                        ->when($data['city'] ?? null, fn (Builder $q, $v) => $q->where('city', 'like', '%' . trim($v) . '%'))
+                        ->when($data['pincode'] ?? null, fn (Builder $q, $v) => $q->where('pincode', 'like', trim($v) . '%')))
+                    ->indicateUsing(fn (array $data) => array_values(array_filter([
+                        ($data['city'] ?? null) ? 'City: ' . $data['city'] : null,
+                        ($data['pincode'] ?? null) ? 'Pincode: ' . $data['pincode'] : null,
+                    ]))),
+                Tables\Filters\Filter::make('has_cash')
+                    ->label('Cash wallet balance > 0')
+                    ->toggle()
+                    ->query(fn (Builder $query) => $query->whereIn('members.id', fn ($s) => $s->select('member_id')->from('member_wallets')->where('cash_balance', '>', 0))),
+                Tables\Filters\Filter::make('has_team')
+                    ->label('Has a team')
+                    ->toggle()
+                    ->query(fn (Builder $query) => $query->where('downline_count', '>', 0)),
                 // Board 2026-08-26 (1.2): Date of Join between two dates.
                 Tables\Filters\Filter::make('joined_on')
                     ->label('Date of Join')
@@ -328,7 +436,8 @@ class MemberResource extends BaseResource
                         return $parts;
                     }),
             ])
-            ->filtersFormWidth('md')
+            ->filtersFormWidth('lg')
+            ->filtersFormColumns(2)
             // Non-super-admin staff: no row click, no edit, no delete (board 2026-10-31 item 1).
             ->recordUrl(fn (Member $record) => auth()->user()?->isSuperAdmin()
                 ? static::getUrl('edit', ['record' => $record])

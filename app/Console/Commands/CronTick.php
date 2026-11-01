@@ -25,7 +25,16 @@ class CronTick extends Command
     {
         $this->info('cron:run started ' . now()->toDateTimeString());
 
-        $this->call('engine:run');          // recompute + gap + cbc + settlement (all idempotent)
+        $this->call('engine:run');          // recompute + settlement (GAP/CBC retired from this chain)
+        if (now()->day === 1) {
+            // Monthly cut-off for the month that just ended → PENDING rows on Payout Runs
+            // (bond-per-month idempotent, so the scheduler + this tick cannot double-issue).
+            try {
+                $this->call('payout:cutoff', ['--quiet-log' => true]);
+            } catch (\Throwable $e) {
+                $this->warn('payout:cutoff failed: ' . $e->getMessage());
+            }
+        }
 
         try {
             $this->call('rates:fetch');     // FX only; metal rates stay manual

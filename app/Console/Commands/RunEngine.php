@@ -12,7 +12,7 @@ use Illuminate\Support\Carbon;
  * The nightly MLM engine — replaces the legacy Ascript/Lscript cron chain.
  * Run order matters: recompute (BV->GBV->unpure->ranks) before GAP payout.
  *
- *   php artisan engine:run                 full chain for current month
+ *   php artisan engine:run                 recompute + settlements (GAP/CBC: see payout:cutoff)
  *   php artisan engine:run --only=recompute
  *   php artisan engine:run --only=gap
  *   php artisan engine:run --only=cbc
@@ -37,14 +37,21 @@ class RunEngine extends Command
             $this->line('  done.');
         }
 
-        if (! $only || $only === 'gap') {
-            $this->info('Running GAP / level commissions...');
+        // RETIRED from the default chain (go-live 2026-11-01): the monthly GAP + CBC now come
+        // from `payout:cutoff` (legacy Ascript parity — stored level amounts, coupons by due
+        // date, Payout Runs screen). These two steps price GAP from plan % and mint coupon rows
+        // of their own, which would clash with the legacy coupon schedule carried over, so they
+        // only run when asked for by name.
+        if ($only === 'gap') {
+            $this->warn('engine:run --only=gap is retired — the monthly cut-off is `payout:cutoff` (Commissions → Payout Runs).');
+            $this->info('Running GAP / level commissions (old plan-% engine)...');
             $n = $commission->runGap($period);
             $this->line("  {$n} GAP rows issued.");
         }
 
-        if (! $only || $only === 'cbc') {
-            $this->info('Issuing CBC installments...');
+        if ($only === 'cbc') {
+            $this->warn('engine:run --only=cbc is retired — the monthly cut-off is `payout:cutoff` (Commissions → Payout Runs).');
+            $this->info('Issuing CBC installments (old engine)...');
             $n = $commission->issueCbc($period);
             $this->line("  {$n} CBC rows issued.");
         }

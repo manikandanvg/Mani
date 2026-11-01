@@ -17,7 +17,7 @@ Two legacy quirks worth knowing: (a) `$insetfirstcom` is never reset per bond, s
 
 ## 2. What the new system has today
 
-- `php artisan engine:run [--period=YYYY-MM] [--only=recompute|gap|cbc|settlement]`: recompute BV/ranks → GAP → CBC → settlements.
+- `php artisan engine:run [--period=YYYY-MM] [--only=recompute|gap|cbc|settlement]`: recompute BV/ranks → GAP → CBC → settlements. **(1 Nov night: gap/cbc retired from the chain and the schedule — see §8.)**
 - GAP rows go to `commission_ledger` (one row per level per bond, pending), CBC to `cbc_entries` (pending) — **nothing touches a wallet** until Commission Approval.
 - Commission Approval (HQ) approves per stream: IC/GAP → cash wallet net of TDS + service (per-stream % from Commission Setup, default 5 + 5); CBC → 40 % EPIN + 60 % coupon wallet. Every approval is in the Activity Log.
 
@@ -116,3 +116,15 @@ The split is stored on the coupon (`cbc_entries.cash_amount / tds / service_char
 page shows the month's three figures next to the coupons due. There is **no EPIN wallet** in the new system: the word
 does not appear on any screen or in the app payload (keys stay at 0 for older builds); the legacy EPIN balances
 (₹1,04,01,069 across 615 members) are imported but invisible — board to say whether they convert to cash or are dropped.
+
+## 8. Go-live wiring (1 Nov 2026, night)
+
+- `routes/console.php`: `engine:run --only=gap` and `--only=cbc` **retired from the schedule** — they priced GAP from
+  plan % and minted their own coupon rows, which would have clashed with the legacy coupon schedule on the 1st.
+  `payout:cutoff --quiet-log` runs on the 1st at 03:00 instead (PENDING rows, HQ approves); `cron:run` does the same on
+  day 1 for daily-cron hosts. `engine:run` without `--only` is now recompute + settlement only; `--only=gap|cbc` still
+  run the old engine when named, with a warning.
+- Payout Runs → **Generate cut-off** button (super admin): same `CutoffService::run`, refused when the pay month already
+  has a run. First new-engine run on live = 1 Dec 2026 (November); October was generated and approved in legacy.
+- `contracts:backfill-legacy` (in `scripts/rebuild-live.sh`): every legacy bond gets a `member_contracts` row (source
+  legacy) so Settlements can close / settle them; `SettlementService::run` skips source legacy.

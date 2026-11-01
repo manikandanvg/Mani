@@ -243,4 +243,44 @@ class PayoutCutoffTest extends TestCase
         $this->assertEquals(50.0, (float) $due->service_charge);
         $this->assertEquals(400.0, (float) $due->coupon_amount);
     }
+    /** Go-live 2026-11-01: the cut-off can be generated from the Payout Runs screen, once per month. */
+    public function test_generate_button_runs_the_cutoff_once_per_pay_month(): void
+    {
+        $plan = $this->plan();
+        $top = $this->member('TOP', null, 5);
+        $mid = $this->member('MID', $top->id, 5);
+        $this->bond($mid, $plan, '2026-10-20', [300, 120, 60, 60, 60]);
+
+        $admin = User::where('email', 'admin@lordicl.com')->firstOrFail();
+        $this->actingAs($admin);
+        $this->get('/admin/login');
+
+        Livewire::test(ListPayoutRuns::class)
+            ->assertActionVisible('generate')
+            ->callAction('generate', data: ['cutoff' => '2026-10-31'])
+            ->assertHasNoActionErrors()
+            ->assertNotified();
+
+        $run = PayoutRun::firstOrFail();
+        $this->assertSame('generated', $run->status);
+        $this->assertSame('2026-11-01', $run->period->toDateString());
+        $this->assertSame($admin->id, $run->run_by);
+        $this->assertSame(1, $run->gap_rows);
+        $this->assertEquals(300.0, (float) CommissionLedger::where('type', 'GAP')->where('member_id', $top->id)->value('amount'));
+        $this->assertSame('pending', CommissionLedger::where('type', 'GAP')->value('status'), 'nothing credited until Approve run');
+
+        // same month again → refused, no twin run
+        Livewire::test(ListPayoutRuns::class)
+            ->callAction('generate', data: ['cutoff' => '2026-10-31'])
+            ->assertHasNoActionErrors();
+        $this->assertSame(1, PayoutRun::count());
+
+        // staff without super-admin never see the button
+        $staff = User::create(['name' => 'Manager', 'email' => 'manager@test.local', 'password' => 'secret123', 'status' => 'active']);
+        $staff->assignRole('manager');
+        app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+        $this->actingAs($staff);
+        Livewire::test(ListPayoutRuns::class)->assertActionHidden('generate');
+    }
 }
+

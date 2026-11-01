@@ -10,6 +10,11 @@ class MemberContract extends Model
 
     public const ACTIVITY_CATEGORY = 'contract';
 
+    public const SOURCE_SYSTEM = 'system';
+
+    /** Carried over from tbl_bond by `contracts:backfill-legacy`; the settlement engine skips these. */
+    public const SOURCE_LEGACY = 'legacy';
+
     protected $guarded = [];
 
     protected $casts = [

@@ -44,6 +44,9 @@ class SettlementService
             ->with(['plan', 'bond.member', 'member'])
             ->where('status', 'active')
             ->whereNull('settled_on')
+            // Legacy contracts (tbl_bond carried over at go-live) are never auto-settled:
+            // HQ closes / settles each one by hand on the Settlements page.
+            ->where('source', '!=', MemberContract::SOURCE_LEGACY)
             ->whereHas('plan', fn ($q) => $q->whereNotNull('settlement_cycle_months'))
             ->orderBy('id')
             ->chunkById(100, function ($contracts) use ($today, &$count) {

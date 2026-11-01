@@ -10,11 +10,14 @@ Artisan::command('inspire', function () {
 
 // Nightly MLM engine (replaces the legacy URL/CLI cron chain; not web-reachable).
 Schedule::command('engine:run --only=recompute')->dailyAt('02:00')->withoutOverlapping();
-// GAP + CBC are MONTHLY installments — issued on the 1st like the legacy Ascript,
-// but automated. The engine is also month-idempotent, so a manual re-run
-// (`engine:run --only=gap`) or an extra scheduler firing can never double-issue.
-Schedule::command('engine:run --only=gap')->monthlyOn(1, '03:00')->withoutOverlapping();
-Schedule::command('engine:run --only=cbc')->monthlyOn(1, '03:30')->withoutOverlapping();
+// Monthly cut-off (board 2026-10-31, legacy Ascript parity): the bond's stored GAP level
+// amounts + the CBC coupons due, written as PENDING rows under Commissions → Payout Runs for
+// the month that just ended (default cut-off = last day of the previous month). HQ reviews and
+// approves on that screen — nothing reaches a wallet here. Bond-per-month idempotent, so the
+// "Generate cut-off" button or a console re-run can never double-issue. The old
+// `engine:run --only=gap|cbc` steps are RETIRED from the schedule (they priced GAP from plan %
+// and minted CBC rows, which would clash with the legacy coupon schedule carried over).
+Schedule::command('payout:cutoff --quiet-log')->monthlyOn(1, '03:00')->withoutOverlapping();
 Schedule::command('engine:run --only=settlement')->dailyAt('04:00')->withoutOverlapping();
 
 // Monthly Tasks engine (board 2026-08-29). Order on the 1st matters: LOCK last month's
