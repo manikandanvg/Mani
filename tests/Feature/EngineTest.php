@@ -196,15 +196,16 @@ class EngineTest extends TestCase
         // Issued PENDING in cbc_entries — no wallet credit yet.
         $entry = \App\Models\CbcEntry::where('member_id', $m->id)->firstOrFail();
         $this->assertEquals('pending', $entry->status);
-        $this->assertEquals(0, $m->fresh()->wallet->epin_balance);
+        $this->assertEquals(0, $m->fresh()->wallet->cash_balance);
         $this->assertEquals(1, $bond->fresh()->cbc_issued);
 
-        // Admin approval posts the 40% EPIN / 60% coupon split.
+        // Admin approval pays the full worth into the CASH wallet (board 2026-11-01: no EPIN / coupon split).
         app(\App\Services\CommissionApprovalService::class)->approve($entry);
 
         $wallet = $m->fresh()->wallet;
-        $this->assertEquals(40, $wallet->epin_balance);    // 40%
-        $this->assertEquals(60, $wallet->coupon_balance);  // 60%
+        $this->assertEquals(100, $wallet->cash_balance);
+        $this->assertEquals(0, $wallet->epin_balance);
+        $this->assertEquals(0, $wallet->coupon_balance);
         $this->assertEquals('paid', $entry->fresh()->status);
     }
 

@@ -100,3 +100,13 @@ The only differences are three known data rows, each for the board:
 
 `cbcissue` differs on 11,695 contracts by design: legacy counts **passed** coupons, the new `cbc_issued` counts **scheduled**
 rows (so the engine never adds coupons beyond the legacy schedule).
+
+## 7. Board ruling 1 Nov 2026 (afternoon): CBC also settles in the cash wallet
+
+The cash wallet is the only payout destination for every stream. Approval of a CBC coupon now credits its **full worth to
+the member's cash wallet** (no TDS / service, as before). The legacy 40 % EPIN + 60 % coupon/digi-gold split is retired;
+the EPIN and coupon buckets keep only the balances imported from legacy (₹1,04,01,069 EPIN across 615 members, coupon 0)
+and are never credited again. Approve run and Commission Approval apply the same rule.
+
+Open for the board: the imported legacy EPIN balances (₹1.04 cr) have no use in the new system (nothing spends EPIN) —
+convert them to the cash wallet at cut-over, or keep them as a frozen figure?

@@ -263,7 +263,7 @@ class CutoffService
 
     /**
      * Approve every pending row of the run (GAP ledger + CBC coupons): cash wallet net of
-     * TDS + service for GAP, 40 % EPIN + 60 % coupon for CBC — through the same
+     * TDS + service for GAP, full worth for CBC (board 2026-11-01: cash wallet only) — through the same
      * CommissionApprovalService the manual page uses, so the rules are identical.
      *
      * @return array{gap:int, cbc:int, members:int, gross:float}

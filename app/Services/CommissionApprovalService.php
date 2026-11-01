@@ -22,7 +22,12 @@ use Illuminate\Support\Facades\DB;
  */
 class CommissionApprovalService
 {
-    /** Cash-back coupon split: 40% to EPIN, the rest to coupon (legacy CBC_TO_EPIN_PCT). */
+    /**
+     * Legacy split of a cash-back coupon: 40 % to the EPIN wallet at cut-off, the rest paid as
+     * digi gold at approval. RETIRED by the board (2026-11-01): every stream — CBC included —
+     * settles into the member's CASH wallet; the EPIN and coupon buckets only hold legacy
+     * balances and are never credited again. Kept for the record.
+     */
     public const CBC_TO_EPIN_PCT = 40.0;
 
     /** Withheld on cash income (IC/GAP + the 4 margins) at approval. CBC coupons are exempt. */
@@ -162,7 +167,11 @@ class CommissionApprovalService
         return true;
     }
 
-    /** CBC → 40% EPIN + 60% coupon of worth. */
+    /**
+     * CBC → the member's CASH wallet, full worth, no TDS / service (board 2026-11-01: the
+     * cash wallet is the only payout destination; the legacy 40 % EPIN + 60 % digi-gold
+     * split is retired together with the digi wallet).
+     */
     protected function approveCbc(CbcEntry $row, string $paidOn): bool
     {
         if ($row->status !== 'pending') {
@@ -175,9 +184,7 @@ class CommissionApprovalService
             $fx = (float) ($row->fx_rate ?: 1);
             $ccy = $row->currency_code ?: 'INR';
             $worth = round((float) $row->worth / $fx, 2);
-            $epin = round($worth * self::CBC_TO_EPIN_PCT / 100, 2);
-            $coupon = round($worth - $epin, 2);
-            $this->creditWallet($row->member_id, epin: $epin, coupon: $coupon, earning: $worth, currency: $ccy);
+            $this->creditWallet($row->member_id, cash: $worth, earning: $worth, currency: $ccy);
             $row->update(['status' => 'paid', 'paid_on' => $paidOn]);
         });
 

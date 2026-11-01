@@ -150,7 +150,7 @@ class PayoutRunResource extends BaseResource
             ->visible(fn (PayoutRun $record) => static::canApprove($record))
             ->requiresConfirmation()
             ->modalHeading(fn (PayoutRun $record) => 'Approve the ' . $record->label() . ' cut-off?')
-            ->modalDescription(fn (PayoutRun $record) => 'Credits every pending GAP row (' . number_format($record->gap_rows) . ' rows, gross ' . Money::inr((float) $record->gap_gross) . ') to the members\' CASH wallets net of TDS + service charge, and passes the ' . number_format($record->cbc_rows) . ' CBC coupons due (40% E-pin + 60% coupon). This is the legacy admin/reports step; it cannot be undone.')
+            ->modalDescription(fn (PayoutRun $record) => 'Credits every pending GAP row (' . number_format($record->gap_rows) . ' rows, gross ' . Money::inr((float) $record->gap_gross) . ') to the members\' CASH wallets net of TDS + service charge, and passes the ' . number_format($record->cbc_rows) . ' CBC coupons due (full worth to the CASH wallet, no deduction). Same rules as Commission Approval, for the whole month at once; it cannot be undone.')
             ->action(function (PayoutRun $record) {
                 $r = app(CutoffService::class)->approve($record, auth()->id());
                 Notification::make()->success()->title('Run ' . $record->label() . ' approved')

@@ -102,7 +102,7 @@ class CommissionSetup extends Page implements HasForms
             ->schema([
                 Forms\Components\Placeholder::make('cbc_note')
                     ->hiddenLabel()
-                    ->content(__('Exempt — CBC pays out as 40% E-pin + 60% coupon with no TDS or service charge.')),
+                    ->content(__('Exempt — CBC coupons pay their full worth into the cash wallet with no TDS or service charge (board 2026-11-01).')),
             ]);
 
         // Board 2026-08-11: fee withheld when a distributor transfers Digi
