@@ -101,12 +101,18 @@ The only differences are three known data rows, each for the board:
 `cbcissue` differs on 11,695 contracts by design: legacy counts **passed** coupons, the new `cbc_issued` counts **scheduled**
 rows (so the engine never adds coupons beyond the legacy schedule).
 
-## 7. Board ruling 1 Nov 2026 (afternoon): CBC also settles in the cash wallet
+## 7. Board ruling 1 Nov 2026 (evening): how a CBC coupon is paid — and no EPIN wallet
 
-The cash wallet is the only payout destination for every stream. Approval of a CBC coupon now credits its **full worth to
-the member's cash wallet** (no TDS / service, as before). The legacy 40 % EPIN + 60 % coupon/digi-gold split is retired;
-the EPIN and coupon buckets keep only the balances imported from legacy (₹1,04,01,069 EPIN across 615 members, coupon 0)
-and are never credited again. Approve run and Commission Approval apply the same rule.
+The cash wallet is the only payout destination. A CBC coupon is split **at approval** (Commission Approval row by row, or
+Approve run for the month — same service, same rule), on the coupon's whole worth, percentages from Commission Setup:
 
-Open for the board: the imported legacy EPIN balances (₹1.04 cr) have no use in the new system (nothing spends EPIN) —
-convert them to the cash wallet at cut-over, or keep them as a frozen figure?
+| coupon ₹12,000 | default | goes to |
+|---|---|---|
+| sales profit (salary) | 50 % = ₹6,000 | member's **cash wallet** |
+| TDS + service charge | 5 + 5 % = ₹1,200 | withheld |
+| remainder | ₹4,800 | **coupon wallet** — a Head Office reference figure only: shown on Track Distributor to the super admin, never to dealers or members (app returns 0) |
+
+The split is stored on the coupon (`cbc_entries.cash_amount / tds / service_charge / coupon_amount`) and the Payout Runs
+page shows the month's three figures next to the coupons due. There is **no EPIN wallet** in the new system: the word
+does not appear on any screen or in the app payload (keys stay at 0 for older builds); the legacy EPIN balances
+(₹1,04,01,069 across 615 members) are imported but invisible — board to say whether they convert to cash or are dropped.

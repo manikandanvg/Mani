@@ -23,14 +23,16 @@ use Illuminate\Support\Facades\DB;
 class CommissionApprovalService
 {
     /**
-     * Legacy split of a cash-back coupon: 40 % to the EPIN wallet at cut-off, the rest paid as
-     * digi gold at approval. RETIRED by the board (2026-11-01): every stream — CBC included —
-     * settles into the member's CASH wallet; the EPIN and coupon buckets only hold legacy
-     * balances and are never credited again. Kept for the record.
+     * CBC split (board 2026-11-01), on the coupon's whole worth — e.g. ₹12,000:
+     *   sales profit  50 %  → ₹6,000 to the CASH wallet
+     *   TDS + service  5 + 5 % → ₹1,200 withheld
+     *   remainder            → ₹4,800 to the COUPON wallet (hidden — HQ reference only)
+     * The percentages come from Commission Setup (stream CBC: cash_pct, tds, service); these
+     * are the defaults. The legacy 40 % EPIN credit at cut-off is retired with the digi wallet.
      */
-    public const CBC_TO_EPIN_PCT = 40.0;
+    public const CBC_CASH_PCT = 50.0;
 
-    /** Withheld on cash income (IC/GAP + the 4 margins) at approval. CBC coupons are exempt. */
+    /** Withheld on cash income (IC/GAP + the 4 margins) at approval; CBC withholds on the whole coupon. */
     public const TDS_PCT = 5.0;
 
     public const SERVICE_PCT = 5.0;
@@ -168,9 +170,8 @@ class CommissionApprovalService
     }
 
     /**
-     * CBC → the member's CASH wallet, full worth, no TDS / service (board 2026-11-01: the
-     * cash wallet is the only payout destination; the legacy 40 % EPIN + 60 % digi-gold
-     * split is retired together with the digi wallet).
+     * CBC (board 2026-11-01): sales-profit share → CASH wallet; TDS + service withheld on the
+     * whole coupon; the remainder → COUPON wallet (HQ-only reference). See cbcSplit().
      */
     protected function approveCbc(CbcEntry $row, string $paidOn): bool
     {
@@ -184,11 +185,35 @@ class CommissionApprovalService
             $fx = (float) ($row->fx_rate ?: 1);
             $ccy = $row->currency_code ?: 'INR';
             $worth = round((float) $row->worth / $fx, 2);
-            $this->creditWallet($row->member_id, cash: $worth, earning: $worth, currency: $ccy);
-            $row->update(['status' => 'paid', 'paid_on' => $paidOn]);
+            $s = self::cbcSplit($worth);
+            $this->creditWallet($row->member_id, cash: $s['cash'], coupon: $s['coupon'], earning: $worth, currency: $ccy);
+            $row->update([
+                'status' => 'paid', 'paid_on' => $paidOn,
+                'cash_amount' => $s['cash'], 'tds' => $s['tds'], 'service_charge' => $s['service'], 'coupon_amount' => $s['coupon'],
+            ]);
         });
 
         return true;
+    }
+
+    /**
+     * How a CBC coupon of $worth is split: ['cash', 'tds', 'service', 'coupon'] — percentages
+     * of the WHOLE worth from Commission Setup (CBC: cash_pct / tds / service), defaults 50 / 5 / 5.
+     *
+     * @return array{cash: float, tds: float, service: float, coupon: float, cash_pct: float, tds_pct: float, service_pct: float}
+     */
+    public static function cbcSplit(float $worth): array
+    {
+        $cfg = self::chargeConfig('CBC');
+        $cashPct = isset($cfg['cash_pct']) ? (float) $cfg['cash_pct'] : self::CBC_CASH_PCT;
+        $tdsPct = isset($cfg['tds']) ? (float) $cfg['tds'] : self::TDS_PCT;
+        $svcPct = isset($cfg['service']) ? (float) $cfg['service'] : self::SERVICE_PCT;
+        $cash = round($worth * $cashPct / 100, 2);
+        $tds = round($worth * $tdsPct / 100, 2);
+        $svc = round($worth * $svcPct / 100, 2);
+        $coupon = round(max(0, $worth - $cash - $tds - $svc), 2);
+
+        return ['cash' => $cash, 'tds' => $tds, 'service' => $svc, 'coupon' => $coupon, 'cash_pct' => $cashPct, 'tds_pct' => $tdsPct, 'service_pct' => $svcPct];
     }
 
     /** Distributor margins → the branch's distributor member wallet (cash). */

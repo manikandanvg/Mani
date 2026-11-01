@@ -74,15 +74,16 @@ class TrackDistributor extends TrackPage
         ]];
 
         if ($w = $member->wallet) {
-            $this->sections[] = ['heading' => __('Wallet'), 'kv' => [
+            // Board 2026-11-01: no EPIN wallet in the new system; the coupon wallet (CBC remainder)
+            // is a Head Office reference figure only — shown to the super admin, never to dealers.
+            $this->sections[] = ['heading' => __('Wallet'), 'kv' => array_filter([
                 __('Cash balance') => $this->money($w->cash_balance),
-                __('Coupon balance') => $this->money($w->coupon_balance),
-                __('E-pin balance') => $this->money($w->epin_balance),
+                __('Coupon wallet (HQ reference)') => auth()->user()?->isSuperAdmin() ? $this->money($w->coupon_balance) : null,
                 __('Digi gold (g)') => number_format((float) $w->digi_gold_grams, 4),
                 __('Digi silver (g)') => number_format((float) $w->digi_silver_grams, 4),
                 __('Total earned') => $this->money($w->earning_total),
                 __('Total withdrawn') => $this->money($w->withdrawn_total),
-            ]];
+            ], fn ($v) => $v !== null)];
         }
 
         $contracts = \App\Models\MemberContract::with('plan')

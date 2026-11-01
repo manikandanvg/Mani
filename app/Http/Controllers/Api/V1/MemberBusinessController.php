@@ -381,7 +381,8 @@ class MemberBusinessController extends Controller
                 'earning' => (float) ($w?->earning_total ?? 0),
                 'withdraw' => (float) ($w?->withdrawn_total ?? 0),
                 'tbp_gross_bv' => (float) $member->unpure_gbv,
-                'gift' => (float) ($w?->coupon_balance ?? 0),
+                // Board 2026-11-01: the coupon wallet is an HQ-only reference figure — never shown to members.
+                'gift' => 0.0,
             ],
         ]);
     }
@@ -449,8 +450,10 @@ class MemberBusinessController extends Controller
         return [
             'currency_code' => $w?->currency_code ?: 'INR',
             'cash_balance' => (float) ($w?->cash_balance ?? 0),
-            'epin_balance' => (float) ($w?->epin_balance ?? 0),
-            'coupon_balance' => (float) ($w?->coupon_balance ?? 0),
+            // Board 2026-11-01: no EPIN wallet in the new system; the coupon wallet is HQ-only.
+            // Keys kept at 0 so older app builds keep parsing the payload.
+            'epin_balance' => 0.0,
+            'coupon_balance' => 0.0,
             'earning_total' => (float) ($w?->earning_total ?? 0),
         ];
     }

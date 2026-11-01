@@ -76,7 +76,8 @@ class MemberStatusTest extends TestCase
         $this->assertSame(100000, $res->json('widgets.tbp_gross_bv'));
         $this->assertSame(100000, $res->json('tbp.gross_bv'));
         $this->assertSame(40000, $res->json('tbp.own_bv'));
-        $this->assertSame(250, $res->json('widgets.gift'));
+        // Board 2026-11-01: the coupon wallet is an HQ-only reference — members never see it (the wallet holds 250).
+        $this->assertSame(0, $res->json('widgets.gift'));
     }
 
     public function test_genealogy_returns_the_downline_tree(): void

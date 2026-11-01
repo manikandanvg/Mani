@@ -7,6 +7,7 @@ use App\Filament\Concerns\HqOnly;
 use App\Filament\Resources\PayoutRunResource\Pages;
 use App\Filament\Resources\PayoutRunResource\RelationManagers\GapRowsRelationManager;
 use App\Models\PayoutRun;
+use App\Services\CommissionApprovalService;
 use App\Services\Payout\CutoffService;
 use App\Support\Money;
 use Filament\Infolists;
@@ -115,9 +116,17 @@ class PayoutRunResource extends BaseResource
                 Infolists\Components\TextEntry::make('gap_log')->label('GAP log (per member, with TDS & service as Commission Setup would deduct today)')->columnSpanFull()
                     ->state(fn (PayoutRun $r) => new HtmlString(static::summaryHtml($r))),
             ]),
-            Infolists\Components\Section::make('Promotional Incentive (CBC) due this month')->columns(2)->schema([
+            // Board 2026-11-01 split of every coupon: sales profit → cash wallet, TDS + service withheld,
+            // remainder → coupon wallet (HQ reference). Percentages from Commission Setup.
+            Infolists\Components\Section::make('Promotional Incentive (CBC) due this month')->columns(3)->schema([
                 Infolists\Components\TextEntry::make('cbc_rows')->label('Coupons')->numeric(),
                 Infolists\Components\TextEntry::make('cbc_worth')->label('Worth')->formatStateUsing(fn ($state) => Money::inr((float) $state)),
+                Infolists\Components\TextEntry::make('cbc_cash')->label(fn (PayoutRun $r) => 'Sales profit → cash wallet (' . rtrim(rtrim(number_format(CommissionApprovalService::cbcSplit(100)['cash_pct'], 2), '0'), '.') . ' %)')
+                    ->state(fn (PayoutRun $r) => Money::inr(CommissionApprovalService::cbcSplit((float) $r->cbc_worth)['cash'])),
+                Infolists\Components\TextEntry::make('cbc_charges')->label('TDS + service withheld')
+                    ->state(fn (PayoutRun $r) => Money::inr(CommissionApprovalService::cbcSplit((float) $r->cbc_worth)['tds'] + CommissionApprovalService::cbcSplit((float) $r->cbc_worth)['service'])),
+                Infolists\Components\TextEntry::make('cbc_coupon')->label('Coupon wallet (HQ reference)')
+                    ->state(fn (PayoutRun $r) => Money::inr(CommissionApprovalService::cbcSplit((float) $r->cbc_worth)['coupon'])),
             ]),
             Infolists\Components\Section::make('Log')->schema([
                 Infolists\Components\TextEntry::make('log_path')->label('File')->placeholder('—')->copyable(),
@@ -150,7 +159,7 @@ class PayoutRunResource extends BaseResource
             ->visible(fn (PayoutRun $record) => static::canApprove($record))
             ->requiresConfirmation()
             ->modalHeading(fn (PayoutRun $record) => 'Approve the ' . $record->label() . ' cut-off?')
-            ->modalDescription(fn (PayoutRun $record) => 'Credits every pending GAP row (' . number_format($record->gap_rows) . ' rows, gross ' . Money::inr((float) $record->gap_gross) . ') to the members\' CASH wallets net of TDS + service charge, and passes the ' . number_format($record->cbc_rows) . ' CBC coupons due (full worth to the CASH wallet, no deduction). Same rules as Commission Approval, for the whole month at once; it cannot be undone.')
+            ->modalDescription(fn (PayoutRun $record) => 'Credits every pending GAP row (' . number_format($record->gap_rows) . ' rows, gross ' . Money::inr((float) $record->gap_gross) . ') to the members\' CASH wallets net of TDS + service charge, and passes the ' . number_format($record->cbc_rows) . ' CBC coupons due (sales-profit share to the CASH wallet, TDS + service withheld, the rest to the coupon wallet — Commission Setup percentages). Same rules as Commission Approval, for the whole month at once; it cannot be undone.')
             ->action(function (PayoutRun $record) {
                 $r = app(CutoffService::class)->approve($record, auth()->id());
                 Notification::make()->success()->title('Run ' . $record->label() . ' approved')

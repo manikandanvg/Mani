@@ -199,13 +199,14 @@ class EngineTest extends TestCase
         $this->assertEquals(0, $m->fresh()->wallet->cash_balance);
         $this->assertEquals(1, $bond->fresh()->cbc_issued);
 
-        // Admin approval pays the full worth into the CASH wallet (board 2026-11-01: no EPIN / coupon split).
+        // Admin approval splits the ₹100 coupon (board 2026-11-01): 50 % sales profit → cash wallet,
+        // 5 + 5 % withheld, the remaining 40 → coupon wallet (HQ reference). No EPIN wallet.
         app(\App\Services\CommissionApprovalService::class)->approve($entry);
 
         $wallet = $m->fresh()->wallet;
-        $this->assertEquals(100, $wallet->cash_balance);
+        $this->assertEquals(50, $wallet->cash_balance);
+        $this->assertEquals(40, $wallet->coupon_balance);
         $this->assertEquals(0, $wallet->epin_balance);
-        $this->assertEquals(0, $wallet->coupon_balance);
         $this->assertEquals('paid', $entry->fresh()->status);
     }
 

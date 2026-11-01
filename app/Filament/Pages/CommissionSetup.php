@@ -53,6 +53,8 @@ class CommissionSetup extends Page implements HasForms
             $fill[$type] = ['tds' => $tds, 'service' => $svc,
                 'slab_from' => (float) ($cfg['slab_from'] ?? 0), 'slab_tds' => (float) ($cfg['slab_tds'] ?? $tds), 'slab_service' => (float) ($cfg['slab_service'] ?? $svc)];
         }
+        $cbc = CommissionApprovalService::cbcSplit(100);   // percentages of the whole coupon
+        $fill['CBC'] = ['cash_pct' => $cbc['cash_pct'], 'tds' => $cbc['tds_pct'], 'service' => $cbc['service_pct']];
         $fill['digi_market_fee'] = \App\Services\Wallet\DigiMarketService::platformFeePct();
         $fill['customize'] = [
             'gold_margin_per_g' => \App\Support\CustomizeOrderPricing::marginPerGram('gold'),
@@ -97,12 +99,22 @@ class CommissionSetup extends Page implements HasForms
                 ]);
         }
 
+        // Board 2026-11-01: a coupon of ₹12,000 → ₹6,000 sales profit to the cash wallet, ₹1,200
+        // TDS + service withheld on the whole coupon, ₹4,800 to the coupon wallet (HQ reference only).
         $sections[] = Forms\Components\Section::make(CommissionApprovalService::TYPES['CBC'])
             ->compact()
+            ->columns(3)
+            ->description(__('Percentages of the whole coupon. Sales profit goes to the cash wallet; TDS and service charge are withheld; whatever remains goes to the coupon wallet, which only Head Office sees.'))
             ->schema([
-                Forms\Components\Placeholder::make('cbc_note')
-                    ->hiddenLabel()
-                    ->content(__('Exempt — CBC coupons pay their full worth into the cash wallet with no TDS or service charge (board 2026-11-01).')),
+                Forms\Components\TextInput::make('CBC.cash_pct')
+                    ->label('Sales profit % → cash wallet')
+                    ->numeric()->minValue(0)->maxValue(100)->required()->suffix('%'),
+                Forms\Components\TextInput::make('CBC.tds')
+                    ->label('TDS %')
+                    ->numeric()->minValue(0)->maxValue(30)->required()->suffix('%'),
+                Forms\Components\TextInput::make('CBC.service')
+                    ->label('Service charge %')
+                    ->numeric()->minValue(0)->maxValue(30)->required()->suffix('%'),
             ]);
 
         // Board 2026-08-11: fee withheld when a distributor transfers Digi
@@ -159,6 +171,15 @@ class CommissionSetup extends Page implements HasForms
                 ]), 'type' => 'json'],
             );
         }
+
+        Setting::updateOrCreate(
+            ['group' => 'commission', 'key' => 'CBC'],
+            ['value' => json_encode([
+                'cash_pct' => (float) ($d['CBC']['cash_pct'] ?? CommissionApprovalService::CBC_CASH_PCT),
+                'tds' => (float) ($d['CBC']['tds'] ?? CommissionApprovalService::TDS_PCT),
+                'service' => (float) ($d['CBC']['service'] ?? CommissionApprovalService::SERVICE_PCT),
+            ]), 'type' => 'json'],
+        );
 
         CommissionApprovalService::forgetCharges();
 

@@ -232,9 +232,15 @@ class PayoutCutoffTest extends TestCase
         $this->assertSame('paid', $due->fresh()->status);
         $this->assertSame('pending', $later->fresh()->status);
         $w = MemberWallet::where('member_id', $m->id)->first();
-        // board 2026-11-01: CBC settles in the CASH wallet in full — no EPIN / coupon split, no deduction
-        $this->assertEquals(1000.0, (float) $w->cash_balance);
-        $this->assertEquals(0.0, (float) $w->epin_balance);
-        $this->assertEquals(0.0, (float) $w->coupon_balance);
+        // board 2026-11-01 split of the ₹1,000 coupon: 50 % sales profit → cash, 5 + 5 % withheld, rest → coupon wallet (HQ reference)
+        $this->assertEquals(500.0, (float) $w->cash_balance);
+        $this->assertEquals(400.0, (float) $w->coupon_balance);
+        $this->assertEquals(0.0, (float) $w->epin_balance, 'no EPIN wallet in the new system');
+        $this->assertEquals(1000.0, (float) $w->earning_total);
+        $due->refresh();
+        $this->assertEquals(500.0, (float) $due->cash_amount);
+        $this->assertEquals(50.0, (float) $due->tds);
+        $this->assertEquals(50.0, (float) $due->service_charge);
+        $this->assertEquals(400.0, (float) $due->coupon_amount);
     }
 }

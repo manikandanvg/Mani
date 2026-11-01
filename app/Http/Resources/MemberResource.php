@@ -54,8 +54,9 @@ class MemberResource extends JsonResource
             'wallet' => $wallet ? [
                 'currency_code' => $wallet->currency_code ?: 'INR',
                 'cash_balance' => (float) $wallet->cash_balance,
-                'epin_balance' => (float) $wallet->epin_balance,
-                'coupon_balance' => (float) $wallet->coupon_balance,
+                // Board 2026-11-01: no EPIN wallet in the new system; the coupon wallet is HQ-only.
+                'epin_balance' => 0.0,
+                'coupon_balance' => 0.0,
                 'earning_total' => (float) $wallet->earning_total,
                 'digi_gold_grams' => (float) ($wallet->digi_gold_grams ?? 0),
                 'digi_silver_grams' => (float) ($wallet->digi_silver_grams ?? 0),

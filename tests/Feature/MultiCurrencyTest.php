@@ -240,12 +240,12 @@ class MultiCurrencyTest extends TestCase
 
         app(CommissionApprovalService::class)->approve($entry->fresh());
         $wallet = MemberWallet::where('member_id', $member->id)->firstOrFail();
-        // ₹1,000 at the FROZEN ₹100/EUR = €10 into the CASH wallet (not €20 at the new rate);
-        // board 2026-11-01: no EPIN / coupon split any more.
+        // ₹1,000 at the FROZEN ₹100/EUR = €10 (not €20 at the new rate), split per the board
+        // 2026-11-01 rule: 50 % → cash €5, 5 + 5 % withheld, €4 → coupon wallet. No EPIN wallet.
         $this->assertEquals('EUR', $wallet->currency_code);
-        $this->assertEquals(10.0, (float) $wallet->cash_balance);
+        $this->assertEquals(5.0, (float) $wallet->cash_balance);
+        $this->assertEquals(4.0, (float) $wallet->coupon_balance);
         $this->assertEquals(0.0, (float) $wallet->epin_balance);
-        $this->assertEquals(0.0, (float) $wallet->coupon_balance);
         $this->assertEquals(10.0, (float) $wallet->earning_total);
     }
 }
