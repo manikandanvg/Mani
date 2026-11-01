@@ -114,21 +114,55 @@ Decision to take with the board before approval runs on the new system:
 | Pending gold QRs | `tbl_digi_queue` INVOICE PENDING | `redeemable_qrs` pending | count equal |
 | Orphan contracts | 14 `tbl_bond` rows whose distributor was deleted from `tbl_member` (8 still active, e.g. bond 1465 G12 ₹1,00,000) | imported under an **inactive placeholder member** (code kept, name from the bond, upline from the bond) so the contract and the uplines' GAP survive; listed in the import warnings | the only skipped bonds are the 16 blank rows with no plan and no value |
 
-## 7. Ship to the server (T+1 h)
+## 7. Ship to the server — straight onto lordicl.com (board: no subdomain, no redirect)
+
+Rebuild on the PC first: `bash scripts/rebuild-live.sh <final-dump.sql.gz> --cutoff=2026-10-31` (one command: §1–§4 + the
+cut-over one-offs + a dry cut-off). Reconcile (§4–§6). Then:
 
 ```bash
-mysqldump -uroot --single-transaction lordicl_live > lordicl_live-oct-closing.sql
-scp lordicl_live-oct-closing.sql root@srv950347:/www/backup/
-# on the server
-cd /www/wwwroot/next.lordicl.com && git pull && composer install --no-dev --optimize-autoloader
-mysql -e "CREATE DATABASE lordicl_live CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"   # aaPanel → Databases, grant the app user
-mysql lordicl_live < /www/backup/lordicl_live-oct-closing.sql
-# .env: DB_DATABASE=lordicl_live   (old DB untouched)   LEGACY_DB_DATABASE=lordicl (closing copy, read-only — the P&L / Employee reports read it)
-php artisan migrate --force && php artisan storage:link
-php artisan config:clear && php artisan route:clear && php artisan view:clear && php artisan optimize
-php artisan branches:geocode
-php artisan golive:check
+# PC
+mysqldump -uroot --single-transaction --quick lordicl_live | gzip > lordicl_live-closing.sql.gz      # upload via aaPanel Files
 ```
+
+On the server (aaPanel, Apache + PHP-FPM):
+
+1. **Domain.** Website → the stopped legacy site → Domain → remove lordicl.com + www (keep the site and its files: the legacy
+   database stays for the P&L / Employee reports). Website → the new software's site → Domain → add lordicl.com + www →
+   SSL → Let's Encrypt → Force HTTPS. Delete the old subdomain from that site afterwards; nothing references it.
+2. **Code + database.**
+   ```bash
+   cd /www/wwwroot/<site> && git pull manikandanvg main && composer install --no-dev --optimize-autoloader
+   mysql -e "CREATE DATABASE lordicl_live CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"   # aaPanel → Databases, grant the app user
+   gzip -dc /www/backup/lordicl_live-closing.sql.gz | mysql lordicl_live
+   # .env: APP_URL=https://lordicl.com  DB_DATABASE=lordicl_live  LEGACY_DB_DATABASE=lordicl  SESSION_DOMAIN=null
+   php artisan migrate --force && php artisan storage:link
+   php artisan config:clear && php artisan route:clear && php artisan view:clear && php artisan optimize
+   php artisan push:import-fcm <firebase service-account json>
+   php artisan branches:geocode          # slow, map pins only
+   php artisan golive:check
+   ```
+3. **Holding mode until go-live** (Website → site → Config, inside `<VirtualHost *:443>` after `DocumentRoot`; office IP
+   instead of the placeholder). Policy pages stay public for the Play review; everything else shows `public/holding.html`
+   with a 503; the office IP sees the full site:
+   ```apache
+   ErrorDocument 503 /holding.html
+   <IfModule mod_rewrite.c>
+       RewriteEngine On
+       RewriteCond %{REMOTE_ADDR} !^203\.0\.113\.10$
+       RewriteCond %{REQUEST_URI} !^/page/(privacy-policy|terms|refund-policy|return-policy|shipping-policy)
+       RewriteCond %{REQUEST_URI} !^/(css|js|build|storage|images|fonts|vendor)/
+       RewriteCond %{REQUEST_URI} !^/(holding\.html|favicon\.ico|robots\.txt)$
+       RewriteRule .* - [R=503,L]
+   </IfModule>
+   ```
+   Remove the block and restart Apache on go-live day. Play Console privacy policy URL: `https://lordicl.com/page/privacy-policy`.
+4. **Outside services that call us** (all on lordicl.com now): Razorpay webhook → `https://lordicl.com/webhooks/razorpay`;
+   WhatsApp provider callback → `https://lordicl.com/api/v1/webhooks/whatsapp`; Zoom marketplace apps (allowed domain +
+   event endpoint `https://lordicl.com/webhooks/zoom`); clear `WHATSAPP_TEST_RECIPIENT`.
+5. **L-BOX devices** carry the API address in firmware settings: re-point both live boxes through the pairing command
+   (docs/ROLLOUT.md) once the site answers on lordicl.com.
+6. **App**: 3.11.15 / 31101501 (`https://lordicl.com/api/v1`) is the Play release; it works the moment the holding block is
+   removed. Older legacy app versions stop at the switch and must update.
 
 ## 8. Verify on live (before telling the dealers)
 
