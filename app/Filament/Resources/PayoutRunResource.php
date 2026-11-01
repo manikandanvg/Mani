@@ -77,7 +77,14 @@ class PayoutRunResource extends BaseResource
                 Tables\Columns\TextColumn::make('gap_members')->label('Members')->numeric(),
                 Tables\Columns\TextColumn::make('gap_gross')->label('GAP gross')->formatStateUsing(fn ($state) => Money::inr((float) $state)),
                 Tables\Columns\TextColumn::make('cbc_rows')->label('CBC due')->numeric(),
-                Tables\Columns\TextColumn::make('cbc_worth')->label('CBC worth')->formatStateUsing(fn ($state) => Money::inr((float) $state)),
+                Tables\Columns\TextColumn::make('cbc_worth')->label('CBC worth (before split)')->formatStateUsing(fn ($state) => Money::inr((float) $state))->toggleable(),
+                // Board 2026-11-01 split of the month's coupons (Commission Setup percentages).
+                Tables\Columns\TextColumn::make('cbc_cash')->label('CBC → cash wallet')
+                    ->state(fn (PayoutRun $r) => Money::inr(CommissionApprovalService::cbcSplit((float) $r->cbc_worth)['cash'])),
+                Tables\Columns\TextColumn::make('cbc_withheld')->label('CBC TDS + service')
+                    ->state(fn (PayoutRun $r) => Money::inr(CommissionApprovalService::cbcSplit((float) $r->cbc_worth)['tds'] + CommissionApprovalService::cbcSplit((float) $r->cbc_worth)['service']))->toggleable(),
+                Tables\Columns\TextColumn::make('cbc_coupon')->label('CBC → coupon wallet')
+                    ->state(fn (PayoutRun $r) => Money::inr(CommissionApprovalService::cbcSplit((float) $r->cbc_worth)['coupon']))->toggleable(),
                 Tables\Columns\TextColumn::make('runBy.name')->label('Run by')->placeholder('console')->toggleable(),
                 Tables\Columns\TextColumn::make('finished_at')->label('Generated')->dateTime('d M Y H:i')->toggleable(),
                 Tables\Columns\TextColumn::make('approved_at')->label('Approved')->dateTime('d M Y H:i')->placeholder('—')->toggleable(),
