@@ -192,7 +192,7 @@ Legacy's own pending-Nov coupon list: 11,624 / ₹22,09,71,037. The ₹9,000 gap
   created, so legacy will never pay its last 4. The new engine issued coupon 21 (₹6,000) for Nov. Board to decide: pay the
   remaining 4 (contract says so) or set `cbc_issued = cbc_count` to match legacy.
 
-Next: when the legacy Ascript trial has run on `lordicl` (rows dated 2026-11-01 appear), run
-`DB_DATABASE=lordicl_live php artisan payout:compare --period=2026-11-01 --export=...` — GAP register per member, GAP log
-totals, CBC due. Expected: 100 % on GAP (the 24-Oct replay matched 4,470/4,470 members once the frozen upline was imported);
-CBC differs by exactly the two rows above.
+**Result (1 Nov, legacy Ascript run on `lordicl` from the CLI, then `payout:compare --period=2026-11-01`): GAP register
+100 % match — 4,921 members, 27,649 rows, ₹5,67,82,340 gross, TDS / service / net identical; CBC due 11,624 = 11,624, worth
+differs by the two rows above; one contract counter differs (bond 29909, legacy `$insetfirstcom` quirk). Full table in
+docs/CUTOFF-PLAN.md §6. Diff workbook: Desktop/db-backups/oct-cutoff-compare.xlsx (empty = no GAP mismatch).**

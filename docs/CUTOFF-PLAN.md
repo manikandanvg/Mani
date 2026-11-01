@@ -73,3 +73,30 @@ Estimated effort: command + run record + viewer + slab + replay test ≈ 1 worki
 **Replay of the legacy October run** (dev copy of the 24-Oct snapshot, imported Oct GAP lines removed, instalment counters rolled back one step, `payout:cutoff --cutoff=2026-09-30`): legacy 24,829 rows / 4,470 members / ₹5,13,48,590 gross; new 24,836 rows / 4,476 members / ₹5,13,47,428.60 **before** the frozen-upline rule — the 85 differing members were all explained by re-mapped uplines (frozen on the bond in legacy) plus rank changes between 1 Oct (legacy run) and 24 Oct (snapshot). The definitive check is the user's trial: legacy Ascript on the October closing DB vs `payout:cutoff --cutoff=2026-10-31` on the same DB imported, then `payout:compare --period=2026-11-01`.
 
 Rules kept exactly as legacy: bond's stored level amounts; bonds on/before the cut-off; rank depth ≥ level; all-zero level amounts = no level income; one instalment per bond per pay month; every processed bond consumes an instalment (legacy's effective behaviour); 5 + 5 % at the log stage; nothing credited before approval. Not replicated: the EPIN 40 % credit at cut-off time (it is credited at approval, board gate) and legacy paying as digi gold (board: cash wallet).
+
+## 6. Parity proven on the October closing data (1 Nov 2026)
+
+Legacy Ascript (`$bdateact = "2026-10-31"`, run from the CLI on the local closing dump `lordicl`, log
+`application/logs/ascript_payout_20261101_113027.log`, 1,230 s) versus `payout:cutoff --cutoff=2026-10-31` on the imported
+copy `lordicl_live` (run #1, 38 s), compared with `payout:compare --period=2026-11-01`:
+
+| | legacy | new |
+|---|---|---|
+| GAP register rows / members / gross | 27,649 / 4,921 / ₹5,67,82,340 | **identical** — 100 % per member |
+| GAP log TDS / service / net | ₹28,39,117 / ₹28,39,117 / ₹5,11,04,106 | **identical** |
+| CBC coupons due | 11,624 / ₹22,09,71,036.74 | 11,624 / ₹22,09,62,036.77 |
+| contracts whose instalment counter moved | 12,642 | 12,643 |
+
+The only differences are three known data rows, each for the board:
+
+1. **Coupon 55314** (₹15,000, LJW24710584324): its contract 9973 was deleted from `tbl_bond`; legacy still passes it and credits
+   ₹6,000 EPIN. The new system has no contract to attach it to, so it is absent.
+2. **Bond 133** (LJW24801, P201 ₹50,000, 20 of 24 coupons): legacy never created its coupon schedule, so legacy pays nothing more;
+   the new engine issued coupon 21 (₹6,000). Pay the remaining 4 or freeze — board.
+3. **Bond 29909** (sold 31 Oct, no qualifying upline this month): legacy left `lvlcomissue` at 0 because of the `$insetfirstcom`
+   quirk (it was the first bond in the loop); the new engine counted the instalment like it does for every other bond with no
+   qualifier. No money moved either way this month; legacy will try instalment 1 again on 1 Dec, the new engine moves to
+   instalment 2. The legacy behaviour for the other 12,642 contracts is what the engine reproduces.
+
+`cbcissue` differs on 11,695 contracts by design: legacy counts **passed** coupons, the new `cbc_issued` counts **scheduled**
+rows (so the engine never adds coupons beyond the legacy schedule).
