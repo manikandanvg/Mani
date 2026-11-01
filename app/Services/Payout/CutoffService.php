@@ -60,6 +60,44 @@ class CutoffService
         $period = self::periodFor($cutoff);
         $this->logger = $echo;
 
+        // 30k ledger rows + 17k members in memory: PHP's 128 MB CLI default dies mid-run (legacy
+        // Ascript sets 1024M for the same reason). The whole run is ONE transaction so a crash leaves
+        // nothing behind — no half-written rows, no consumed instalments, no run record.
+        if ((int) ini_get('memory_limit') !== -1 && $this->bytes(ini_get('memory_limit')) < 1024 * 1024 * 1024) {
+            ini_set('memory_limit', '1024M');
+        }
+        set_time_limit(0);
+        if ($options['dry_run']) {
+            return $this->execute($cutoff, $period, $options, $runBy);
+        }
+        DB::beginTransaction();
+        try {
+            $run = $this->execute($cutoff, $period, $options, $runBy);
+            DB::commit();
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            if ($this->logHandle) {
+                fwrite($this->logHandle, 'ABORTED : ' . $e->getMessage() . "\n");
+                fclose($this->logHandle);
+                $this->logHandle = null;
+            }
+            throw $e;
+        }
+
+        return $run;
+    }
+
+    protected function bytes(string $v): float
+    {
+        $n = (float) $v;
+        return match (strtolower(substr(trim($v), -1))) {
+            'g' => $n * 1024 ** 3, 'm' => $n * 1024 ** 2, 'k' => $n * 1024, default => $n,
+        };
+    }
+
+    protected function execute(Carbon $cutoff, Carbon $period, array $options, ?int $runBy): PayoutRun
+    {
+
         $existing = PayoutRun::whereDate('period', $period->toDateString())->where('status', '!=', 'dry_run')->first();
         if ($existing && ! $options['dry_run']) {
             // idempotent per bond anyway, but a second run of the same month only picks up bonds
