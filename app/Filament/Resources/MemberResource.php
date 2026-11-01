@@ -266,14 +266,6 @@ class MemberResource extends BaseResource
                     ->label('Joined on')
                     ->date()
                     ->sortable(),
-                // Cash wallet (go-live 2026-11-01): distributors will bill and ask for payouts
-                // from day one — HQ must see the spendable balance on the list itself.
-                Tables\Columns\TextColumn::make('wallet.cash_balance')
-                    ->label('Cash wallet')
-                    ->formatStateUsing(fn ($state) => Money::inr((float) $state))
-                    ->placeholder(Money::inr(0))
-                    ->alignEnd()
-                    ->sortable(query: fn (Builder $query, string $direction) => $query->orderBy($cash(), $direction)),
                 // Green KYC badge (board 2026-08-12 item 1) — shown wherever members list.
                 Tables\Columns\TextColumn::make('kyc_verified')
                     ->label('KYC')
@@ -287,6 +279,14 @@ class MemberResource extends BaseResource
                     ->icon(fn (string $state) => $state === 'Verified' ? 'heroicon-m-check-badge' : null)
                     ->sortable(query: fn (Builder $query, string $direction) => $query
                         ->orderByRaw('(COALESCE(members.pan_verified, 0) + COALESCE(members.aadhaar_verified, 0)) ' . ($direction === 'desc' ? 'desc' : 'asc'))),
+                // Cash wallet (go-live 2026-11-01): distributors will bill and ask for payouts
+                // from day one — HQ must see the spendable balance on the list itself.
+                Tables\Columns\TextColumn::make('wallet.cash_balance')
+                    ->label('Cash wallet')
+                    ->formatStateUsing(fn ($state) => Money::inr((float) $state))
+                    ->placeholder(Money::inr(0))
+                    ->alignEnd()
+                    ->sortable(query: fn (Builder $query, string $direction) => $query->orderBy($cash(), $direction)),
                 Tables\Columns\TextColumn::make('email')
                     ->sortable()->toggleable(),
                 Tables\Columns\TextColumn::make('dob')
