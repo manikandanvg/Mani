@@ -305,3 +305,11 @@ migrations `2026_11_02_000300` + `000400` (`redeemable_qrs.source/priced_on/froz
 `digi_withdrawals.source/qr_code/legacy_ref/rate/decision/decided_by/decided_at`; `digi_queue.rate` + status *staged*).
 The importer now carries `tbl_digi_queue.goldprice` into `digi_queue.rate`. On the rehearsal build the earlier automatic
 cash settlement was reversed (wallets back to ₹49,99,900) before staging. Tests: `PendingLegacyQrTest`.
+
+**Back-dated billing (same night):** the migration day stacked up bills that must carry that day's date. Sales now has a
+**Bill date** picker for the HQ super admin only (today by default, up to 31 days back, never in the future). It is
+**protected**: fixed to today; picking another date (or the lock icon inside the date box) opens a password popup, and
+only the admin pass-phrase (`PAYOUT_CUTOFF_PASSWORD`, the cut-off one) unlocks it. The chosen date then stays for the
+bills that follow until the lock icon is pressed again or the page is left. Everyone else bills on today's date, enforced in `Sales::generate()` as well as by hiding the field. The invoice, the contract
+start, the member's joining date, the instalment schedule and the commissions all follow the chosen date (`SalesService`
+already took `bill_date`). Test: `GoLiveWiringTest::test_hq_super_admin_can_back_date_a_bill…`.

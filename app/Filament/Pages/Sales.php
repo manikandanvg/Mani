@@ -17,6 +17,7 @@ use Filament\Forms\Components\Fieldset;
 use Filament\Forms\Components\Grid;
 use Filament\Forms\Components\Group;
 use Filament\Forms\Components\Hidden;
+use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Section;
@@ -115,6 +116,30 @@ class Sales extends Page implements HasForms
                             ->options(['cash' => 'Cash', 'cheque' => 'Cheque', 'upi' => 'UPI', 'fx' => 'FX'])
                             ->default('cash')->required(),
                         Textarea::make('payment_reference')->label('Payment Information')->rows(2),
+                        // HQ super admin only (user 2026-11-01: the migration day stacked up bills that
+                        // must carry that day's date). Everyone else bills on today's date — enforced
+                        // again in generate(), not only by hiding the field.
+                        DatePicker::make('bill_date')->label('Bill date')
+                            ->native(false)->displayFormat('d M Y')
+                            ->default(fn () => now()->toDateString())
+                            ->minDate(fn () => now()->subDays(self::BACKDATE_DAYS)->toDateString())
+                            ->maxDate(fn () => now()->toDateString())
+                            ->required()
+                            ->visible(fn () => self::canBackdate())
+                            ->live()
+                            ->afterStateUpdated(function ($state, Set $set) {
+                                $today = now()->toDateString();
+                                if (! $this->billDateUnlocked && $state && \Illuminate\Support\Carbon::parse($state)->toDateString() !== $today) {
+                                    $set('bill_date', $today);
+                                    if (empty($this->mountedFormComponentActions)) {   // the hook can fire twice per change
+                                        $this->mountFormComponentAction('data.bill_date', 'unlock');
+                                    }
+                                }
+                            })
+                            ->suffixActions($this->billDateActions())
+                            ->helperText(fn () => $this->billDateUnlocked
+                                ? 'Unlocked with the admin password: a previous date may be set (up to ' . self::BACKDATE_DAYS . ' days back).'
+                                : 'Protected: fixed to today. Picking another date asks for the admin password.'),
                     ]),
 
                 // ---------- Zone B: billing details ----------
@@ -359,9 +384,77 @@ class Sales extends Page implements HasForms
 
     // ---------------- actions ----------------
 
+    /** How far back HQ may date a bill. */
+    public const BACKDATE_DAYS = 31;
+
+    /** The bill date stays locked to today until the admin pass-phrase is entered (user 2026-11-01). */
+    public bool $billDateUnlocked = false;
+
+    public static function canBackdate(): bool
+    {
+        return (bool) auth()->user()?->isSuperAdmin();
+    }
+
+    /** Validation rule for the admin pass-phrase (the cut-off one, .env only). */
+    protected static function adminPasswordRule(): \Closure
+    {
+        return fn () => function (string $attribute, $value, \Closure $fail) {
+            $expected = (string) config('services.payout.cutoff_password');
+            if ($expected === '') {
+                $fail('No admin password is configured (PAYOUT_CUTOFF_PASSWORD in .env).');
+            } elseif (! hash_equals($expected, (string) $value)) {
+                $fail('Wrong admin password.');
+            }
+        };
+    }
+
+    /** The lock / unlock buttons shown inside the Bill date box. */
+    protected function billDateActions(): array
+    {
+        return [
+            \Filament\Forms\Components\Actions\Action::make('unlock')
+                ->label('Unlock')->icon('heroicon-m-lock-closed')->color('gray')
+                ->tooltip('Protected: admin password needed to set a previous date')
+                ->visible(fn () => ! $this->billDateUnlocked)
+                ->form([
+                    TextInput::make('password')->label('Admin password')
+                        ->password()->revealable()->required()->autocomplete('off')
+                        ->helperText('The same pass-phrase as the monthly cut-off. Once unlocked you may set a previous date for the bills that follow.')
+                        ->rule(self::adminPasswordRule()),
+                ])
+                ->modalHeading('The bill date is protected')
+                ->modalDescription('Enter the admin password to set a previous date.')
+                ->modalSubmitActionLabel('Unlock')
+                ->action(function () {
+                    $this->billDateUnlocked = true;
+                    \App\Services\Activity\ActivityLogger::log('billing', 'bill_date_unlocked', 'Bill date unlocked for back-dating by ' . (auth()->user()?->name ?? 'admin'));
+                    Notification::make()->success()->title('Bill date unlocked')->body('Pick the date; it stays for every bill until you lock it again or leave the page.')->send();
+                }),
+            \Filament\Forms\Components\Actions\Action::make('lock')
+                ->label('Lock')->icon('heroicon-m-lock-open')->color('warning')
+                ->tooltip('Back to today')
+                ->visible(fn () => $this->billDateUnlocked)
+                ->action(function () {
+                    $this->billDateUnlocked = false;
+                    $this->data['bill_date'] = now()->toDateString();
+                    Notification::make()->success()->title('Bill date locked to today')->send();
+                }),
+        ];
+    }
+
     public function generate(): void
     {
         $data = $this->form->getState();
+        // Bill date: today for everyone; HQ super admin may back-date within the window.
+        $today = now()->toDateString();
+        $billDate = self::canBackdate() && $this->billDateUnlocked && ! empty($data['bill_date'])
+            ? \Illuminate\Support\Carbon::parse($data['bill_date'])->toDateString() : $today;
+        if ($billDate > $today || $billDate < now()->subDays(self::BACKDATE_DAYS)->toDateString()) {
+            Notification::make()->title('Bill date out of range')->body('Pick a date between ' . now()->subDays(self::BACKDATE_DAYS)->format('d M Y') . ' and today.')->warning()->send();
+
+            return;
+        }
+        $data['bill_date'] = $billDate;
         $totals = self::totals($data['cart'] ?? []);
 
         if (empty($data['cart'])) {
@@ -433,7 +526,8 @@ class Sales extends Page implements HasForms
 
         $this->form->fill([
             'mode' => 'new', 'branch_id' => $data['branch_id'],
-            'bill_date' => now()->toDateString(), 'payment_type' => 'cash', 'cart' => [],
+            // an unlocked HQ session keeps its chosen date for the next stacked bill
+            'bill_date' => $this->billDateUnlocked ? $billDate : now()->toDateString(), 'payment_type' => 'cash', 'cart' => [],
             'customer' => ['phone_country_code' => '+91'], 'custom_order' => null,
         ]);
         $this->panResult = null;
