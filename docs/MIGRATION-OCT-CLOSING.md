@@ -289,3 +289,19 @@ day one), filters Status / TBP Stage / Branch / KYC / Place / Cash > 0 / Has tea
   The OLD Android app still calls `lordicl.com/app/…` → the new site forwards every `/app/*` call (any method, 308, path
   + query kept) to `LEGACY_SITE_URL` (default old.lordicl.com); `/app/genealogy/*` (new app) stays. `next.lordicl.com`
   stays as an alias of the new site for 3.11.14 phones until they update.
+
+## 12. Board ruling on the legacy pending QRs (1 Nov 2026, night) — two Commissions pages
+
+The board does not want the cut-over to settle anything on its own ("various dates, various gold prices"). The
+cut-over now **stages** the legacy pending items and Head Office decides on two pages under **Commissions**:
+
+| page | rows | what HQ does |
+|---|---|---|
+| **Pending Cash QR** (`digi_withdrawals`) | every legacy digi-gold withdrawal request still PENDING (1,001) **plus** the 17 dealer-side cash tickets with no request behind them (source *ticket*) — 1,018 rows, 511 g, with the rate and rupee worth fixed on each row's own date | per row or in bulk: **Cash wallet** (the worth → `cash_balance`) or **Digi-gold** (the grams → `digi_gold_grams` + a credit line in `digi_gold_txns`, source `legacy_cash_qr`, at that date's rate). Either way the dealer ticket (`digi_queue` DIGIWD) closes. `legacy:settle-digi-withdrawals` is no longer run by the rebuild (kept for a deliberate bulk cash settlement). |
+| **Pending Gold QR** (`redeemable_qrs`, source *legacy*) | every legacy invoice QR awaiting delivery: 5,108 gold + 216 silver (35 of contracts deleted in legacy), each with `priced_on` and `frozen_rate` = the legacy `goldprice` of its date | **Send via WhatsApp** (QR image + message, single or bulk; also the app inbox). The distributor redeems on the Redeem QR screen at **any branch**: legacy QRs are never billing-branch-locked and the invoice prices that metal at the QR's frozen rate, not today's. The `digi_queue` row is marked *staged* so it can never be redeemed twice. |
+
+Mechanics: `php artisan legacy:stage-pending-qrs [--dry-run]` (idempotent; in `scripts/rebuild-live.sh` after the roll-out),
+migrations `2026_11_02_000300` + `000400` (`redeemable_qrs.source/priced_on/frozen_rate`, `bond_id` nullable;
+`digi_withdrawals.source/qr_code/legacy_ref/rate/decision/decided_by/decided_at`; `digi_queue.rate` + status *staged*).
+The importer now carries `tbl_digi_queue.goldprice` into `digi_queue.rate`. On the rehearsal build the earlier automatic
+cash settlement was reversed (wallets back to ₹49,99,900) before staging. Tests: `PendingLegacyQrTest`.

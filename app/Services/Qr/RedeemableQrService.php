@@ -151,6 +151,22 @@ class RedeemableQrService
                 ],
             );
 
+            // 3) Legacy QRs (board 2026-11-01): the distributor may not have the new app yet,
+            //    so the QR image + redeem message ALSO go out on WhatsApp; that send decides.
+            if ($qr->source === RedeemableQr::SOURCE_LEGACY) {
+                $phone = (string) ($member->phone ?? '');
+                if ($phone === '') {
+                    return ['ok' => false, 'message' => 'Distributor has no phone number.'];
+                }
+                $wa = $this->whatsapp->sendMedia($phone, $this->imageUrl($qr), $this->caption($qr));
+                if (! ($wa['ok'] ?? false)) {
+                    return ['ok' => false, 'message' => 'WhatsApp: ' . ($wa['message'] ?? $wa['error'] ?? 'not sent'), 'results' => [$wa]];
+                }
+                $qr->forceFill(['qr_sent' => true, 'sent_at' => Carbon::now()])->save();
+
+                return ['ok' => true, 'message' => 'sent on WhatsApp + app inbox', 'results' => [$wa]];
+            }
+
             $qr->forceFill(['qr_sent' => true, 'sent_at' => Carbon::now()])->save();
 
             return ['ok' => true, 'message' => 'sent to app inbox + push', 'results' => []];
@@ -171,8 +187,14 @@ class RedeemableQrService
         // Where can it be redeemed? Mode-A (gold/silver purchase plans) = the billing
         // branch ONLY; savings QRs = any dealer. Tell the member the truth.
         $plan = $qr->bond?->plan;
-        $branchLocked = $plan && in_array($plan->type, ['gold', 'silver'], true);
-        $where = $branchLocked
+        $branchLocked = $plan && in_array($plan->type, ['gold', 'silver'], true) && $qr->source !== RedeemableQr::SOURCE_LEGACY;
+        if ($qr->source === RedeemableQr::SOURCE_LEGACY && (float) $qr->frozen_rate > 0) {
+            // carried over from the old system: any branch, at the metal price of its own date
+            $branchLocked = false;
+            $where = 'Redeem at any Lord Jeweller Dealer. Your ' . $qr->qr_mode . ' is priced at ₹'
+                . \App\Support\Money::group((float) $qr->frozen_rate) . '/g, the rate of ' . ($qr->priced_on ? Carbon::parse($qr->priced_on)->format('d M Y') : 'its date') . '.';
+        }
+        $where ??= $branchLocked
             ? 'Please redeem at your billing branch: ' . ($qr->branch?->name ?? 'the branch that billed you') . '.'
             : 'Please contact your nearest Lord Jeweller Dealer.';
 

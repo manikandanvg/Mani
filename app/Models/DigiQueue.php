@@ -12,6 +12,9 @@ class DigiQueue extends Model
 
     protected $table = 'digi_queue';
 
+    /** Legacy invoice QR carried into redeemable_qrs by `legacy:stage-pending-qrs` — never redeem from here. */
+    public const STATUS_STAGED = 'staged';
+
     protected $casts = [
         'gram_worth' => 'decimal:4',
         'cash_worth' => 'decimal:2',

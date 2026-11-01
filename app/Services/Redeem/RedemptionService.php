@@ -67,7 +67,9 @@ class RedemptionService
         $bond = $qr->bond()->with('plan')->first();
         $plan = $bond?->plan;
         $member = $qr->member;
-        $modeA = $this->isMetalPurchasePlan($plan);
+        // Legacy QRs (board 2026-11-01): any branch, at the metal price of the QR's own date.
+        $legacy = $qr->source === RedeemableQr::SOURCE_LEGACY;
+        $modeA = $this->isMetalPurchasePlan($plan) && ! $legacy;
 
         if ($modeA && $currentBranchId !== null) {
             abort_unless((int) $currentBranchId === (int) $bond->branch_id, 422,
@@ -83,6 +85,8 @@ class RedemptionService
             'branch_locked' => $modeA,
             'dealer_eligible' => $this->dealerEligible($plan),
             'worth' => (float) $qr->cash_worth,
+            'frozen_rate' => (float) $qr->frozen_rate ?: null,
+            'priced_on' => $qr->priced_on,
             'cart' => $modeA ? $this->cartFromSale($bond) : [],
         ];
     }
@@ -205,6 +209,11 @@ class RedemptionService
             // Fresh query on purpose: LiveRate::latestFor's static memo outlives a
             // request only in long-lived processes (tests) and would serve stale rows.
             $rate = $this->liveRate($country = $branch?->country ?: 'IN');
+            // A QR carried over from legacy is priced at the rate of ITS date (board
+            // 2026-11-01), not today's: that metal's rate is frozen onto the feed used below.
+            if ((float) $qr->frozen_rate > 0) {
+                $rate = $this->frozenRate($rate, $qr);
+            }
             // Mode B prices from this feed — refuse loudly when the region has no
             // rate row (the zero-rate stub would price every line at 0 and fail the
             // worth gate with a misleading "below the QR worth" message).
@@ -471,6 +480,16 @@ class RedemptionService
         }
 
         return $this->cleanGst($typed);
+    }
+
+    /** The live feed with the QR's own metal priced at the QR's frozen rate. */
+    protected function frozenRate(LiveRate $live, RedeemableQr $qr): LiveRate
+    {
+        $r = $live->replicate();
+        $r->exists = true;
+        $r->{$qr->qr_mode === 'silver' ? 'silver' : 'gold'} = (float) $qr->frozen_rate;
+
+        return $r;
     }
 
     protected function liveRate(string $country = 'IN'): LiveRate

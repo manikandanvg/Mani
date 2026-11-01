@@ -15,6 +15,11 @@ class RedeemableQr extends Model
 
     public const ACTIVITY_CATEGORY = 'redemption';
 
+    public const SOURCE_SYSTEM = 'system';
+
+    /** Legacy invoice QR staged by `legacy:stage-pending-qrs`: any branch, at the price of its own date. */
+    public const SOURCE_LEGACY = 'legacy';
+
     protected $guarded = [];
 
     protected $casts = [

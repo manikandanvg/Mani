@@ -651,6 +651,7 @@ class LegacyRolloutImport extends LegacyImport
                         'qr_mode' => in_array($mode, ['cash', 'gold', 'silver'], true) ? $mode : 'cash',
                         'gram_worth' => $this->num($q->gm_worth),
                         'cash_worth' => $this->num($q->cash_worth),
+                        'rate' => $this->num($q->goldprice) ?: null,   // metal price on the QR's date (board: redeem at that price)
                         'reference' => $this->clip($q->refferance ?: null, 40),
                         'route' => $this->clip($q->route ?: null, 40),
                         'delivery_status' => 'pending',

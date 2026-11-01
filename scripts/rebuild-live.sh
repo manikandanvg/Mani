@@ -7,7 +7,7 @@
 #
 # Steps: load dump → lordicl_octclosing (pristine legacy copy) → drop/create lordicl_live →
 # migrate → RolloutSeeder → legacy:rollout --fresh --seed-plans → CashStockSeeder → pincodes →
-# static QR → settle digi withdrawals → legacy contracts → push settings → auto-map reports →
+# static QR → stage pending QRs → legacy contracts → push settings → auto-map reports →
 # audit → [payout:cutoff dry-run].
 set -euo pipefail
 
@@ -53,7 +53,8 @@ say "4. masters + cut-over one-offs"
 php artisan pincodes:import storage/app/pincodes/all_india.csv --no-ansi | tail -1 | tee -a "$LOG"
 php artisan branches:pincodes --fill --no-ansi | tail -2 | tee -a "$LOG"
 php artisan branches:static-qr --no-ansi | tee -a "$LOG"
-php artisan legacy:settle-digi-withdrawals --no-ansi | tail -6 | tee -a "$LOG"
+# Board 2026-11-01: legacy pending QRs are NOT settled here — staged for the Commissions pages (Pending Cash QR / Pending Gold QR)
+php artisan legacy:stage-pending-qrs --no-ansi | tail -2 | tee -a "$LOG"
 php artisan contracts:backfill-legacy --no-ansi | tail -1 | tee -a "$LOG"
 # FCM / APNs credentials live in push_settings (not in the dump) — carry the dev row over when present.
 "$MYSQL" -uroot -e "INSERT INTO \`$TARGET_DB\`.push_settings SELECT * FROM lordicl_next.push_settings WHERE NOT EXISTS (SELECT 1 FROM \`$TARGET_DB\`.push_settings)" 2>/dev/null || true
