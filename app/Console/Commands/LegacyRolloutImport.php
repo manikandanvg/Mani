@@ -405,7 +405,7 @@ class LegacyRolloutImport extends LegacyImport
                 if ($branchId) {
                     $m = &$margins[$branchId];
                     $m ??= ['bill_margin' => 0, 'gold_gm_margin' => 0, 'silver_gm_margin' => 0, 'stock_trans_margin' => 0, 'digi_cash_balance' => 0, 'level' => null, 'source' => null, 'lat' => null, 'lng' => null];
-                    $m['bill_margin'] += $this->num($u->billmargin);
+                    $m['bill_margin'] += max(0.0, $this->num($u->billmargin));   // negatives reset to 0 (board 2026-11-01)
                     $m['gold_gm_margin'] += $this->num($u->goldgmmargin);
                     $m['silver_gm_margin'] += $this->num($u->silvergmmargin);
                     $m['stock_trans_margin'] += $this->num($u->stocktransmargin);
@@ -458,7 +458,12 @@ class LegacyRolloutImport extends LegacyImport
             $level = $levelOf($u->desiname);
             $m = &$margins[$branchId];
             $m ??= ['bill_margin' => 0, 'gold_gm_margin' => 0, 'silver_gm_margin' => 0, 'stock_trans_margin' => 0, 'digi_cash_balance' => 0, 'level' => null, 'source' => null, 'lat' => null, 'lng' => null];
-            $m['bill_margin'] += $this->num($u->billmargin);
+            // Board 2026-11-01: a NEGATIVE legacy billing margin is a leftover of a system collapse,
+            // not a debt — it resets to 0 (102 rows, −₹14.26 L). Digi cash is the branch balance, kept as is.
+            if ($this->num($u->billmargin) < 0) {
+                $this->warnings[] = sprintf('ci_users #%d (%s): negative billing margin %s reset to 0 (board 2026-11-01)', $u->id, $u->username, number_format($this->num($u->billmargin), 2));
+            }
+            $m['bill_margin'] += max(0.0, $this->num($u->billmargin));
             $m['gold_gm_margin'] += $this->num($u->goldgmmargin);
             $m['silver_gm_margin'] += $this->num($u->silvergmmargin);
             $m['stock_trans_margin'] += $this->num($u->stocktransmargin);
