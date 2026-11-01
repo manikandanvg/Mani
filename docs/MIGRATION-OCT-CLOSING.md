@@ -64,6 +64,7 @@ php artisan migrate --force
 php artisan db:seed --class=RolloutSeeder --force
 php -d memory_limit=1024M artisan legacy:rollout --fresh --seed-plans
 php artisan db:seed --class=CashStockSeeder --force
+php artisan legacy:settle-digi-withdrawals --dry-run   # then without --dry-run: pending legacy digi-gold withdrawal requests -> cash wallets
 php artisan pincodes:import storage/app/pincodes/all_india.csv
 php artisan branches:pincodes --fill
 php artisan branches:static-qr
@@ -196,3 +197,20 @@ Legacy's own pending-Nov coupon list: 11,624 / ₹22,09,71,037. The ₹9,000 gap
 100 % match — 4,921 members, 27,649 rows, ₹5,67,82,340 gross, TDS / service / net identical; CBC due 11,624 = 11,624, worth
 differs by the two rows above; one contract counter differs (bond 29909, legacy `$insetfirstcom` quirk). Full table in
 docs/CUTOFF-PLAN.md §6. Diff workbook: Desktop/db-backups/oct-cutoff-compare.xlsx (empty = no GAP mismatch).**
+
+## 10. Cut-over additions (1 Nov 2026, afternoon)
+
+Decided with the user after the §9 report ("consider those too"):
+
+| item | what happens now |
+|---|---|
+| Pending dealer orders (`tbl_brorderrequest` PENDING, 1,219 / ₹5.84 cr) | imported by `legacy:rollout` as PENDING order requests, source **legacy**, `request_no` LEG-<transid>, lines from `tbl_br_purchase_cart` (route BO/RO, product by legacy prid = catalog code). Mostly cash-stock top-ups (CASH product) plus coin orders. "RO" = payment received → `paid_amount`; legacy expiry and remarks kept in `payment_remarks`. The supplier approves/rejects them on Order Requests like any new order (approving a CASH line raises the dealer's cash stock, no seller leg). 10 orders of a non-imported branch and 53 without lines are listed in the import warnings. |
+| Digi-gold withdrawal requests (`tbl_digiwithdrawal` PENDING, 1,001 / 493.59 g / ₹67,41,391) | `php artisan legacy:settle-digi-withdrawals` after the roll-out: worth fixed at request time → member **cash wallet**; request → delivered; the mirrored `digi_queue` DIGIWD ticket → redeemed so no dealer pays it in cash. Dry-run first. Activity Log entry with the totals. |
+| HQ digi cash | the HQ admin's `ci_users` row (₹2,96,348 digi cash) is now summed into branch #1 (was skipped with the login). |
+| Legacy logins without a branch (12, billing −₹4,03,506) | still skipped; the warning now shows the balances. Board: write off or assign. |
+| Ownerless pending gold QRs (27, 686 g, ₹1.06 cr — distributor deleted in legacy) | not importable (no member). Board decision. |
+
+Cut-over mechanics agreed the same day: the new software goes **straight onto lordicl.com** (no stop at a subdomain; the
+subdomain is removed), the app is 3.11.15 / 31101501 with `https://lordicl.com/api/v1` baked in and is in Play review,
+and until go-live the legacy site stays up but locked (routes-layer lock → holding page, office IP exempt) so the privacy
+policy URL keeps answering for Play. The final legacy dump is taken **after** the lock is confirmed.

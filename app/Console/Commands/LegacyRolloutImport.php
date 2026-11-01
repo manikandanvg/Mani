@@ -108,6 +108,7 @@ class LegacyRolloutImport extends LegacyImport
         $this->importDigiQueue();
         $this->importDigiWithdrawals();
         $this->importEpinLogs();
+        $this->importOrderRequests();
 
         $this->table(['step', 'imported', 'skipped'], collect($this->stats)
             ->map(fn ($s, $k) => [$k, $s['in'], $s['skip']])->values()->all());
@@ -236,6 +237,89 @@ class LegacyRolloutImport extends LegacyImport
         $this->note('branches', $in, $merged);
     }
 
+    /**
+     * Pending dealer purchase orders (legacy tbl_brorderrequest status PENDING + their
+     * tbl_br_purchase_cart lines, route BO/RO). In legacy these are mostly cash-stock top-ups
+     * (the dealer buys the CASH product from its supplier, pays by bank, HQ approves → the
+     * dealer's cash stock rises) plus coin orders. They land as PENDING order requests
+     * (source "legacy", request_no LEG-<transid>) so the supplier approves or rejects them on
+     * Order Requests exactly like a new-system order. Legacy "RO" = payment received; the
+     * paid amount and the legacy expiry are carried in the request for the approver.
+     * Approved/closed legacy orders are history (their stock is already in tbl_stock) — not imported.
+     */
+    protected function importOrderRequests(): void
+    {
+        [$in, $skip] = [0, 0];
+        $products = DB::table('catalog_products')->select('id', 'code', 'material')->get()->keyBy('code');
+        $userByBranch = DB::table('users')->whereNotNull('branch_id')->whereNull('deleted_at')
+            ->orderBy('id')->get(['id', 'branch_id'])->groupBy('branch_id')->map(fn ($g) => (int) $g->first()->id)->all();
+        $hqUser = (int) (DB::table('users')->orderBy('id')->value('id') ?? 0);
+        $lines = [];
+        foreach ($this->legacy->table('tbl_br_purchase_cart')->whereIn('route', ['BO', 'RO'])
+            ->whereIn('pono', fn ($q) => $q->select('transid')->from('tbl_brorderrequest')->where('status', 'PENDING'))
+            ->orderBy('cartid')->get() as $c) {
+            $lines[(int) $c->pono][] = $c;
+        }
+        foreach ($this->legacy->table('tbl_brorderrequest')->where('status', 'PENDING')->orderBy('transid')->get() as $r) {
+            $branchId = $this->branchMap[(int) $r->brid] ?? null;
+            $cart = $lines[(int) $r->transid] ?? [];
+            if (! $branchId || ! $cart) {
+                $this->warnings[] = sprintf('order request %d (%s, ₹%s) skipped: %s', $r->transid, $r->doorder, number_format($this->num($r->nettotal), 2),
+                    $branchId ? 'no order lines in legacy' : "ordering branch brid {$r->brid} not imported");
+                $skip++;
+                continue;
+            }
+            $paid = strtoupper(trim((string) $r->paymentflag)) === 'RO';
+            $grand = round($this->num($r->nettotal), 2);
+            $cross = round($this->num($r->ordercost) ?: $grand, 2);
+            $placed = $this->date(substr((string) $r->placement, 0, 10)) ?? $this->date($r->doorder) ?? now()->toDateString();
+            $remarks = trim((string) $r->paymentremarks);
+            $remarks = ($remarks !== '' ? $remarks . ' · ' : '') . 'Legacy order ' . $r->transid . ' of ' . $r->doorder
+                . ($paid ? ' · payment received in legacy (RO)' : ' · payment NOT confirmed in legacy')
+                . ($r->expiry ? ' · legacy expiry ' . substr((string) $r->expiry, 0, 10) : '');
+            $requestId = DB::table('branch_order_requests')->insertGetId([
+                'request_no' => 'LEG-' . $r->transid,
+                'source' => 'legacy',
+                'source_ref' => (string) $r->transid,
+                'branch_id' => $branchId,
+                'requested_by' => $userByBranch[$branchId] ?? ($hqUser ?: null),
+                'no_of_items' => count($cart),
+                'cross_total' => $cross,
+                'gst_total' => round(max(0, $grand - $cross), 2),
+                'grand_total' => $grand,
+                'payment_type' => match (strtolower(trim((string) $r->paymode))) {
+                    'cashmode', 'cash' => 'cash', 'cheque' => 'cheque', 'online', 'bank', 'upi', 'neft', 'rtgs' => 'online', 'digicash', 'digi_cash' => 'digi_cash', default => 'others',
+                },
+                'payment_remarks' => $this->clip($remarks, 255),
+                'paid_amount' => $paid ? $grand : 0,
+                'pay_cash' => $paid ? $grand : 0,
+                'status' => 'pending',
+                'created_at' => $placed . ' 00:00:00', 'updated_at' => now(),
+            ]);
+            $batch = [];
+            foreach ($cart as $c) {
+                $p = $products[$this->clip((string) $c->prid, 40)] ?? null;
+                $batch[] = [
+                    'order_request_id' => $requestId,
+                    'catalog_product_id' => $p?->id,
+                    'material' => $p?->material ?? strtolower(trim((string) $c->catename) ?: 'gold'),
+                    'description' => $this->clip(trim((string) $c->prname) ?: null, 200),
+                    'weight' => round($this->num($c->weight), 4),
+                    'rate' => round($this->num($c->purprice), 2),
+                    'making_charge_pct' => 0, 'wastage_charge_pct' => 0, 'hallmark_charge' => 0,
+                    'gst_pct' => ($p?->material ?? '') === 'cash' ? 0 : round($this->num($r->gst), 2),
+                    'line_total' => round($this->num($c->aftercharges) ?: $this->num($c->weight) * $this->num($c->purprice), 2),
+                ];
+                if (! $p) {
+                    $this->warnings[] = sprintf('order request %d: product prid %s (%s) not in the catalog — line kept without a product', $r->transid, $c->prid, $c->prname);
+                }
+            }
+            DB::table('branch_order_lines')->insert($batch);
+            $in++;
+        }
+        $this->note('order requests (pending)', $in, $skip);
+    }
+
     protected function branchKey(?string $name, ?string $city): string
     {
         return Str::lower(trim((string) $name)) . '|' . Str::lower(trim((string) $city));
@@ -313,12 +397,25 @@ class LegacyRolloutImport extends LegacyImport
         $margins = [];   // branch id => summed margins
 
         foreach ($rows as $u) {
-            if ((int) $u->role === 1 || (int) $u->is_admin === 1) {
-                continue;   // the head-office super admin already exists
-            }
             $branchId = $u->brid !== '' ? ($this->branchMap[(int) $u->brid] ?? null) : null;
+            if ((int) $u->role === 1 || (int) $u->is_admin === 1) {
+                // the head-office super admin already exists as a login — but its ci_users row
+                // carries the Head Office's own digi cash / margins (₹2.96 L digi cash in the
+                // Oct-2026 closing), which must still land on branch #1.
+                if ($branchId) {
+                    $m = &$margins[$branchId];
+                    $m ??= ['bill_margin' => 0, 'gold_gm_margin' => 0, 'silver_gm_margin' => 0, 'stock_trans_margin' => 0, 'digi_cash_balance' => 0, 'level' => null, 'source' => null, 'lat' => null, 'lng' => null];
+                    $m['bill_margin'] += $this->num($u->billmargin);
+                    $m['gold_gm_margin'] += $this->num($u->goldgmmargin);
+                    $m['silver_gm_margin'] += $this->num($u->silvergmmargin);
+                    $m['stock_trans_margin'] += $this->num($u->stocktransmargin);
+                    $m['digi_cash_balance'] += $this->num($u->digicash);
+                    unset($m);
+                }
+                continue;
+            }
             if (! $branchId) {
-                $this->warnings[] = "ci_users #{$u->id} ({$u->username}) has no branch — login skipped";
+                $this->warnings[] = sprintf('ci_users #%d (%s) has no branch — login skipped (billing %s, digi cash %s not carried)', $u->id, $u->username, number_format($this->num($u->billmargin), 2), number_format($this->num($u->digicash), 2));
                 $skip++;
                 continue;
             }

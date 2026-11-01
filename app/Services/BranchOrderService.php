@@ -36,12 +36,15 @@ class BranchOrderService
     /** Bespoke gold/silver pieces built on the Customize Order Form (board 2026-08-26). */
     public const SOURCE_CUSTOMIZE = 'customize';
 
+    /** Pending dealer orders carried over from the legacy system at the Oct-2026 cut-over (LEG-<transid>). */
+    public const SOURCE_LEGACY = 'legacy';
 
     public static function sourceLabel(?string $source): string
     {
         return match ($source) {
             self::SOURCE_REDEMPTION => 'Redemption',
             self::SOURCE_CUSTOMIZE => 'Customize order',
+            self::SOURCE_LEGACY => 'Legacy (pre cut-over)',
             default => 'Order form',
         };
     }

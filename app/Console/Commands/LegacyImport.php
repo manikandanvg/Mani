@@ -106,6 +106,7 @@ class LegacyImport extends Command
             'sale_lines', 'sales_invoices', 'commission_ledger', 'cbc_entries', 'rd_entries',
             'rd_mandates', 'reseller_commissions', 'digi_orders', 'digi_queue',
             'digi_withdrawals', 'epin_logs', 'epins', 'bonds', 'customers',
+            'branch_order_attachments', 'branch_order_events', 'branch_order_lines', 'branch_order_requests',
         ] as $t) {
             DB::table($t)->truncate();
         }
