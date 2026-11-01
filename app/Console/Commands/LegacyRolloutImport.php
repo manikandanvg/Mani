@@ -548,7 +548,10 @@ class LegacyRolloutImport extends LegacyImport
 
     /**
      * Digi gold: purchases (1.3 lakh) minus withdrawals (47k, every status — legacy deducts at
-     * request time) → one OPENING line per member + the wallet gram balance.
+     * request time) → one OPENING line per member in digi_orders, status PENDING.
+     * Board 2026-11-01 (night): NOTHING is pushed into the purse here — Head Office sends each
+     * balance from Commissions → Pending Digi (PendingDigiService writes the legacy_opening
+     * ledger line + the wallet grams at that moment).
      */
     protected function importDigiOpening(): void
     {
@@ -567,7 +570,6 @@ class LegacyRolloutImport extends LegacyImport
 
         [$in, $skip, $neg] = [0, 0, 0];
         $batch = [];
-        $wallet = [];
         foreach (array_unique(array_merge(array_keys($buy), array_keys($wd))) as $code) {
             $memberId = $this->memberMap[$code] ?? null;
             if (! $memberId) {
@@ -589,44 +591,23 @@ class LegacyRolloutImport extends LegacyImport
                 'ref_no' => $this->clip('LEGACY-' . $code, 40),
                 'member_id' => $memberId,
                 'source' => 'OPENING',
+                'status' => 'pending',
                 'gold_wt' => $grams,
                 'value' => $worth,
                 'rate_on_date' => $this->num($b->rate ?? 0),
                 'branch_id' => null,
                 'created_at' => $date, 'updated_at' => $date,
             ];
-            $wallet[$memberId] = $grams;
             $in++;
         }
         foreach (array_chunk($batch, 1000) as $chunk) {
             DB::table('digi_orders')->insert($chunk);
         }
-        // The app's Digi Market purse reads member_wallets.digi_gold_grams and shows the
-        // gram ledger behind it (digi_gold_txns) — one "legacy_opening" credit per member.
-        $txns = [];
-        foreach ($batch as $row) {
-            if ((float) $row['gold_wt'] <= 0) {
-                continue;
-            }
-            $txns[] = [
-                'member_id' => $row['member_id'], 'metal' => 'gold', 'type' => 'credit',
-                'grams' => $row['gold_wt'], 'rate' => $row['rate_on_date'], 'value' => $row['value'], 'fee' => 0,
-                'source' => 'legacy_opening', 'reference' => $row['ref_no'], 'balance_after' => $row['gold_wt'],
-                'created_at' => $row['created_at'], 'updated_at' => $row['updated_at'],
-            ];
-        }
+        // Purse stays empty until Pending Digi sends the balance; clear any earlier push.
         if (Schema::hasTable('digi_gold_txns')) {
             DB::table('digi_gold_txns')->where('source', 'legacy_opening')->delete();
-            foreach (array_chunk($txns, 1000) as $chunk) {
-                DB::table('digi_gold_txns')->insert($chunk);
-            }
         }
-        foreach (array_chunk($wallet, 1000, true) as $chunk) {
-            foreach ($chunk as $memberId => $grams) {
-                DB::table('member_wallets')->updateOrInsert(['member_id' => $memberId],
-                    ['digi_gold_grams' => $grams, 'updated_at' => now(), 'created_at' => now()]);
-            }
-        }
+        DB::table('member_wallets')->where('digi_gold_grams', '!=', 0)->update(['digi_gold_grams' => 0, 'updated_at' => now()]);
         $this->note('digi opening (1 line / member)', $in, $skip + $neg);
     }
 
