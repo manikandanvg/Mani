@@ -275,3 +275,17 @@ approval in legacy, with the same script. Figures as of this build:
 Distributors table (same day): one global search over every field incl. hidden columns and the senior/referred
 distributor, every column sortable, **Cash wallet** column (go-live: distributors will bill and request payouts from
 day one), filters Status / TBP Stage / Branch / KYC / Place / Cash > 0 / Has team / Date of Join, page sizes 10–100.
+
+### Same night, after the dealer-dashboard screenshot
+
+- **Gold / silver stock showed 0 g on dealer dashboards** (legacy: 76.50 gm / 75.00 gm for HARSHA): the catalog rows
+  imported from legacy carry no `default_weight`; the widget multiplied pieces by NULL. The importer now derives grams
+  per piece from the legacy name / `tbl_product.prdesc` (mg), the widget and `gramsFromPieces()` use `unitWeight()`
+  (name-derived fallback), and the 23 catalog rows on `lordicl_live` / `lordicl_next` were filled. HARSHA now reads
+  76.500 g / 75.000 g, same pieces (63 / 26).
+- **Generate cut-off** asks for the board's static pass-phrase (`PAYOUT_CUTOFF_PASSWORD` in .env overrides the built-in
+  one) and a confirmation tick; a wrong entry or an unticked box generates nothing, Cancel closes the box.
+- **Domain move done by the user:** legacy site = `https://old.lordicl.com`; `lordicl.com` is idle for the new software.
+  The OLD Android app still calls `lordicl.com/app/…` → the new site forwards every `/app/*` call (any method, 308, path
+  + query kept) to `LEGACY_SITE_URL` (default old.lordicl.com); `/app/genealogy/*` (new app) stays. `next.lordicl.com`
+  stays as an alias of the new site for 3.11.14 phones until they update.

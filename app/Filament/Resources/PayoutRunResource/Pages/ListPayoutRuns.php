@@ -37,6 +37,25 @@ class ListPayoutRuns extends ListRecords
                         ->required()
                         ->native(false)
                         ->helperText('Normally the last day of the month that just ended. The pay month is the month after it.'),
+                    // Board 2026-11-01: a static password so a stray click never generates a run.
+                    Forms\Components\TextInput::make('password')
+                        ->label('Cut-off password')
+                        ->password()->revealable()
+                        ->required()
+                        ->autocomplete('off')
+                        ->rule(fn () => function (string $attribute, $value, \Closure $fail) {
+                            $expected = (string) config('services.payout.cutoff_password');
+                            if ($expected === '') {
+                                $fail('No cut-off password is configured (PAYOUT_CUTOFF_PASSWORD in .env).');
+                            } elseif (! hash_equals($expected, (string) $value)) {
+                                $fail('Wrong cut-off password.');
+                            }
+                        })
+                        ->validationAttribute('cut-off password'),
+                    Forms\Components\Checkbox::make('confirm')
+                        ->label('I confirm: generate the monthly cut-off for this date (pending rows, approved separately).')
+                        ->accepted()
+                        ->validationMessages(['accepted' => 'Tick the confirmation to continue, or Cancel.']),
                 ])
                 ->modalHeading('Generate the monthly cut-off?')
                 ->modalDescription('Computes every contract\'s GAP level amounts and the CBC coupons due as PENDING rows (about a minute). Review the run, then approve it to credit the cash wallets.')

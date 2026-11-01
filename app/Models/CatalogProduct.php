@@ -84,7 +84,7 @@ class CatalogProduct extends Model
         if ($this->material === 'cash') {
             return $pieces;
         }
-        $unit = (float) $this->default_weight;
+        $unit = $this->unitWeight();
 
         return $unit > 0 ? round($pieces * $unit, 4) : $pieces;
     }

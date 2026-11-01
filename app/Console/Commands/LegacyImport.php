@@ -249,6 +249,11 @@ class LegacyImport extends Command
                     'hallmark_charge' => $this->num($r->acharge),
                     'gst_pct' => $this->num($r->gsti ?: 3),
                     'gm_margin' => $this->num($info->margin ?? 0),
+                    // grams per piece (go-live 2026-11-01: dealer dashboards showed 0 g — legacy
+                    // keeps it in the name, "500 mg Gold", and tbl_product.prdesc in mg)
+                    'default_weight' => $this->materialOf($r->catename) === 'cash' ? null
+                        : (CatalogProduct::weightFromName((string) $r->prname)
+                            ?: (is_numeric($info->prdesc ?? null) && (float) $info->prdesc > 0 ? round((float) $info->prdesc / 1000, 4) : null)),
                     'hsn_code' => $this->clip($info->hsncode ?? null, 20),
                     'is_active' => true,
                 ],

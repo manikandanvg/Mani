@@ -39,10 +39,13 @@ class RetailerStatsOverview extends BaseWidget
 
         // stock.quantity = PIECES (board 2026-08-10): grams = Σ pieces × per-piece
         // weight. Cash rows hold rupees directly, so their raw sum stays correct.
-        $stockGrams = fn (string $material) => (float) Stock::where('stock.branch_id', $branchId)
-            ->join('catalog_products', 'catalog_products.id', '=', 'stock.catalog_product_id')
-            ->where('catalog_products.material', $material)
-            ->sum(\Illuminate\Support\Facades\DB::raw('stock.quantity * COALESCE(catalog_products.default_weight, 0)'));
+        // Legacy-imported items may carry no default_weight: unitWeight() reads it off the
+        // name ("1 g Gold"), so the dashboard matches the legacy "76.50 gm" figure.
+        $stockGrams = fn (string $material) => (float) Stock::with('catalogProduct')
+            ->where('branch_id', $branchId)
+            ->whereHas('catalogProduct', fn ($q) => $q->where('material', $material))
+            ->get()
+            ->sum(fn (Stock $s) => (float) $s->quantity * $s->catalogProduct->unitWeight());
         $stock = fn (string $material) => (float) Stock::where('branch_id', $branchId)
             ->whereHas('catalogProduct', fn ($q) => $q->where('material', $material))
             ->sum('quantity');

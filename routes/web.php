@@ -28,6 +28,19 @@ Route::get('/zoom/join/{meeting}', [\App\Http\Controllers\ZoomJoinController::cl
 Route::get('/app/genealogy/{member}', [\App\Http\Controllers\MemberGenealogyController::class, 'show'])
     ->name('app.genealogy');
 
+// Domain move (1 Nov 2026): the legacy site is now old.lordicl.com, but the OLD Android app
+// still calls lordicl.com/app/… — forward every such call there, same path, query and method
+// (308 = permanent, method + body preserved, so its POSTs keep working). /app/genealogy above
+// belongs to the NEW app and stays.
+Route::any('/app/{path?}', function (\Illuminate\Http\Request $request, ?string $path = null) {
+    $target = config('services.legacy_site.url') . '/app' . ($path !== null && $path !== '' ? '/' . ltrim($path, '/') : '');
+    if ($qs = $request->getQueryString()) {
+        $target .= '?' . $qs;
+    }
+
+    return redirect()->away($target, 308);
+})->where('path', '(?!genealogy(/|$)).*')->name('legacy.app');
+
 // Digi-gold buy — browser leg of the app flow (Phase 3). The pay page is opened from
 // the app with a 30-min signed URL; verify is posted by Razorpay Checkout JS.
 Route::get('/digigold/{purchase}/pay', [\App\Http\Controllers\DigiGoldPayController::class, 'pay'])

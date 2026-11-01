@@ -255,9 +255,20 @@ class PayoutCutoffTest extends TestCase
         $this->actingAs($admin);
         $this->get('/admin/login');
 
+        config(['services.payout.cutoff_password' => 'cut-off-test']);   // the real one lives only in .env
+
+        // wrong password / no confirmation → refused, nothing generated
         Livewire::test(ListPayoutRuns::class)
             ->assertActionVisible('generate')
-            ->callAction('generate', data: ['cutoff' => '2026-10-31'])
+            ->callAction('generate', data: ['cutoff' => '2026-10-31', 'password' => 'nope', 'confirm' => true])
+            ->assertHasActionErrors(['password']);
+        Livewire::test(ListPayoutRuns::class)
+            ->callAction('generate', data: ['cutoff' => '2026-10-31', 'password' => 'cut-off-test', 'confirm' => false])
+            ->assertHasActionErrors(['confirm']);
+        $this->assertSame(0, PayoutRun::count());
+
+        Livewire::test(ListPayoutRuns::class)
+            ->callAction('generate', data: ['cutoff' => '2026-10-31', 'password' => 'cut-off-test', 'confirm' => true])
             ->assertHasNoActionErrors()
             ->assertNotified();
 
@@ -271,7 +282,7 @@ class PayoutCutoffTest extends TestCase
 
         // same month again → refused, no twin run
         Livewire::test(ListPayoutRuns::class)
-            ->callAction('generate', data: ['cutoff' => '2026-10-31'])
+            ->callAction('generate', data: ['cutoff' => '2026-10-31', 'password' => 'cut-off-test', 'confirm' => true])
             ->assertHasNoActionErrors();
         $this->assertSame(1, PayoutRun::count());
 

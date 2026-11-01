@@ -81,6 +81,18 @@ return [
 
     // WhatsApp gateway (legacy tbl_whatsappapi). Defaults are the crawled production
     // values; override per-environment via .env. number = country code + local number.
+    // Go-live 2026-11-01. The static password the board asked for on "Generate cut-off"
+    // (a second accidental click in a month is also refused by the run-per-month guard).
+    // It lives ONLY in .env (PAYOUT_CUTOFF_PASSWORD) — never in the repository; with no
+    // value set the button refuses to run. Also where the LEGACY site now lives:
+    // lordicl.com/app/* (the old Android app's host) is forwarded there.
+    'payout' => [
+        'cutoff_password' => env('PAYOUT_CUTOFF_PASSWORD'),
+    ],
+    'legacy_site' => [
+        'url' => rtrim(env('LEGACY_SITE_URL', 'https://old.lordicl.com'), '/'),
+    ],
+
     'whatsapp' => [
         'url' => env('WHATSAPP_URL', 'https://whatsapp.lordicl.com/'),
         'instance_id' => env('WHATSAPP_INSTANCE_ID', '69F89E4E9A333'),
