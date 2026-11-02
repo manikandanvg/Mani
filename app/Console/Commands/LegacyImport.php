@@ -174,14 +174,29 @@ class LegacyImport extends Command
     protected function importBranches(): void
     {
         $this->branchMap[1] = Branch::min('id');
-        $byName = Branch::pluck('id', 'name');
+        // User 2026-11-02: identity = legacy brid (branches.legacy_brid); a name match is only a
+        // fallback for branches created before that column existed. Never merge by name — 1,038
+        // legacy branches are all called "LORD JEWELLER".
+        $byBrid = Branch::withTrashed()->whereNotNull('legacy_brid')->pluck('id', 'legacy_brid')->all();
+        $byName = Branch::whereNull('legacy_brid')->orderBy('id')->get(['id', 'name'])->groupBy('name')->map(fn ($g) => $g->count() === 1 ? (int) $g->first()->id : null)->filter();
 
         foreach ($this->legacy->table('tbl_branches')->get() as $b) {
             if ((int) $b->brid === 1) {
                 continue;
             }
             $name = $this->clip($b->storename ?: ('Branch ' . $b->brid), 200);
-            $id = $byName[$name] ?? Branch::create([
+            if (isset($byBrid[(int) $b->brid])) {
+                $this->branchMap[(int) $b->brid] = (int) $byBrid[(int) $b->brid];
+                continue;
+            }
+            if ($byName->has($name)) {
+                DB::table('branches')->where('id', $byName[$name])->whereNull('legacy_brid')->update(['legacy_brid' => (int) $b->brid]);
+                $this->branchMap[(int) $b->brid] = (int) $byName[$name];
+                $byName->forget($name);
+                continue;
+            }
+            $id = Branch::create([
+                'legacy_brid' => (int) $b->brid,
                 'name' => $name,
                 'address' => $this->clip($b->address, 255), 'city' => $this->clip($b->city, 120),
                 'pincode' => $this->clip($b->pincode, 12),

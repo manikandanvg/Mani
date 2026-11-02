@@ -175,6 +175,9 @@ class BranchResource extends BaseResource
                     ->searchable(),
                 Tables\Columns\TextColumn::make('incharge')
                     ->searchable(),
+                Tables\Columns\TextColumn::make('legacy_brid')
+                    ->label('Legacy id')->sortable()->searchable()->placeholder('—')
+                    ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('gst_no')
                     ->searchable(),
                 Tables\Columns\TextColumn::make('order_limit')

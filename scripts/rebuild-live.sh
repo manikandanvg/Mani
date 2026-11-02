@@ -57,6 +57,8 @@ php artisan branches:static-qr --no-ansi | tee -a "$LOG"
 php artisan legacy:stage-pending-qrs --no-ansi | tail -2 | tee -a "$LOG"
 php artisan contracts:backfill-legacy --no-ansi | tail -1 | tee -a "$LOG"
 php artisan legacy:import-orphan-logins --no-ansi | tail -1 | tee -a "$LOG"
+# safety net: every legacy branch must own its branch (legacy_brid); a no-op after a clean roll-out
+php artisan legacy:split-merged-branches --no-ansi | tail -3 | tee -a "$LOG"
 # FCM / APNs credentials live in push_settings (not in the dump) — carry the dev row over when present.
 "$MYSQL" -uroot -e "INSERT INTO \`$TARGET_DB\`.push_settings SELECT * FROM lordicl_next.push_settings WHERE NOT EXISTS (SELECT 1 FROM \`$TARGET_DB\`.push_settings)" 2>/dev/null || true
 php artisan branches:auto-map --no-ansi | tail -2 | tee -a "$LOG" || true

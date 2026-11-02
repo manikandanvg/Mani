@@ -234,6 +234,16 @@ class Branch extends Model
         };
     }
 
+    /** Legacy ci_users.desiname → dealership level (null when the designation is blank / unknown). */
+    public static function levelFromDesignation(?string $designation): ?string
+    {
+        return match (mb_strtolower(trim((string) $designation))) {
+            'reseller' => 'reseller', 'taluk', 'taluka' => 'taluk', 'zonal' => 'zonal', 'district' => 'district',
+            'regional' => 'regional', 'wholesaler' => 'wholesaler', 'area dealer', 'area distributor' => 'area_dealer',
+            'sub dealer' => 'sub_dealer', default => null,
+        };
+    }
+
     /**
      * Dropdown label that tells 1,180 "LORD JEWELLER" rows apart (user 2026-11-02):
      * "NAME (city / phone / in-charge)" — blank parts are dropped.

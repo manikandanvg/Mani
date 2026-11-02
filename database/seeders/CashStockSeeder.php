@@ -65,6 +65,9 @@ class CashStockSeeder extends Seeder
         foreach (Branch::withTrashed()->orderByDesc('id')->get(['id', 'name']) as $b) {
             $byName[mb_strtolower(trim((string) $b->name))] = $b->id;
         }
+        // User 2026-11-02: branches.legacy_brid is the identity (1,038 legacy branches are all
+        // "LORD JEWELLER" / "SIVAKASI"); name + city and name are fallbacks for rows without it.
+        $byBrid = Branch::withTrashed()->whereNotNull('legacy_brid')->pluck('id', 'legacy_brid')->all();
         $branchMap = [1 => $hqId];
         foreach ($legacy->table('tbl_branches')->get() as $b) {
             if ((int) $b->brid === 1) {
@@ -72,9 +75,8 @@ class CashStockSeeder extends Seeder
             }
             $name = mb_substr(trim($this->plain($b->storename)) ?: ('Branch ' . $b->brid), 0, 200);
             $city = mb_substr(trim($this->plain($b->city)) ?: '', 0, 120);
-            $branchMap[(int) $b->brid] = $byKey[$this->key($name, $city)]
-                ?? $byName[mb_strtolower($name)]
-                ?? null;
+            $branchMap[(int) $b->brid] = isset($byBrid[(int) $b->brid]) ? (int) $byBrid[(int) $b->brid]
+                : ($byKey[$this->key($name, $city)] ?? $byName[mb_strtolower($name)] ?? null);
         }
 
         // --- sum cash weight (= rupee balance) per legacy branch, then per TARGET branch

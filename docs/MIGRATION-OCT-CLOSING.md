@@ -315,3 +315,42 @@ only the admin pass-phrase (`PAYOUT_CUTOFF_PASSWORD`, the cut-off one) unlocks i
 bills that follow until the lock icon is pressed again or the page is left. Everyone else bills on today's date, enforced in `Sales::generate()` as well as by hiding the field. The invoice, the contract
 start, the member's joining date, the instalment schedule and the commissions all follow the chosen date (`SalesService`
 already took `bill_date`). Test: `GoLiveWiringTest::test_hq_super_admin_can_back_date_a_bill…`.
+
+## 13. Every legacy branch gets its own branch back (2 Nov 2026) — `legacy:split-merged-branches`
+
+**What went wrong.** Legacy `tbl_branches` has 1,262 rows; 1,038 of them are *"LORD JEWELLER" in "SIVAKASI"* — every area
+dealer / reseller / wholesaler / taluk dealer is registered under the Head Office name, and only `brid`, phone, in-charge
+and address differ. `legacy:rollout` identified a branch by **name + city**, so it folded 1,037 of them **into Head
+Office** (branch #1): 956 of the 1,171 imported logins, 5,509 members, ₹1.66 cr of dealer cash stock (577 dealers),
+10,650 gold and 2,188 silver pieces, ₹24.58 L of billing margin and ₹3.18 L of digi cash all landed on HQ. A dealer who
+logged in saw HQ's dashboard and could bill from HQ's pooled stock. The Branches page showed 228 branches.
+
+**Fix.** `branches.legacy_brid` (migration `2026_11_02_000600`, unique) is the identity of a branch from now on; every
+importer keys on it (`LegacyRolloutImport::importBranches`, `LegacyImport::importBranches`, `CashStockSeeder`). The
+one-off repair is
+
+```bash
+cd /www/wwwroot/lordicl.com
+php artisan down --secret=repair
+php -d memory_limit=2048M artisan legacy:split-merged-branches --dry-run   # full simulation, rolled back, same report
+php -d memory_limit=2048M artisan legacy:split-merged-branches             # ~1 min, ONE transaction
+php artisan up
+```
+
+It creates one branch per legacy `brid` (same name/city, its own address, phone, in-charge, GST, dealership level from
+the login's designation, supplier from the login's upline, GPS, margins and digi cash) and moves **out of the branch it
+was pooled into** only what legacy says belongs to it: the logins (`ci_users.brid` → `users.member_code = mapid`), the
+members they entered (`tbl_member.entryby`), the legacy **ACTIVE** stock per product (a `stock_movements` *transfer* on
+both sides, `ref_type legacy_split`, `ref_id = brid`), bonds + `member_contracts LEG-<bondid>` + the QRs of those bonds,
+RD entries (exact bond + date), sales invoices (`estid`), dealer commissions (matched on bill + mapped uid + value;
+their `user_id`, which the importer could not resolve because `tbl_reseller_com.userid` is a ci_users id, is filled in)
+and IC rows. Rows that already sit elsewhere are never touched, so it is idempotent; a stock shortfall on the pool
+(HQ may have billed from it since go-live) is printed as a warning. Margins: each dealer gets its legacy figure; the pool
+keeps max(what it has − what the dealers take, its own legacy figure) — legacy kept crediting billing margin after the
+closing dump (₹32.86 L claimed vs ₹24.58 L pooled on 2 Nov), so HQ ends at its own ₹1,425 / ₹2.96 L digi cash.
+Branches whose name + city was unique are only stamped. One activity-log line summarises the run.
+
+Dry run on the 2 Nov copy: 1,037 created, 224 stamped, 956 logins, 5,509 members, 10,264 contracts, 15,149 RD entries,
+10,270 invoices, ~2.5 L IC rows moved; HQ cash stock back to its own ₹3.15 cr, 0 logins left on HQ. 23 warnings = logins
+whose legacy `mapid` is shared by two branches (one user, first branch wins). Tests: `LegacySplitMergedBranchesTest`.
+`rebuild-live.sh` runs it as a safety net (a no-op after a clean roll-out).

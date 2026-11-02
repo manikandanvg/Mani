@@ -203,25 +203,50 @@ class LegacyRolloutImport extends LegacyImport
                 'gst_no' => $this->clip($l->gstno, 25),
                 'level' => 'hq', 'kind' => Branch::KIND_BRANCH, 'is_active' => true,
                 'invoice_prefix' => $hq->invoice_prefix ?: 'HQ',
+                'legacy_brid' => 1,
             ])->save();
         }
         $this->branchMap[1] = $hq?->id;
 
-        $existing = Branch::withTrashed()->get()->keyBy(fn (Branch $b) => $this->branchKey($b->name, $b->city));
+        // User 2026-11-02: a branch is identified by its legacy brid (branches.legacy_brid), never
+        // by name + city — 1,038 legacy branches are all "LORD JEWELLER" in "SIVAKASI" (every area
+        // dealer is registered under the HQ name) and a name + city key merged 1,037 of them into
+        // Head Office. A branch created before legacy_brid existed is adopted only when its
+        // name + city is unique in legacy.
+        $byBrid = Branch::withTrashed()->whereNotNull('legacy_brid')->get()->keyBy(fn (Branch $b) => (int) $b->legacy_brid);
+        $existing = Branch::withTrashed()->whereNull('legacy_brid')->get()->keyBy(fn (Branch $b) => $this->branchKey($b->name, $b->city));
+        $legacyRows = $this->legacy->table('tbl_branches')->orderBy('brid')->get();
+        $keyCount = [];
+        foreach ($legacyRows as $b) {
+            if ((int) $b->brid !== 1) {
+                $k = $this->branchKey(trim($this->plain($b->storename)), trim($this->plain($b->city)));
+                $keyCount[$k] = ($keyCount[$k] ?? 0) + 1;
+            }
+        }
         [$in, $merged] = [0, 0];
-        foreach ($this->legacy->table('tbl_branches')->orderBy('brid')->get() as $b) {
+        foreach ($legacyRows as $b) {
             if ((int) $b->brid === 1) {
                 continue;
             }
             $name = $this->clip(trim($this->plain($b->storename)) ?: ('Branch ' . $b->brid), 200);
             $city = $this->clip(trim($this->plain($b->city)) ?: null, 120);
             $key = $this->branchKey($name, $city);
-            if ($existing->has($key)) {
-                $this->branchMap[(int) $b->brid] = $existing[$key]->id;
+            if ($byBrid->has((int) $b->brid)) {
+                $this->branchMap[(int) $b->brid] = $byBrid[(int) $b->brid]->id;
+                $merged++;
+                continue;
+            }
+            if (($keyCount[$key] ?? 0) === 1 && $existing->has($key)) {
+                $adopt = $existing[$key];
+                Branch::withoutEvents(fn () => $adopt->forceFill(['legacy_brid' => (int) $b->brid])->save());
+                $byBrid[(int) $b->brid] = $adopt;
+                $existing->forget($key);
+                $this->branchMap[(int) $b->brid] = $adopt->id;
                 $merged++;
                 continue;
             }
             $branch = Branch::create([
+                'legacy_brid' => (int) $b->brid,
                 'name' => $name,
                 'kind' => Branch::KIND_DEALER,
                 'address' => $this->clip($this->plain($b->address), 255), 'city' => $city,
@@ -230,7 +255,7 @@ class LegacyRolloutImport extends LegacyImport
                 'incharge' => $this->clip(trim((string) $b->brincharge) === '-' ? null : $b->brincharge, 200),
                 'gst_no' => $this->clip($b->gstno, 25), 'is_active' => (int) $b->status === 1,
             ]);
-            $existing[$key] = $branch;
+            $byBrid[(int) $b->brid] = $branch;
             $this->branchMap[(int) $b->brid] = $branch->id;
             $in++;
         }
