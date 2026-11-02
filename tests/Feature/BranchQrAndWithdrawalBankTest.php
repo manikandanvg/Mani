@@ -46,6 +46,13 @@ class BranchQrAndWithdrawalBankTest extends TestCase
         }
         $this->actingAs($areaUser)->get('/admin/my-branch-qr')->assertForbidden();
 
+        // HQ's Branches list offers the Static QR button only where a QR is allowed
+        $this->actingAs(User::where('email', 'admin@lordicl.com')->firstOrFail());
+        Livewire::test(\App\Filament\Resources\BranchResource\Pages\ListBranches::class)
+            ->assertTableActionHidden('staticQr', $area)
+            ->assertTableActionHidden('staticQr', $sub)
+            ->assertTableActionVisible('staticQr', $whole);
+
         $stores = collect($this->getJson('/api/v1/stores')->assertOk()->json('data'));
         $this->assertNull($stores->firstWhere('id', $area->id)['payment_qr_url']);
         $this->assertNull($stores->firstWhere('id', $area->id)['upi_link']);

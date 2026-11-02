@@ -227,7 +227,9 @@ class BranchResource extends BaseResource
                     ->label('Static QR')
                     ->icon('heroicon-o-qr-code')
                     ->color('gray')
-                    ->visible(fn (Branch $record) => ! auth()->user()?->isDistributor() || (int) auth()->user()->branch_id === (int) $record->id)
+                    // board 2026-11-02: area dealers / sub dealers have no payment QR, for HQ too
+                    ->visible(fn (Branch $record) => $record->showsPaymentQr()
+                        && (! auth()->user()?->isDistributor() || (int) auth()->user()->branch_id === (int) $record->id))
                     ->modalHeading(fn (Branch $record) => __('Static payment QR') . ' — ' . $record->name)
                     ->modalContent(function (Branch $record) {
                         $device = $record->ensureStaticQr();
