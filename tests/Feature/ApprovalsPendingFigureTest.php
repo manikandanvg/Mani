@@ -52,7 +52,7 @@ class ApprovalsPendingFigureTest extends TestCase
         $this->assertStringContainsString('GAP ₹ 200.00', $card->getDescription());
         $this->assertStringContainsString('CBC due ₹ 50.00', $card->getDescription());
         $this->assertStringContainsString('dealer margins ₹ 10.00', $card->getDescription());
-        $this->assertStringContainsString('future CBC coupons ₹ 1,000.00 not counted', $card->getDescription());
+        $this->assertStringNotContainsString('1,000', $card->getDescription(), 'future coupons are neither counted nor mentioned');
 
         // the approval queue agrees: a future coupon is not offered for approval yet
         $ids = app(CommissionApprovalService::class)->query('CBC')->pluck('id')->all();

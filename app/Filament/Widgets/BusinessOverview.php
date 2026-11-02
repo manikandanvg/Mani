@@ -42,12 +42,12 @@ class BusinessOverview extends BaseWidget
         $today = now()->toDateString();
         $icPending = (float) CommissionLedger::where('type', 'IC')->where('status', '!=', 'paid')->sum('amount');
         $gapPending = (float) CommissionLedger::where('type', 'GAP')->where('status', '!=', 'paid')->sum('amount');
+        // (user 2026-11-02: future-dated coupons are neither counted nor mentioned here)
         $cbcDue = (float) CbcEntry::where('status', 'pending')->whereDate('cbc_date', '<=', $today)->sum('worth');
-        $cbcFuture = (float) CbcEntry::where('status', 'pending')->whereDate('cbc_date', '>', $today)->sum('worth');
         $marginsPending = (float) ResellerCommission::where('status', '!=', 'paid')->where('source', '!=', ResellerCommission::SOURCE_LEGACY)->sum('com_value');
         $approvalsPending = $icPending + $gapPending + $cbcDue + $marginsPending;
         $approvalsNote = 'IC ' . Money::display($icPending) . ' · GAP ' . Money::display($gapPending) . ' · CBC due ' . Money::display($cbcDue)
-            . ' · dealer margins ' . Money::display($marginsPending) . ($cbcFuture > 0 ? ' · future CBC coupons ' . Money::display($cbcFuture) . ' not counted' : '');
+            . ' · dealer margins ' . Money::display($marginsPending);
 
         return [
             Stat::make('Distributors', Number::format($members))
