@@ -114,7 +114,8 @@ class LegacySplitMergedBranchesTest extends TestCase
         $mk = fn (string $code, string $name, string $material) => CatalogProduct::create(['code' => $code, 'name' => ['en' => $name], 'material' => $material, 'is_active' => true]);
         $this->cash = $mk('3', 'CASH', 'cash');
         $this->gold = $mk('11', '1 g Gold', 'gold');
-        Stock::create(['branch_id' => $this->hq->id, 'catalog_product_id' => $this->cash->id, 'quantity' => 127000, 'last_rate' => 1]);
+        // 127,000 at import; a ₹500 renewal collected on live by Murugan (then on HQ) took it to 126,500
+        Stock::create(['branch_id' => $this->hq->id, 'catalog_product_id' => $this->cash->id, 'quantity' => 126500, 'last_rate' => 1]);
         Stock::create(['branch_id' => $this->hq->id, 'catalog_product_id' => $this->gold->id, 'quantity' => 5, 'purity' => '916', 'last_rate' => 7000]);
 
         foreach ([['murugan@test.local', 'LJW24188', $this->hq], ['bala@test.local', 'LJW24701', $this->hq], ['sree@test.local', 'LJW24999', $this->sree]] as [$email, $code, $branch]) {
@@ -134,6 +135,10 @@ class LegacySplitMergedBranchesTest extends TestCase
         foreach (['2026-01-10', '2026-02-10'] as $d) {
             DB::table('rd_entries')->insert(['bond_id' => 500, 'member_id' => $m1->id, 'paid_on' => $d, 'value' => 1500, 'due_count' => 1, 'branch_id' => $this->hq->id, 'created_at' => $d, 'updated_at' => $d]);
         }
+        // new-system renewal since go-live by Murugan while his login sat on HQ: rd entry + stock deduction on HQ
+        $renewal = DB::table('rd_entries')->insertGetId(['bond_id' => 500, 'member_id' => $m1->id, 'paid_on' => now()->toDateString(), 'value' => 500, 'due_count' => 1, 'branch_id' => $this->hq->id, 'created_at' => now(), 'updated_at' => now()]);
+        StockMovement::create(['branch_id' => $this->hq->id, 'catalog_product_id' => $this->cash->id, 'type' => 'sale', 'qty_change' => -500, 'balance_after' => 126500,
+            'ref_type' => 'rd_entry', 'ref_id' => $renewal, 'moved_on' => now()->toDateString(), 'created_by' => User::where('email', 'murugan@test.local')->value('id')]);
         foreach ([['LJW24188', 150], ['LJW01', 75]] as [$mapped, $value]) {   // as the importer left them: user_id unresolved, both on HQ
             DB::table('reseller_commissions')->insert(['bill_date' => '2026-01-10', 'invoice_no' => '3849', 'com_type_id' => 1, 'user_id' => null, 'branch_id' => $this->hq->id,
                 'mapped_uid' => $mapped, 'com_value' => $value, 'status' => 'passed', 'created_at' => now(), 'updated_at' => now()]);
@@ -153,7 +158,7 @@ class LegacySplitMergedBranchesTest extends TestCase
         $this->assertSame($before, Branch::count());
         $this->assertNull(Branch::where('legacy_brid', 182)->first());
         $this->assertNull($this->hq->fresh()->legacy_brid);
-        $this->assertSame(127000.0, $this->cashOf($this->hq->id));
+        $this->assertSame(126500.0, $this->cashOf($this->hq->id));
         $this->assertSame($this->hq->id, User::where('email', 'murugan@test.local')->value('branch_id'));
     }
 
@@ -196,10 +201,14 @@ class LegacySplitMergedBranchesTest extends TestCase
         $this->assertSame($b183->id, Member::where('member_code', 'M2')->value('branch_id'));
         $this->assertSame($this->hq->id, Member::where('member_code', 'M3')->value('branch_id'));
 
-        // stock: legacy ACTIVE rows only, taken out of HQ, with a movement on both sides
-        $this->assertSame(20000.0, $this->cashOf($b182->id));
+        // stock: legacy ACTIVE rows only, taken out of HQ, with a movement on both sides; the ₹500 renewal
+        // Murugan collected on live while on HQ is carried to his branch (his stock 20,000 − 500, HQ back to its own)
+        $this->assertSame(19500.0, $this->cashOf($b182->id));
         $this->assertSame(7000.0, $this->cashOf($b183->id));
         $this->assertSame(100000.0, $this->cashOf($this->hq->id));
+        $this->assertSame($b182->id, (int) DB::table('rd_entries')->where('value', 500)->value('branch_id'));
+        $this->assertSame($b182->id, (int) StockMovement::where('ref_type', 'rd_entry')->value('branch_id'));
+        $this->assertSame(2, StockMovement::where('ref_type', 'legacy_split_activity')->count());
         $this->assertSame(5.0, (float) Stock::where('branch_id', $b182->id)->where('catalog_product_id', $this->gold->id)->value('quantity'));
         $this->assertSame(0.0, (float) Stock::where('branch_id', $this->hq->id)->where('catalog_product_id', $this->gold->id)->value('quantity'));
         $this->assertSame('916', Stock::where('branch_id', $b182->id)->where('catalog_product_id', $this->gold->id)->value('purity'));
@@ -225,8 +234,9 @@ class LegacySplitMergedBranchesTest extends TestCase
         // idempotent
         $this->artisan('legacy:split-merged-branches')->assertSuccessful();
         $this->assertSame($before + 2, Branch::count());
-        $this->assertSame(20000.0, $this->cashOf($b182->id));
+        $this->assertSame(19500.0, $this->cashOf($b182->id));
         $this->assertSame(100000.0, $this->cashOf($this->hq->id));
         $this->assertSame(2, StockMovement::where('ref_type', 'legacy_split')->where('ref_id', 182)->where('catalog_product_id', $this->cash->id)->count());
+        $this->assertSame(2, StockMovement::where('ref_type', 'legacy_split_activity')->count());
     }
 }

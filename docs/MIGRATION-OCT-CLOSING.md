@@ -348,7 +348,13 @@ and IC rows. Rows that already sit elsewhere are never touched, so it is idempot
 (HQ may have billed from it since go-live) is printed as a warning. Margins: each dealer gets its legacy figure; the pool
 keeps max(what it has − what the dealers take, its own legacy figure) — legacy kept crediting billing margin after the
 closing dump (₹32.86 L claimed vs ₹24.58 L pooled on 2 Nov), so HQ ends at its own ₹1,425 / ₹2.96 L digi cash.
-Branches whose name + city was unique are only stamped. One activity-log line summarises the run.
+Branches whose name + city was unique (SREE GOLD = brid 109, AURA = brid 541, …) are only stamped — their stock, logins
+and rows are never touched. **Activity since go-live** (`--since`, default 2026-11-02): a bill or renewal made in the new
+system by a login that still sat on HQ deducted HQ's pooled stock and carries HQ's branch id; each such deduction is a
+`stock_movements` row with `created_by`, so the command moves those pieces from the dealer's restored stock back to the
+pool, re-points the movement, the RD entry / invoice, its bonds, contracts and commission rows to the dealer's branch
+(`ref_type legacy_split_activity`). Activity by logins that were already on their own branch is untouched. One
+activity-log line summarises the run.
 
 Dry run on the 2 Nov copy: 1,037 created, 224 stamped, 956 logins, 5,509 members, 10,264 contracts, 15,149 RD entries,
 10,270 invoices, ~2.5 L IC rows moved; HQ cash stock back to its own ₹3.15 cr, 0 logins left on HQ. 23 warnings = logins

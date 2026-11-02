@@ -43,7 +43,9 @@ use Illuminate\Support\Str;
  */
 class LegacySplitMergedBranches extends Command
 {
-    protected $signature = 'legacy:split-merged-branches {--dry-run : run everything inside a transaction and roll it back}';
+    protected $signature = 'legacy:split-merged-branches
+        {--dry-run : run everything inside a transaction and roll it back}
+        {--since=2026-11-02 : go-live date — bills / renewals made in the new system from this day by a moved login are carried to its branch}';
 
     protected $description = 'Give every legacy branch (tbl_branches.brid) its own branch again and move its logins, members, stock, margins, contracts and bills out of the branch they were merged into';
 
@@ -345,6 +347,7 @@ class LegacySplitMergedBranches extends Command
         // logins
         $loginIds = [];
         $userByLogin = [];   // ci_users.id → users.id
+        $movedUsers = [];    // users.id moved off the pool in this run
         foreach ($logins as $u) {
             $loginIds[] = (int) $u->id;
             if ((int) $u->role === 1 || (int) $u->is_admin === 1) {
@@ -358,6 +361,7 @@ class LegacySplitMergedBranches extends Command
                 continue;
             }
             $userByLogin[(int) $u->id] = (int) $user->id;
+            $movedUsers[] = (int) $user->id;
             if ((int) $user->branch_id !== $poolId) {
                 if ((int) $user->branch_id !== $newId) {
                     $this->warnings[] = sprintf('brid %d: login %s is on branch #%d (not the pool #%d) — left there', $brid, $user->email, $user->branch_id, $poolId);
@@ -465,7 +469,64 @@ class LegacySplitMergedBranches extends Command
             $this->bump('IC rows moved', DB::table('commission_ledger')->where('bond_id', $bondId)->where('branch_id', $poolId)->whereIn('invoice_no', array_keys($bills))->update(['branch_id' => $newId]));
         }
 
+        if ($movedUsers) {
+            $this->carryNewActivity($poolId, $newId, $movedUsers);
+        }
+
         return $branch;
+    }
+
+    /**
+     * Bills and renewals made IN THE NEW SYSTEM since go-live by a login that was still sitting on
+     * the pool branch: their stock came out of the pool and their rows carry the pool's branch id.
+     * Every such deduction is a stock_movements row with created_by = that login, so: the piece
+     * count moves from the dealer's restored stock back to the pool (the dealer really spent it),
+     * and the renewal / bill, its contracts and its commission rows go to the dealer's branch.
+     */
+    protected function carryNewActivity(int $poolId, int $newId, array $movedUsers): void
+    {
+        $since = $this->option('since') . ' 00:00:00';
+        $moves = StockMovement::where('branch_id', $poolId)->whereIn('created_by', $movedUsers)->where('created_at', '>=', $since)->orderBy('id')->get();
+        foreach ($moves as $mv) {
+            $productId = (int) $mv->catalog_product_id;
+            $qty = (float) $mv->qty_change;                    // negative = sold / renewed out of the pool
+            $mine = Stock::firstOrCreate(['branch_id' => $newId, 'catalog_product_id' => $productId, 'order_line_id' => 0], ['quantity' => 0, 'last_rate' => 1]);
+            $pool = Stock::where('branch_id', $poolId)->where('catalog_product_id', $productId)->where('order_line_id', 0)->first();
+            $after = round((float) $mine->quantity + $qty, 4);
+            if ($after < 0) {
+                $this->warnings[] = sprintf('branch #%d: new-system movement #%d (%s) exceeds the restored stock by %s — floored at 0', $newId, $mv->id, $qty, -$after);
+                $qty = -(float) $mine->quantity;
+                $after = 0.0;
+            }
+            $mine->quantity = $after;
+            $mine->save();
+            if ($pool) {
+                $pool->quantity = round((float) $pool->quantity - $qty, 4);
+                $pool->save();
+            }
+            $today = now()->toDateString();
+            StockMovement::create(['branch_id' => $newId, 'catalog_product_id' => $productId, 'type' => 'transfer', 'qty_change' => $qty,
+                'balance_after' => $mine->quantity, 'ref_type' => 'legacy_split_activity', 'ref_id' => $mv->id, 'moved_on' => $today]);
+            if ($pool) {
+                StockMovement::create(['branch_id' => $poolId, 'catalog_product_id' => $productId, 'type' => 'transfer', 'qty_change' => -$qty,
+                    'balance_after' => $pool->quantity, 'ref_type' => 'legacy_split_activity', 'ref_id' => $mv->id, 'moved_on' => $today]);
+            }
+            DB::table('stock_movements')->where('id', $mv->id)->update(['branch_id' => $newId]);
+            $this->bump('new-system movements carried');
+
+            if ($mv->ref_type === 'rd_entry' && $mv->ref_id) {
+                $this->bump('new-system renewals carried', DB::table('rd_entries')->where('id', $mv->ref_id)->where('branch_id', $poolId)->update(['branch_id' => $newId]));
+            } elseif (in_array($mv->ref_type, ['sale', 'sale_cancel'], true) && $mv->ref_id) {
+                $inv = DB::table('sales_invoices')->where('id', $mv->ref_id)->first(['id', 'invoice_no', 'branch_id']);
+                if ($inv && (int) $inv->branch_id === $poolId) {
+                    DB::table('sales_invoices')->where('id', $inv->id)->update(['branch_id' => $newId]);
+                    foreach (['bonds', 'member_contracts', 'reseller_commissions', 'commission_ledger'] as $t) {
+                        DB::table($t)->where('invoice_no', $inv->invoice_no)->where('branch_id', $poolId)->update(['branch_id' => $newId]);
+                    }
+                    $this->bump('new-system bills carried');
+                }
+            }
+        }
     }
 
     protected function report(): void
