@@ -25,6 +25,9 @@ class Notifier
         if (! $member) {
             return;
         }
+        // data.sensitive (login details): the body reaches the member, never the activity log
+        $sensitive = (bool) ($data['sensitive'] ?? false);
+        unset($data['sensitive']);
 
         try {
             \App\Notifications\Channels\FcmChannel::$lastDelivery = null;
@@ -35,7 +38,7 @@ class Notifier
                     'member' => $member,
                     'channel' => ($delivery['devices'] ?? 0) > 0 ? 'push' : 'inbox',
                     'status' => ($delivery['failed'] ?? false) ? 'failed' : 'ok',
-                    'details' => ['category' => $category, 'title' => $title, 'body' => $body, 'route' => $route, 'delivery' => $delivery ?? ['devices' => 0, 'note' => 'no device registered — inbox only']],
+                    'details' => ['category' => $category, 'title' => $title, 'body' => $sensitive ? '[login details — not stored]' : $body, 'route' => $route, 'delivery' => $delivery ?? ['devices' => 0, 'note' => 'no device registered — inbox only']],
                 ]);
         } catch (\Throwable $e) {
             Log::warning("Notify [{$category}] to member #{$member->id} failed: " . $e->getMessage());

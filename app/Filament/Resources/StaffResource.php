@@ -8,13 +8,14 @@ use App\Filament\Concerns\HqOnly;
 use App\Filament\Resources\StaffResource\Pages;
 use App\Models\Branch;
 use App\Models\User;
+use App\Services\Staff\StaffCredentialsService;
 use Filament\Forms;
 use Filament\Forms\Form;
-use Filament\Resources\Resource;
+use Filament\Notifications\Notification;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Support\Facades\Hash;
+use Illuminate\Database\Eloquent\Collection;
 use Spatie\Permission\Models\Role;
 
 /**
@@ -100,8 +101,57 @@ class StaffResource extends BaseResource
                 Tables\Columns\TextColumn::make('status')->badge()
                     ->color(fn ($state) => $state === 'active' ? 'success' : 'gray'),
             ])
-            ->actions([Tables\Actions\EditAction::make(), Tables\Actions\DeleteAction::make()])
-            ->bulkActions([Tables\Actions\BulkActionGroup::make([Tables\Actions\DeleteBulkAction::make()])]);
+            ->actions([
+                // User 2026-11-02: send the login (new temporary password) by WhatsApp + app push
+                Tables\Actions\Action::make('sendDetails')
+                    ->label('Send login details')->icon('heroicon-o-paper-airplane')->color('info')
+                    ->requiresConfirmation()
+                    ->modalHeading('Send login details?')
+                    ->modalDescription(fn (User $record) => 'A new temporary password is set for ' . $record->email . ' and sent by WhatsApp to '
+                        . (($record->phone ?: $record->branch?->phone) ?: 'NO phone on file')
+                        . ($record->memberAccount ? ' and as an app push to ' . $record->memberAccount->member_code : ' (no member account, so no app push)')
+                        . '. The old password stops working.')
+                    ->action(function (User $record) {
+                        $res = app(StaffCredentialsService::class)->send($record, auth()->id());
+                        static::notifySent($res);
+                    }),
+                Tables\Actions\EditAction::make(),
+                Tables\Actions\DeleteAction::make(),
+            ])
+            ->bulkActions([Tables\Actions\BulkActionGroup::make([
+                Tables\Actions\BulkAction::make('bulkSendDetails')
+                    ->label('Send login details')->icon('heroicon-o-paper-airplane')->color('info')
+                    ->requiresConfirmation()
+                    ->modalDescription('Each selected login gets a new temporary password, sent by WhatsApp to its phone (branch phone as fallback) and as an app push where the login has a member account. Old passwords stop working.')
+                    ->deselectRecordsAfterCompletion()
+                    ->action(function (Collection $records) {
+                        $svc = app(StaffCredentialsService::class);
+                        [$wa, $push, $none] = [0, 0, 0];
+                        foreach ($records as $u) {
+                            $res = $svc->send($u, auth()->id());
+                            $wa += $res['whatsapp'] ? 1 : 0;
+                            $push += $res['push'] ? 1 : 0;
+                            $none += (! $res['whatsapp'] && ! $res['push']) ? 1 : 0;
+                        }
+                        Notification::make()->{$none ? 'warning' : 'success'}()
+                            ->title($records->count() . ' login' . ($records->count() === 1 ? '' : 's') . ' reset')
+                            ->body("WhatsApp sent: {$wa} · app push: {$push}" . ($none ? " · reached nobody: {$none} (no phone, no member account)" : ''))
+                            ->persistent()->send();
+                    }),
+                Tables\Actions\DeleteBulkAction::make(),
+            ])]);
+    }
+
+    protected static function notifySent(array $res): void
+    {
+        $parts = [];
+        $parts[] = $res['whatsapp'] ? 'WhatsApp sent to ' . $res['phone'] : 'WhatsApp NOT sent' . ($res['whatsapp_note'] ? ' (' . $res['whatsapp_note'] . ')' : '');
+        $parts[] = $res['push'] ? 'app push + inbox sent' : 'no app push (no member account)';
+        $ok = $res['whatsapp'] || $res['push'];
+        Notification::make()->{$ok ? 'success' : 'danger'}()
+            ->title($ok ? 'Login details sent' : 'Login details NOT delivered')
+            ->body(implode(' · ', $parts) . ($ok ? '' : '. The password was still reset — set a phone or member code and send again.'))
+            ->persistent()->send();
     }
 
     public static function getPages(): array

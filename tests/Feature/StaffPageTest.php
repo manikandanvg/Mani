@@ -8,6 +8,7 @@ use App\Models\Branch;
 use App\Models\User;
 use Database\Seeders\DatabaseSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 use Tests\TestCase;
 
@@ -53,5 +54,48 @@ class StaffPageTest extends TestCase
             ->call('save')
             ->assertHasNoFormErrors();
         $this->assertSame($a->id, $staff->fresh()->branch_id);
+    }
+
+    /** User 2026-11-02: "Send login details" resets the password and sends it by WhatsApp + app push; the password never reaches the activity log. */
+    public function test_send_login_details_resets_the_password_and_sends_it_by_whatsapp_and_app_push(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+        app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+        \App\Services\Activity\ActivityLogger::$enabled = true;
+        $admin = User::where('email', 'admin@lordicl.com')->firstOrFail();
+        $branch = Branch::create(['name' => 'LORD JEWELLER', 'city' => 'SIVAKASI', 'phone' => '9000000001', 'incharge' => 'Bala', 'country' => 'IN', 'is_active' => true]);
+        $member = \App\Models\Member::create(['member_code' => 'LJW24188', 'name' => 'Murugan V', 'phone' => '9876543210', 'joined_on' => now(), 'placement' => 'level', 'status' => 'active', 'rank_id' => \App\Models\Rank::where('depth', 0)->value('id')]);
+        $staff = User::create(['name' => 'Murugan', 'email' => 'murugan@test.local', 'phone' => '9876543210', 'password' => 'secret123', 'status' => 'active', 'branch_id' => $branch->id, 'member_code' => 'LJW24188']);
+        $staff->assignRole('distributor');
+        app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+
+        config(['services.whatsapp.test_recipient' => null]);
+        \Illuminate\Support\Facades\Http::fake(['*' => \Illuminate\Support\Facades\Http::response(['status' => 'success'], 200)]);
+
+        $this->actingAs($admin);
+        Livewire::test(ListStaff::class)
+            ->callTableAction('sendDetails', $staff)
+            ->assertNotified();
+
+        $sent = null;
+        \Illuminate\Support\Facades\Http::assertSent(function ($r) use (&$sent) {
+            $sent = $r->data();
+
+            return ($sent['number'] ?? '') === '919876543210' && str_contains($sent['message'] ?? '', 'murugan@test.local');
+        });
+        $this->assertMatchesRegularExpression('/Password: (\S+)/', $sent['message']);
+        preg_match('/Password: (\S+)/', $sent['message'], $m);
+        $password = $m[1];
+        $this->assertStringContainsString('LORD JEWELLER (SIVAKASI / 9000000001 / Bala)', $sent['message']);
+        $this->assertStringContainsString('/admin/login', $sent['message']);
+
+        $fresh = $staff->fresh();
+        $this->assertTrue(\Illuminate\Support\Facades\Hash::check($password, $fresh->password), 'the sent password is the new one');
+        $this->assertFalse(\Illuminate\Support\Facades\Hash::check('secret123', $fresh->password), 'the old password stops working');
+
+        // app push + inbox for the member account, and the password is in no activity-log row
+        $this->assertSame(1, DB::table('notifications')->where('notifiable_id', $member->id)->count());
+        $this->assertSame(0, \App\Models\ActivityLog::where('details', 'like', '%' . $password . '%')->count());
+        $this->assertSame(1, \App\Models\ActivityLog::where('action', 'staff_credentials_sent')->count());
     }
 }
