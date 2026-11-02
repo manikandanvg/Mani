@@ -56,6 +56,7 @@ php artisan branches:static-qr --no-ansi | tee -a "$LOG"
 # Board 2026-11-01: legacy pending QRs are NOT settled here — staged for the Commissions pages (Pending Cash QR / Pending Gold QR)
 php artisan legacy:stage-pending-qrs --no-ansi | tail -2 | tee -a "$LOG"
 php artisan contracts:backfill-legacy --no-ansi | tail -1 | tee -a "$LOG"
+php artisan legacy:import-orphan-logins --no-ansi | tail -1 | tee -a "$LOG"
 # FCM / APNs credentials live in push_settings (not in the dump) — carry the dev row over when present.
 "$MYSQL" -uroot -e "INSERT INTO \`$TARGET_DB\`.push_settings SELECT * FROM lordicl_next.push_settings WHERE NOT EXISTS (SELECT 1 FROM \`$TARGET_DB\`.push_settings)" 2>/dev/null || true
 php artisan branches:auto-map --no-ansi | tail -2 | tee -a "$LOG" || true
