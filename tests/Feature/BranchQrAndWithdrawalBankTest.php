@@ -37,10 +37,11 @@ class BranchQrAndWithdrawalBankTest extends TestCase
         [$sub, $subUser] = $mk('sub_dealer');
         [$whole, $wholeUser] = $mk('wholesaler');
         [$taluk, $talukUser] = $mk('taluk');
+        [$retail, $retailUser] = $mk('reseller');
         app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
 
         // the page's own access rule, checked per login (one full-page request per test keeps Livewire's harness happy)
-        foreach ([[$areaUser, false], [$subUser, false], [$wholeUser, true], [$talukUser, true]] as [$u, $allowed]) {
+        foreach ([[$areaUser, false], [$subUser, false], [$retailUser, false], [$wholeUser, true], [$talukUser, true]] as [$u, $allowed]) {
             $this->actingAs($u);
             $this->assertSame($allowed, \App\Filament\Pages\MyBranchQr::canAccess(), $u->name);
         }
@@ -51,12 +52,14 @@ class BranchQrAndWithdrawalBankTest extends TestCase
         Livewire::test(\App\Filament\Resources\BranchResource\Pages\ListBranches::class)
             ->assertTableActionHidden('staticQr', $area)
             ->assertTableActionHidden('staticQr', $sub)
+            ->assertTableActionHidden('staticQr', $retail)
             ->assertTableActionVisible('staticQr', $whole);
 
         $stores = collect($this->getJson('/api/v1/stores')->assertOk()->json('data'));
         $this->assertNull($stores->firstWhere('id', $area->id)['payment_qr_url']);
         $this->assertNull($stores->firstWhere('id', $area->id)['upi_link']);
         $this->assertNull($stores->firstWhere('id', $sub->id)['payment_qr_url']);
+        $this->assertNull($stores->firstWhere('id', $retail->id)['payment_qr_url']);
         $this->assertNotNull($stores->firstWhere('id', $whole->id)['payment_qr_url']);
         $this->assertNotNull($stores->firstWhere('id', $whole->id)['upi_link']);
     }

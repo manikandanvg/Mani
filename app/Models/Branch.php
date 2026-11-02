@@ -42,10 +42,11 @@ class Branch extends Model
      * the payroll). Schemes may be limited to one kind (Plan::available_to).
      */
     /**
-     * Board 2026-11-02: only dealers (the HQ chain + retailer) and wholesalers may show their
-     * branch payment QR to receive payments; area dealers and sub dealers may not.
+     * Board 2026-11-02/03: only dealers of the HQ chain (regional → taluka) and wholesalers may
+     * show their branch payment QR to receive payments; retailers (reseller), area dealers and
+     * sub dealers may not.
      */
-    public const NO_PAYMENT_QR_LEVELS = ['area_dealer', 'sub_dealer'];
+    public const NO_PAYMENT_QR_LEVELS = ['reseller', 'area_dealer', 'sub_dealer'];
 
     public function showsPaymentQr(): bool
     {
