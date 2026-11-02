@@ -203,7 +203,37 @@ class LegacySplitMergedBranches extends Command
         }
 
         $this->settlePoolMargins();
+        $this->seedPendingBillMargins((int) $hq->id);
         $this->report();
+    }
+
+    /**
+     * User 2026-11-02: the legacy accrued billing margin (ci_users.billmargin, the UNPAID balance
+     * the dealer saw in legacy) is never pushed into a wallet. One pending_bill_margins row per
+     * legacy branch waits for Head Office on Commissions → Pending Billing Margin. HQ's own
+     * figure is a company figure, not a dealer margin. Idempotent: a branch that has its row is skipped.
+     */
+    protected function seedPendingBillMargins(int $hqId): void
+    {
+        $have = DB::table('pending_bill_margins')->where('source', 'legacy')->pluck('branch_id')->flip()->all();
+        foreach ($this->byBrid as $brid => $branchId) {
+            if ($branchId === $hqId || isset($have[$branchId])) {
+                continue;
+            }
+            $amount = 0.0;
+            foreach ($this->loginsByBrid[(int) $brid] ?? collect() as $u) {
+                $amount += max(0.0, $this->num($u->billmargin));
+            }
+            if ($amount <= 0) {
+                continue;
+            }
+            DB::table('pending_bill_margins')->insert([
+                'branch_id' => $branchId, 'source' => 'legacy', 'amount' => round($amount, 2), 'status' => 'pending',
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+            $this->bump('pending billing margins seeded');
+            $this->counts['pending billing margin ₹'] = (int) round(($this->counts['pending billing margin ₹'] ?? 0) + $amount);
+        }
     }
 
     /**

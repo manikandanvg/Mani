@@ -728,6 +728,7 @@ class LegacyImport extends Command
                         'com_type_id' => max(1, (int) $c->comtypeid),
                         'user_id' => $usersByCode[$this->clip($c->userid, 30)] ?? null,
                         'branch_id' => $this->branchMap[(int) $c->brid] ?? null,
+                        'source' => \App\Models\ResellerCommission::SOURCE_LEGACY,   // history, never approvable (user 2026-11-02)
                         'mapped_uid' => $this->clip($c->mappeduid ?: null, 40),
                         'com_value' => $this->num($c->comvalue),
                         'reference_member_id' => $this->memberMap[$this->clip($c->userid, 30)] ?? null,

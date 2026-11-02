@@ -227,6 +227,13 @@ class LegacySplitMergedBranchesTest extends TestCase
         $this->assertSame(User::where('email', 'murugan@test.local')->value('id'), (int) $mine->user_id);
         $this->assertSame($this->hq->id, (int) DB::table('reseller_commissions')->where('mapped_uid', 'LJW01')->value('branch_id'));
 
+        // legacy accrued billing margin waits for HQ on Pending Billing Margin — one row per legacy branch, nothing in any wallet
+        $this->assertEquals(500, (float) DB::table('pending_bill_margins')->where('branch_id', $b182->id)->where('status', 'pending')->value('amount'));
+        $this->assertSame(0, DB::table('pending_bill_margins')->where('branch_id', $b183->id)->count(), 'negative legacy margin = nothing pending');
+        $this->assertSame(0, DB::table('pending_bill_margins')->where('branch_id', $this->hq->id)->count(), "HQ's own figure is a company figure");
+        $this->assertSame(1, DB::table('pending_bill_margins')->count());
+        $this->assertEquals(0, (float) DB::table('member_wallets')->sum('cash_balance'), 'no wallet credited by the split');
+
         // one summary line in the activity log, not thousands of rows
         $this->assertSame(1, ActivityLog::where('action', 'legacy_split')->count());
         $this->assertSame($stockLogs, ActivityLog::where('category', 'stock')->count());
@@ -238,5 +245,6 @@ class LegacySplitMergedBranchesTest extends TestCase
         $this->assertSame(100000.0, $this->cashOf($this->hq->id));
         $this->assertSame(2, StockMovement::where('ref_type', 'legacy_split')->where('ref_id', 182)->where('catalog_product_id', $this->cash->id)->count());
         $this->assertSame(2, StockMovement::where('ref_type', 'legacy_split_activity')->count());
+        $this->assertSame(1, DB::table('pending_bill_margins')->count(), 'no duplicate pending margin on re-run');
     }
 }

@@ -14,6 +14,9 @@ class ResellerCommission extends Model
      * com_type_id values. 1-4 mirror the legacy tbl_reseller_com ids; 5 was added
      * 2026-07 so RD renewal margins stop masquerading as gold margin in approval.
      */
+    /** Imported legacy history — settled in legacy, never approvable again (user 2026-11-02). */
+    public const SOURCE_LEGACY = 'legacy';
+
     public const COM_BILL_MARGIN = 1;
 
     public const COM_GOLD_MARGIN = 2;

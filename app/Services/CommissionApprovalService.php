@@ -119,6 +119,9 @@ class CommissionApprovalService
             ->with(['branch', 'referenceMember'])
             ->where('com_type_id', $com)
             ->where('status', '!=', 'paid')
+            // legacy history (₹4.78 cr of "passed" rows) was settled in legacy; the dealer's unpaid
+            // balance is paid by hand on Commissions → Pending Billing Margin (user 2026-11-02)
+            ->where('source', '!=', ResellerCommission::SOURCE_LEGACY)
             ->when($from, fn ($q) => $q->whereDate('bill_date', '>=', $from))
             ->when($to, fn ($q) => $q->whereDate('bill_date', '<=', $to))
             ->orderBy('bill_date');

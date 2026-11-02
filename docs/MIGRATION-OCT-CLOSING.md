@@ -360,3 +360,16 @@ Dry run on the 2 Nov copy: 1,037 created, 224 stamped, 956 logins, 5,509 members
 10,270 invoices, ~2.5 L IC rows moved; HQ cash stock back to its own ₹3.15 cr, 0 logins left on HQ. 23 warnings = logins
 whose legacy `mapid` is shared by two branches (one user, first branch wins). Tests: `LegacySplitMergedBranchesTest`.
 `rebuild-live.sh` runs it as a safety net (a no-op after a clean roll-out).
+
+### 13a. Legacy billing margin → Commissions → **Pending Billing Margin** (2 Nov 2026, user ruling)
+
+Nothing from the split lands in a wallet. Three different things are called "margin":
+
+| legacy | what it is | where it goes in the new system |
+|---|---|---|
+| `tbl_reseller_com` rows (62,450, ₹4.78 cr, status PASSED) | history of every dealer margin ever earned — settled in legacy over the years | imported row-level with `reseller_commissions.source = legacy` (migration `2026_11_02_000800`); **never in the Commission Approval queue** (`CommissionApprovalService::query` skips source legacy). Before this, the queue listed all of them as approvable |
+| `ci_users.billmargin` (₹32.86 L over the dealers) | the dealer's UNPAID accrued balance, what it saw in legacy | `branches.bill_margin` (dashboard figure) **and** one `pending_bill_margins` row per legacy branch (migration `…000700`, seeded by `legacy:split-merged-branches`). HQ decides on **Commissions → Pending Billing Margin**: *Send to wallet* (per row or bulk) credits the branch's distributor login → member cash wallet, no TDS / service charge (legacy balance, Pending Cash QR rule); *Reject* with a remark. Super admin only. HQ's own figure is a company figure and is not seeded |
+| `ci_users.digicash` (₹21,233 dealers, ₹2.96 L HQ) | the branch's cash collected through QR / counter, used to pay order requests and stock returns | straight into `branches.digi_cash_balance` (the branch Digi Cash wallet) — user 2026-11-02: no pending step |
+
+Margins earned in the new system (`source = new`, status passed) still go through Commission Approval as before.
+Tests: `PendingBillMarginTest`, `LegacySplitMergedBranchesTest`.
