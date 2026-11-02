@@ -93,6 +93,20 @@ return [
         'url' => rtrim(env('LEGACY_SITE_URL', 'https://old.lordicl.com'), '/'),
     ],
 
+    // Exotel cloud telephony — missed-call number verification (board 2026-11-02: no OTP of any
+    // kind for the trusted-device flow). The distributor miss-calls the virtual number; Exotel's
+    // Passthru applet calls our webhook with the caller number. Region Singapore → api.exotel.com,
+    // Mumbai → api.in.exotel.com.
+    'exotel' => [
+        'sid' => env('EXOTEL_SID'),
+        'api_key' => env('EXOTEL_API_KEY'),
+        'api_token' => env('EXOTEL_API_TOKEN'),
+        'subdomain' => env('EXOTEL_SUBDOMAIN', 'api.exotel.com'),
+        'virtual_number' => env('EXOTEL_VIRTUAL_NUMBER'),          // the Exophone distributors miss-call
+        'webhook_key' => env('EXOTEL_WEBHOOK_KEY'),                 // ?key=… on the Passthru URL (Exotel does not sign)
+        'verification_minutes' => (int) env('EXOTEL_VERIFICATION_MINUTES', 10),
+    ],
+
     'whatsapp' => [
         'url' => env('WHATSAPP_URL', 'https://whatsapp.lordicl.com/'),
         'instance_id' => env('WHATSAPP_INSTANCE_ID', '69F89E4E9A333'),

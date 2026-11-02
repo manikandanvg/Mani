@@ -17,6 +17,8 @@ Route::post('/webhooks/razorpay', RazorpayWebhookController::class)->name('webho
 // Zoom event webhook (board phase-1, 2026-08-21): meeting attendance capture.
 // No auth; HMAC-verified in the controller, CSRF-exempt via webhooks/* (bootstrap/app.php).
 Route::post('/webhooks/zoom', [\App\Http\Controllers\ZoomWebhookController::class, 'handle'])->name('webhooks.zoom');
+// Exotel Passthru (missed-call number verification, board 2026-11-02) — Exotel calls it with GET
+Route::match(['get', 'post'], '/webhooks/exotel/missed-call', [\App\Http\Controllers\ExotelWebhookController::class, 'missedCall'])->name('webhooks.exotel.missed-call');
 
 // In-app Zoom join (2026-08-12): the app's WebView opens this signed page; the Web
 // Meeting SDK joins with a server-signed JWT (secret never leaves the server).

@@ -31,6 +31,9 @@ Route::prefix('v1')->group(function () {
     // --- Public ---
     Route::post('auth/otp/request', [OtpController::class, 'request'])->middleware('throttle:otp-request');
     Route::post('auth/otp/verify', [OtpController::class, 'verify'])->middleware('throttle:otp-verify');
+    // missed-call number verification (board 2026-11-02: no OTP) — public, before sign-in
+    Route::post('phone/missed-call/start', [\App\Http\Controllers\Api\V1\PhoneVerificationController::class, 'start'])->middleware('throttle:10,10');
+    Route::get('phone/missed-call/{verification}', [\App\Http\Controllers\Api\V1\PhoneVerificationController::class, 'status'])->middleware('throttle:60,1');
 
     // Live metal rate (India) — the app's canonical first call.
     Route::get('rates', function () {
