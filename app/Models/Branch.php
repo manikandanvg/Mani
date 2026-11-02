@@ -234,6 +234,30 @@ class Branch extends Model
         };
     }
 
+    /**
+     * Dropdown label that tells 1,180 "LORD JEWELLER" rows apart (user 2026-11-02):
+     * "NAME (city / phone / in-charge)" — blank parts are dropped.
+     */
+    public function pickLabel(): string
+    {
+        $parts = array_filter([trim((string) $this->city), trim((string) $this->phone), trim((string) $this->incharge)]);
+
+        return trim((string) $this->name) . ($parts ? ' (' . implode(' / ', $parts) . ')' : '');
+    }
+
+    /** Options for a searchable branch select: matches name, city, phone or in-charge. */
+    public static function pickOptions(?string $search = null, int $limit = 50): array
+    {
+        $q = static::query()->orderBy('name')->orderBy('city');
+        if (filled($search)) {
+            $like = '%' . trim($search) . '%';
+            $q->where(fn ($w) => $w->where('name', 'like', $like)->orWhere('city', 'like', $like)
+                ->orWhere('phone', 'like', $like)->orWhere('incharge', 'like', $like));
+        }
+
+        return $q->limit($limit)->get()->mapWithKeys(fn (self $b) => [$b->id => $b->pickLabel()])->all();
+    }
+
     public function members() { return $this->hasMany(Member::class); }
 
     public function users() { return $this->hasMany(User::class); }

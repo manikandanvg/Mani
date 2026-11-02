@@ -54,10 +54,16 @@ class StaffResource extends BaseResource
                 Forms\Components\TextInput::make('name')->required()->maxLength(150),
                 Forms\Components\TextInput::make('email')->email()->required()->unique(ignoreRecord: true),
                 Forms\Components\TextInput::make('phone')->tel()->maxLength(20),
+                // User 2026-11-02: 1,180 branches share the name "LORD JEWELLER" — show
+                // "NAME (city / phone / in-charge)" and search any of those fields server-side.
                 Forms\Components\Select::make('branch_id')
                     ->label('Branch')
-                    ->options(fn () => Branch::orderBy('name')->pluck('name', 'id'))
-                    ->searchable(),
+                    ->searchable()
+                    ->searchPrompt('Type a branch name, city, phone or in-charge…')
+                    ->getSearchResultsUsing(fn (string $search) => Branch::pickOptions($search))
+                    ->getOptionLabelUsing(fn ($value) => Branch::find($value)?->pickLabel())
+                    ->options(fn () => Branch::pickOptions(null, 50))
+                    ->helperText('Shown as name (city / phone / in-charge) so the right branch is picked.'),
                 Forms\Components\Select::make('status')
                     ->options(['active' => 'Active', 'inactive' => 'Inactive'])
                     ->default('active')
@@ -87,8 +93,10 @@ class StaffResource extends BaseResource
             ->columns([
                 Tables\Columns\TextColumn::make('name')->searchable()->sortable(),
                 Tables\Columns\TextColumn::make('email')->searchable(),
+                Tables\Columns\TextColumn::make('phone')->label('Phone')->searchable()->sortable()->copyable()->placeholder('—'),
                 Tables\Columns\TextColumn::make('roles.name')->badge()->label('Roles'),
-                Tables\Columns\TextColumn::make('branch.name')->label('Branch')->sortable(),
+                Tables\Columns\TextColumn::make('branch.name')->label('Branch')->sortable()->searchable()
+                    ->description(fn (User $record) => $record->branch?->city),
                 Tables\Columns\TextColumn::make('status')->badge()
                     ->color(fn ($state) => $state === 'active' ? 'success' : 'gray'),
             ])
