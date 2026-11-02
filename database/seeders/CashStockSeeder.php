@@ -82,6 +82,10 @@ class CashStockSeeder extends Seeder
         $rows = $legacy->table('tbl_stock')
             ->select('branchid', DB::raw('SUM(weight) as qty'), DB::raw('MAX(purprice) as rate'))
             ->whereRaw('UPPER(catename) = ?', ['CASH'])
+            // ACTIVE rows only — exactly what the legacy dashboard counts (user 2026-11-02:
+            // SREE GOLD showed ₹2.43 cr instead of ₹10 L because one PENDING row of a
+            // mistyped ₹2,32,93,000 top-up was summed in).
+            ->whereRaw('UPPER(status) = ?', ['ACTIVE'])
             ->groupBy('branchid')
             ->get();
         $perBranch = [];

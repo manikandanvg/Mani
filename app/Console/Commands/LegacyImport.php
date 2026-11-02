@@ -271,6 +271,7 @@ class LegacyImport extends Command
             ->select('branchid', 'prid', 'purity', DB::raw('SUM(weight) as qty'), DB::raw('MAX(purprice) as rate'))
             ->whereIn('catename', ['GOLD', 'SILVER'])
             ->where('weight', '>', 0)
+            ->whereRaw('UPPER(status) = ?', ['ACTIVE'])   // what the legacy dashboard counts (same rule as CashStockSeeder)
             ->groupBy('branchid', 'prid', 'purity')
             ->get();
 
