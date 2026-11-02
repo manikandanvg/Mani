@@ -29,7 +29,7 @@ class GoLiveCheck extends Command
         $this->row('APP_ENV', (string) config('app.env'), config('app.env') === 'production' ? 'pass' : 'warn');
         $this->row('APP_DEBUG', config('app.debug') ? 'true' : 'false', config('app.debug') ? 'fail' : 'pass', 'debug pages leak .env values — set APP_DEBUG=false');
         $this->row('Timezone', (string) config('app.timezone'), config('app.timezone') === 'Asia/Kolkata' ? 'pass' : 'fail');
-        $this->row('Queue driver', (string) config('queue.default'), 'info', config('queue.default') === 'database' ? 'needs `php artisan queue:work` (supervisor) or jobs never run' : null);
+        $this->row('Queue driver', (string) config('queue.default'), 'info', config('queue.default') === 'database' ? 'drained every minute by the scheduler (queue:work --stop-when-empty) — needs only the schedule:run cron, no supervisor' : null);
 
         $this->section('Database');
         try {

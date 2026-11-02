@@ -23,7 +23,7 @@ php artisan down --retry=30 --secret=deploying || true
 
 if [ "$PULL" = 1 ]; then
   say "2. git pull"
-  git pull --ff-only manikandanvg main || git pull --ff-only origin main
+  git pull --ff-only origin main 2>/dev/null || git pull --ff-only manikandanvg main
 fi
 
 say "3. composer (production, optimised autoloader)"
@@ -33,7 +33,7 @@ say "4. database"
 php artisan migrate --force --no-interaction
 
 say "5. storage link + permissions"
-php artisan storage:link || true
+[ -e public/storage ] || php artisan storage:link
 chmod -R ug+rwX storage bootstrap/cache
 
 say "6. clear old caches, then build the production caches"
