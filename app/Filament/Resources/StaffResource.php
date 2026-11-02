@@ -102,18 +102,18 @@ class StaffResource extends BaseResource
                     ->color(fn ($state) => $state === 'active' ? 'success' : 'gray'),
             ])
             ->actions([
-                // User 2026-11-02: send the login (new temporary password) by WhatsApp + app push
+                // User 2026-11-02 (board: WhatsApp is OTP-only): send the login (new temporary
+                // password) as an app push + inbox entry to the login's member account
                 Tables\Actions\Action::make('sendDetails')
                     ->label('Send login details')->icon('heroicon-o-paper-airplane')->color('info')
                     ->requiresConfirmation()
                     ->modalHeading('Send login details?')
-                    ->modalDescription(fn (User $record) => 'A new temporary password is set for ' . $record->email . ' and sent by WhatsApp to '
-                        . (($record->phone ?: $record->branch?->phone) ?: 'NO phone on file')
-                        . ($record->memberAccount ? ' and as an app push to ' . $record->memberAccount->member_code : ' (no member account, so no app push)')
-                        . '. The old password stops working.')
+                    ->modalDescription(fn (User $record) => $record->memberAccount
+                        ? 'A new temporary password is set for ' . $record->email . ' and sent as an app push + inbox message to ' . $record->memberAccount->member_code . '. The old password stops working.'
+                        : $record->email . ' has no member account (member code), so there is no app to push to. Nothing will be sent and the password stays as it is.')
+                    ->disabled(fn (User $record) => $record->memberAccount === null)
                     ->action(function (User $record) {
-                        $res = app(StaffCredentialsService::class)->send($record, auth()->id());
-                        static::notifySent($res);
+                        static::notifySent(fn () => app(StaffCredentialsService::class)->send($record, auth()->id()));
                     }),
                 Tables\Actions\EditAction::make(),
                 Tables\Actions\DeleteAction::make(),
@@ -122,35 +122,44 @@ class StaffResource extends BaseResource
                 Tables\Actions\BulkAction::make('bulkSendDetails')
                     ->label('Send login details')->icon('heroicon-o-paper-airplane')->color('info')
                     ->requiresConfirmation()
-                    ->modalDescription('Each selected login gets a new temporary password, sent by WhatsApp to its phone (branch phone as fallback) and as an app push where the login has a member account. Old passwords stop working.')
+                    ->modalDescription('Each selected login gets a new temporary password, sent as an app push + inbox message to its member account. Logins without a member account are skipped and keep their password. Old passwords stop working.')
                     ->deselectRecordsAfterCompletion()
                     ->action(function (Collection $records) {
                         $svc = app(StaffCredentialsService::class);
-                        [$wa, $push, $none] = [0, 0, 0];
+                        [$sent, $withDevice, $skipped] = [0, 0, []];
                         foreach ($records as $u) {
-                            $res = $svc->send($u, auth()->id());
-                            $wa += $res['whatsapp'] ? 1 : 0;
-                            $push += $res['push'] ? 1 : 0;
-                            $none += (! $res['whatsapp'] && ! $res['push']) ? 1 : 0;
+                            try {
+                                $res = $svc->send($u, auth()->id());
+                                $sent++;
+                                $withDevice += $res['devices'] > 0 ? 1 : 0;
+                            } catch (\Throwable $e) {
+                                $skipped[] = $u->email;
+                            }
                         }
-                        Notification::make()->{$none ? 'warning' : 'success'}()
-                            ->title($records->count() . ' login' . ($records->count() === 1 ? '' : 's') . ' reset')
-                            ->body("WhatsApp sent: {$wa} · app push: {$push}" . ($none ? " · reached nobody: {$none} (no phone, no member account)" : ''))
+                        Notification::make()->{$skipped ? 'warning' : 'success'}()
+                            ->title($sent . ' login' . ($sent === 1 ? '' : 's') . ' sent as app push + inbox')
+                            ->body("With a registered phone: {$withDevice} · inbox only (app not yet logged in): " . ($sent - $withDevice)
+                                . ($skipped ? ' · skipped, no member account: ' . implode(', ', array_slice($skipped, 0, 6)) . (count($skipped) > 6 ? '…' : '') : ''))
                             ->persistent()->send();
                     }),
                 Tables\Actions\DeleteBulkAction::make(),
             ])]);
     }
 
-    protected static function notifySent(array $res): void
+    protected static function notifySent(\Closure $send): void
     {
-        $parts = [];
-        $parts[] = $res['whatsapp'] ? 'WhatsApp sent to ' . $res['phone'] : 'WhatsApp NOT sent' . ($res['whatsapp_note'] ? ' (' . $res['whatsapp_note'] . ')' : '');
-        $parts[] = $res['push'] ? 'app push + inbox sent' : 'no app push (no member account)';
-        $ok = $res['whatsapp'] || $res['push'];
-        Notification::make()->{$ok ? 'success' : 'danger'}()
-            ->title($ok ? 'Login details sent' : 'Login details NOT delivered')
-            ->body(implode(' · ', $parts) . ($ok ? '' : '. The password was still reset — set a phone or member code and send again.'))
+        try {
+            $res = $send();
+        } catch (\Throwable $e) {
+            Notification::make()->danger()->title('Login details NOT sent')->body($e->getMessage())->persistent()->send();
+
+            return;
+        }
+        Notification::make()->success()
+            ->title('Login details sent to ' . $res['member_code'])
+            ->body($res['devices'] > 0
+                ? 'App push to ' . $res['devices'] . ' registered phone' . ($res['devices'] === 1 ? '' : 's') . ' + inbox message. The old password stops working.'
+                : 'No phone registered yet for this member — the message waits in the app inbox and shows on the next app login. The old password stops working.')
             ->persistent()->send();
     }
 

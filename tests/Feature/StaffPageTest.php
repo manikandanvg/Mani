@@ -56,8 +56,8 @@ class StaffPageTest extends TestCase
         $this->assertSame($a->id, $staff->fresh()->branch_id);
     }
 
-    /** User 2026-11-02: "Send login details" resets the password and sends it by WhatsApp + app push; the password never reaches the activity log. */
-    public function test_send_login_details_resets_the_password_and_sends_it_by_whatsapp_and_app_push(): void
+    /** User 2026-11-02 (board: WhatsApp is OTP-only): "Send login details" resets the password and sends it as app push + inbox; the password never reaches the activity log. */
+    public function test_send_login_details_resets_the_password_and_sends_it_by_app_push_and_inbox_only(): void
     {
         $this->seed(DatabaseSeeder::class);
         app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
@@ -77,25 +77,36 @@ class StaffPageTest extends TestCase
             ->callTableAction('sendDetails', $staff)
             ->assertNotified();
 
-        $sent = null;
-        \Illuminate\Support\Facades\Http::assertSent(function ($r) use (&$sent) {
-            $sent = $r->data();
-
-            return ($sent['number'] ?? '') === '919876543210' && str_contains($sent['message'] ?? '', 'murugan@test.local');
-        });
-        $this->assertMatchesRegularExpression('/Password: (\S+)/', $sent['message']);
-        preg_match('/Password: (\S+)/', $sent['message'], $m);
+        // no WhatsApp (or any other HTTP) call — the details travel as push + inbox only
+        \Illuminate\Support\Facades\Http::assertNothingSent();
+        $inbox = DB::table('notifications')->where('notifiable_id', $member->id)->get();
+        $this->assertCount(1, $inbox);
+        $body = (string) (json_decode($inbox[0]->data, true)['body'] ?? '');
+        $this->assertMatchesRegularExpression('/Password: (\S+)/', $body);
+        preg_match('/Password: (\S+)/', $body, $m);
         $password = $m[1];
-        $this->assertStringContainsString('LORD JEWELLER (SIVAKASI / 9000000001 / Bala)', $sent['message']);
-        $this->assertStringContainsString('/admin/login', $sent['message']);
+        $this->assertStringContainsString('LORD JEWELLER (SIVAKASI / 9000000001 / Bala)', $body);
+        $this->assertStringContainsString('murugan@test.local', $body);
+        $this->assertStringContainsString('/admin/login', $body);
 
         $fresh = $staff->fresh();
         $this->assertTrue(\Illuminate\Support\Facades\Hash::check($password, $fresh->password), 'the sent password is the new one');
         $this->assertFalse(\Illuminate\Support\Facades\Hash::check('secret123', $fresh->password), 'the old password stops working');
 
-        // app push + inbox for the member account, and the password is in no activity-log row
-        $this->assertSame(1, DB::table('notifications')->where('notifiable_id', $member->id)->count());
+        // the password is in no activity-log row
         $this->assertSame(0, \App\Models\ActivityLog::where('details', 'like', '%' . $password . '%')->count());
         $this->assertSame(1, \App\Models\ActivityLog::where('action', 'staff_credentials_sent')->count());
+
+        // a login without a member account cannot be reached: nothing sent, password untouched, button disabled
+        $plain = User::create(['name' => 'Accounts', 'email' => 'accounts@test.local', 'password' => 'secret123', 'status' => 'active', 'branch_id' => $branch->id]);
+        $plain->assignRole('distributor');
+        Livewire::test(ListStaff::class)->assertTableActionDisabled('sendDetails', $plain);
+        try {
+            app(\App\Services\Staff\StaffCredentialsService::class)->send($plain, $admin->id);
+            $this->fail('no member account → must refuse');
+        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
+            $this->assertSame(422, $e->getStatusCode());
+        }
+        $this->assertTrue(\Illuminate\Support\Facades\Hash::check('secret123', $plain->fresh()->password));
     }
 }
