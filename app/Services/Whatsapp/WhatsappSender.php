@@ -17,10 +17,10 @@ use Illuminate\Support\Facades\Log;
  */
 class WhatsappSender
 {
-    /** Send a plain text message. */
-    public function sendText(string $phone, string $message): array
+    /** Send a plain text message. $sensitive = the text (e.g. a password) is not stored in the activity log. */
+    public function sendText(string $phone, string $message, bool $sensitive = false): array
     {
-        return $this->send($phone, ['type' => 'text', 'message' => $message]);
+        return $this->send($phone, ['type' => 'text', 'message' => $message, '_sensitive' => $sensitive]);
     }
 
     /** Send a media message (image/pdf/etc.) by public URL, with an optional caption. */
@@ -32,8 +32,13 @@ class WhatsappSender
     /** Board 2026-10-31: every WhatsApp send is an activity-log row (text / media, masked number, gateway answer). */
     protected function send(string $phone, array $payload): array
     {
+        $sensitive = (bool) ($payload['_sensitive'] ?? false);
+        unset($payload['_sensitive']);
         $res = $this->transmit($phone, $payload);
         $ok = (bool) ($res['ok'] ?? false);
+        if ($sensitive) {
+            $payload['message'] = '[login details — not stored]';
+        }
         \App\Services\Activity\ActivityLogger::log('communication', 'whatsapp_' . ($payload['type'] ?? 'text'),
             'WhatsApp ' . ($payload['type'] ?? 'text') . ' to ' . \App\Services\Activity\ActivityLogger::phone($phone) . ($ok ? ' sent' : ' FAILED'), [
                 'channel' => 'whatsapp',
