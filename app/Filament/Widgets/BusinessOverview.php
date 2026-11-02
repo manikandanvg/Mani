@@ -35,11 +35,19 @@ class BusinessOverview extends BaseWidget
         $activeBonds = Bond::where('status', 'active')->count();
         $bondValue = (float) Bond::where('status', 'active')->sum('value');
         $commissionBooked = (float) CommissionLedger::sum('amount');
-        // Gross awaiting the commission-approval gate, across all three source tables
-        // (predicates mirror CommissionApprovalService::query).
-        $approvalsPending = (float) CommissionLedger::where('status', '!=', 'paid')->sum('amount')
-            + (float) CbcEntry::where('status', 'pending')->sum('worth')
-            + (float) ResellerCommission::where('status', '!=', 'paid')->sum('com_value');
+        // Gross awaiting the commission-approval gate, across the three source tables (predicates
+        // mirror CommissionApprovalService::query). User 2026-11-02: the figure showed ₹239 cr
+        // because it also summed every FUTURE-dated CBC coupon (one per bond per month up to
+        // 2028, ₹186 cr) and the legacy dealer-margin HISTORY (₹4.78 cr) — neither is approvable.
+        $today = now()->toDateString();
+        $icPending = (float) CommissionLedger::where('type', 'IC')->where('status', '!=', 'paid')->sum('amount');
+        $gapPending = (float) CommissionLedger::where('type', 'GAP')->where('status', '!=', 'paid')->sum('amount');
+        $cbcDue = (float) CbcEntry::where('status', 'pending')->whereDate('cbc_date', '<=', $today)->sum('worth');
+        $cbcFuture = (float) CbcEntry::where('status', 'pending')->whereDate('cbc_date', '>', $today)->sum('worth');
+        $marginsPending = (float) ResellerCommission::where('status', '!=', 'paid')->where('source', '!=', ResellerCommission::SOURCE_LEGACY)->sum('com_value');
+        $approvalsPending = $icPending + $gapPending + $cbcDue + $marginsPending;
+        $approvalsNote = 'IC ' . Money::display($icPending) . ' · GAP ' . Money::display($gapPending) . ' · CBC due ' . Money::display($cbcDue)
+            . ' · dealer margins ' . Money::display($marginsPending) . ($cbcFuture > 0 ? ' · future CBC coupons ' . Money::display($cbcFuture) . ' not counted' : '');
 
         return [
             Stat::make('Distributors', Number::format($members))
@@ -58,7 +66,7 @@ class BusinessOverview extends BaseWidget
                 ->color('warning'),
 
             Stat::make('Approvals Pending', Money::display($approvalsPending))
-                ->description('gross awaiting commission approval')
+                ->description($approvalsNote)
                 ->descriptionIcon('heroicon-m-clock')
                 ->color('danger'),
         ];

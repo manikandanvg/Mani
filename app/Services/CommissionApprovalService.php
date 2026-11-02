@@ -108,6 +108,9 @@ class CommissionApprovalService
             return CbcEntry::query()
                 ->with(['member'])
                 ->where('status', 'pending')
+                // a coupon is approvable once its month has come — the legacy import carries one
+                // pending coupon per bond per FUTURE month up to 2028 (user 2026-11-02)
+                ->whereDate('cbc_date', '<=', now()->toDateString())
                 ->when($from, fn ($q) => $q->whereDate('cbc_date', '>=', $from))
                 ->when($to, fn ($q) => $q->whereDate('cbc_date', '<=', $to))
                 ->orderBy('cbc_date');
