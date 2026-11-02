@@ -26,7 +26,8 @@ class ContractService
         return Pdf::setOptions([
             'isRemoteEnabled' => true,
             'isFontSubsettingEnabled' => true,
-            'chroot' => storage_path(),
+            // local files dompdf may read: storage/ (uploads, overrides) + the bundled letterhead/font
+            'chroot' => [storage_path(), resource_path('pdf-assets')],
             'defaultFont' => 'DejaVu Sans',
         ])->loadView('pdf.contract', [
             'bond' => $bond,
