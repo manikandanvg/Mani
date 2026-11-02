@@ -69,10 +69,7 @@ class BusinessOverview extends BaseWidget
                 ->description('gross awaiting commission approval')
                 ->descriptionIcon('heroicon-m-clock')
                 // the breakdown shows on hover only (user 2026-11-02)
-                ->extraAttributes([
-                    'title' => $approvalsNote,
-                    'x-tooltip' => '{ content: ' . json_encode($approvalsNote) . ', theme: $store.theme }',
-                ])
+                ->extraAttributes(['x-tooltip.raw' => $approvalsNote])
                 ->color('danger'),
         ];
     }

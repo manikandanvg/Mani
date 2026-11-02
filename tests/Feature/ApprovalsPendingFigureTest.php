@@ -50,7 +50,7 @@ class ApprovalsPendingFigureTest extends TestCase
         $this->assertSame('₹ 360.00', $card->getValue(), '100 IC + 200 GAP + 50 CBC due + 10 new margin; future CBC and legacy history left out');
         // the breakdown is a hover tooltip, not visible text on the card
         $this->assertSame('gross awaiting commission approval', $card->getDescription());
-        $tip = $card->getExtraAttributes()['title'] ?? '';
+        $tip = $card->getExtraAttributes()['x-tooltip.raw'] ?? '';
         $this->assertStringContainsString('IC ₹ 100.00', $tip);
         $this->assertStringContainsString('GAP ₹ 200.00', $tip);
         $this->assertStringContainsString('CBC due ₹ 50.00', $tip);
