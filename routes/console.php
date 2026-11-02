@@ -46,5 +46,10 @@ Schedule::command('zoom:sync-attendance')->everyThirtyMinutes()->withoutOverlapp
 // GOOGLE_PLAY_SERVICE_ACCOUNT_JSON is configured.
 Schedule::command('testimonials:import-play-reviews')->dailyAt('05:10')->withoutOverlapping();
 
+// QUEUE_CONNECTION=database with no supervisor worker (go-live 2026-11-02): drain whatever a
+// package queued (notifications, pushes) every minute from the scheduler itself, so a
+// per-minute `schedule:run` cron is the only process the server needs.
+Schedule::command('queue:work --stop-when-empty --max-time=50 --tries=3')->everyMinute()->withoutOverlapping();
+
 // Activity Log (board 2026-10-31): keep one year.
 Schedule::command('activity:prune --days=365')->monthlyOn(2, '03:50')->withoutOverlapping();
