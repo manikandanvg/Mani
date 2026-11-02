@@ -48,11 +48,14 @@ class ApprovalsPendingFigureTest extends TestCase
         $stats = (new \ReflectionMethod(BusinessOverview::class, 'getStats'))->invoke(app(BusinessOverview::class));
         $card = collect($stats)->first(fn ($s) => $s->getLabel() === 'Approvals Pending');
         $this->assertSame('₹ 360.00', $card->getValue(), '100 IC + 200 GAP + 50 CBC due + 10 new margin; future CBC and legacy history left out');
-        $this->assertStringContainsString('IC ₹ 100.00', $card->getDescription());
-        $this->assertStringContainsString('GAP ₹ 200.00', $card->getDescription());
-        $this->assertStringContainsString('CBC due ₹ 50.00', $card->getDescription());
-        $this->assertStringContainsString('dealer margins ₹ 10.00', $card->getDescription());
-        $this->assertStringNotContainsString('1,000', $card->getDescription(), 'future coupons are neither counted nor mentioned');
+        // the breakdown is a hover tooltip, not visible text on the card
+        $this->assertSame('gross awaiting commission approval', $card->getDescription());
+        $tip = $card->getExtraAttributes()['title'] ?? '';
+        $this->assertStringContainsString('IC ₹ 100.00', $tip);
+        $this->assertStringContainsString('GAP ₹ 200.00', $tip);
+        $this->assertStringContainsString('CBC due ₹ 50.00', $tip);
+        $this->assertStringContainsString('dealer margins ₹ 10.00', $tip);
+        $this->assertStringNotContainsString('1,000', $tip, 'future coupons are neither counted nor mentioned');
 
         // the approval queue agrees: a future coupon is not offered for approval yet
         $ids = app(CommissionApprovalService::class)->query('CBC')->pluck('id')->all();

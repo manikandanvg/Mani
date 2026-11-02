@@ -66,8 +66,13 @@ class BusinessOverview extends BaseWidget
                 ->color('warning'),
 
             Stat::make('Approvals Pending', Money::display($approvalsPending))
-                ->description($approvalsNote)
+                ->description('gross awaiting commission approval')
                 ->descriptionIcon('heroicon-m-clock')
+                // the breakdown shows on hover only (user 2026-11-02)
+                ->extraAttributes([
+                    'title' => $approvalsNote,
+                    'x-tooltip' => '{ content: ' . json_encode($approvalsNote) . ', theme: $store.theme }',
+                ])
                 ->color('danger'),
         ];
     }
