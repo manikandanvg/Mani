@@ -32,11 +32,13 @@ class MyBranchQr extends Page
 
     protected static string $view = 'filament.pages.my-branch-qr';
 
+    /** Board 2026-11-02: dealers and wholesalers only — an area dealer or sub dealer has no branch QR. */
     public static function canAccess(): bool
     {
         $u = auth()->user();
 
-        return (bool) ($u && method_exists($u, 'isDistributor') && $u->isDistributor() && $u->branch_id);
+        return (bool) ($u && method_exists($u, 'isDistributor') && $u->isDistributor() && $u->branch_id
+            && Branch::find($u->branch_id)?->showsPaymentQr());
     }
 
     public static function shouldRegisterNavigation(): bool

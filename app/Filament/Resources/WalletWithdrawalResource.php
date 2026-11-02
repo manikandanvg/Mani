@@ -55,6 +55,11 @@ class WalletWithdrawalResource extends BaseResource
                 Tables\Columns\TextColumn::make('member.name')->label('Distributor')->searchable()
                     ->description(fn (WalletWithdrawal $w) => $w->member?->member_code),
                 Tables\Columns\TextColumn::make('branch.name')->label('Branch'),
+                // Board 2026-11-02: the distributor's bank account, for the transfer
+                Tables\Columns\TextColumn::make('member.bank_acno')->label('Bank account')->searchable()->copyable()->placeholder('— no bank on file —')
+                    ->description(fn (WalletWithdrawal $w) => trim(($w->member?->bank_name ?? '') . ($w->member?->ifsc ? ' · IFSC ' . $w->member->ifsc : ''))),
+                Tables\Columns\TextColumn::make('member.ifsc')->label('IFSC')->searchable()->copyable()->toggleable(isToggledHiddenByDefault: true),
+                Tables\Columns\TextColumn::make('member.bank_name')->label('Bank')->searchable()->toggleable(isToggledHiddenByDefault: true),
                 // Board 2026-08-12 (web item 4): make the three origins tell apart at a
                 // glance — app QR scan at the box vs the two dealer-panel request pots.
                 Tables\Columns\TextColumn::make('source')->label('Source')->badge()
@@ -122,7 +127,8 @@ class WalletWithdrawalResource extends BaseResource
                             ->required(),
                         Forms\Components\TextInput::make('note'),
                     ])
-                    ->modalDescription('Confirm only AFTER the gold/cash is physically handed to the distributor.')
+                    ->modalDescription(fn (WalletWithdrawal $w) => 'Confirm only AFTER the gold/cash is physically handed to the distributor.'
+                        . ($w->member?->bank_acno ? ' Bank on file: ' . $w->member->bank_name . ' · A/c ' . $w->member->bank_acno . ' · IFSC ' . $w->member->ifsc : ' No bank account on file for this distributor.'))
                     ->action(function (WalletWithdrawal $record, array $data) {
                         app(WalletWithdrawalService::class)->disburse($record, $data['mode'], auth()->id(), $data['note'] ?? null);
                         Notification::make()->title('Withdrawal disbursed')->success()->send();

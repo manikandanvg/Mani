@@ -41,6 +41,17 @@ class Branch extends Model
      * LORD'S BRANCHES (the dealer becomes the branch in-charge; by TBP stage they move onto
      * the payroll). Schemes may be limited to one kind (Plan::available_to).
      */
+    /**
+     * Board 2026-11-02: only dealers (the HQ chain + retailer) and wholesalers may show their
+     * branch payment QR to receive payments; area dealers and sub dealers may not.
+     */
+    public const NO_PAYMENT_QR_LEVELS = ['area_dealer', 'sub_dealer'];
+
+    public function showsPaymentQr(): bool
+    {
+        return ! in_array((string) $this->level, self::NO_PAYMENT_QR_LEVELS, true);
+    }
+
     public const KIND_DEALER = 'dealer';
     public const KIND_BRANCH = 'branch';
     public const KINDS = [self::KIND_DEALER, self::KIND_BRANCH];

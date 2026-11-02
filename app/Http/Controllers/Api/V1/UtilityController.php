@@ -231,9 +231,10 @@ class UtilityController extends Controller
                     'longitude' => $b->longitude !== null ? (float) $b->longitude : null,
                     // Launch without L-BOX (board 2026-10-31, common 3): the branch's own static
                     // payment QR — the app shows it for scan-and-pay at this branch.
-                    'upi_id' => $b->upi_id ?: null,
-                    'upi_link' => $b->upiLink(),
-                    'payment_qr_url' => $b->paymentQrUrl(),
+                    // Board 2026-11-02: area dealers / sub dealers do not receive payments by QR
+                    'upi_id' => $b->showsPaymentQr() ? ($b->upi_id ?: null) : null,
+                    'upi_link' => $b->showsPaymentQr() ? $b->upiLink() : null,
+                    'payment_qr_url' => $b->showsPaymentQr() ? $b->paymentQrUrl() : null,
                 ])->values(),
         ]);
     }
