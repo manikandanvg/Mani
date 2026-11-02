@@ -25,7 +25,7 @@
     $fxGrand   = \App\Support\Money::convert((float) $invoice->grand_total, $fxCode);
 
     // Full-page branded letterhead (header / watermark / bank box / T&C / footer are baked in).
-    $bg = storage_path('app/invoice/invoice-bg.jpg');
+    $bg = pdf_asset('invoice-bg.jpg', 'app/invoice/invoice-bg.jpg');
 @endphp
 <!DOCTYPE html>
 <html>

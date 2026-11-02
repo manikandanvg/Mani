@@ -18,7 +18,7 @@
 
     $contractBody = $contractBody ?? '';
     $contractNo   = $contractNo ?? $bond->invoice_no;
-    $bg           = storage_path('app/contract/contract-bg.jpg');
+    $bg           = pdf_asset('contract-bg.jpg', 'app/contract/contract-bg.jpg');
 
     // Vertical offsets (mm) calibrated to the background image's printed markers.
     $yMeta     = 8;     // contract no / date (top-right, under header)
@@ -33,7 +33,7 @@
     <style>
         @page { margin: 0; }
         @font-face { font-family:'tamil'; font-style:normal; font-weight:normal;
-            src: url("{{ storage_path('fonts/NotoSansTamil-Regular.ttf') }}") format("truetype"); }
+            src: url("{{ pdf_asset('NotoSansTamil-Regular.ttf', 'fonts/NotoSansTamil-Regular.ttf') }}") format("truetype"); }
         * { font-family: DejaVu Sans, 'tamil', sans-serif; }
         body { margin:0; padding:0; color:#3a1f1f; font-size:11px; }
         .bg { position:absolute; top:0; left:0; width:210mm; height:297mm; }

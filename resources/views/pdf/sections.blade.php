@@ -11,9 +11,9 @@
     @page { margin: 27mm 12mm 16mm 12mm; }
     /* Tamil glyphs: Noto Sans Tamil (storage/fonts) as the fallback after DejaVu, as the contract PDF does. */
     @font-face { font-family: 'tamil'; font-style: normal; font-weight: normal;
-        src: url("{{ storage_path('fonts/NotoSansTamil-Regular.ttf') }}") format("truetype"); }
+        src: url("{{ pdf_asset('NotoSansTamil-Regular.ttf', 'fonts/NotoSansTamil-Regular.ttf') }}") format("truetype"); }
     @font-face { font-family: 'tamil'; font-style: normal; font-weight: bold;
-        src: url("{{ storage_path('fonts/NotoSansTamil-Regular.ttf') }}") format("truetype"); }
+        src: url("{{ pdf_asset('NotoSansTamil-Regular.ttf', 'fonts/NotoSansTamil-Regular.ttf') }}") format("truetype"); }
     body, td, th, h2, div { font-family: 'DejaVu Sans', sans-serif; }
     .ta { font-family: 'tamil', 'DejaVu Sans', sans-serif; }
     body { font-size: 9.5px; color: #222; }

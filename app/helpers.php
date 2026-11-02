@@ -229,3 +229,21 @@ if (! function_exists('tr')) {
         return app(TranslationManager::class)->to($text, $locale);
     }
 }
+
+if (! function_exists('pdf_asset')) {
+    /**
+     * Absolute path of a PDF brand asset (contract / invoice background, Tamil font).
+     * A copy placed under storage/ wins (e.g. a new letterhead uploaded on the server:
+     * storage/app/contract/contract-bg.jpg); otherwise the copy bundled in the repo at
+     * resources/pdf-assets/ is used, so a fresh deploy renders the PDFs without any
+     * manual file copy (user 2026-11-02: live contracts showed the "missing image" cross).
+     */
+    function pdf_asset(string $bundled, ?string $storageOverride = null): string
+    {
+        if ($storageOverride && is_file(storage_path($storageOverride))) {
+            return storage_path($storageOverride);
+        }
+
+        return resource_path('pdf-assets/' . $bundled);
+    }
+}
