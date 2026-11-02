@@ -56,6 +56,27 @@ class StaffPageTest extends TestCase
         $this->assertSame($a->id, $staff->fresh()->branch_id);
     }
 
+    /** User 2026-11-02 (complaint 1): every login, a dealer included, changes its own password on the panel's Profile page. */
+    public function test_a_dealer_login_can_change_its_own_password_on_the_profile_page(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+        app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+        $branch = Branch::create(['name' => 'LORD JEWELLER', 'city' => 'SIVAKASI', 'country' => 'IN', 'is_active' => true]);
+        $dealer = User::create(['name' => 'Murugan', 'email' => 'murugan@test.local', 'password' => 'secret123', 'status' => 'active', 'branch_id' => $branch->id]);
+        $dealer->assignRole('distributor');
+        app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+
+        $this->actingAs($dealer);
+        $this->get('/admin/profile')->assertOk()->assertSee('Password');
+
+        Livewire::test(\Filament\Pages\Auth\EditProfile::class)
+            ->fillForm(['name' => 'Murugan V', 'email' => 'murugan@test.local', 'password' => 'NewPass#2026', 'passwordConfirmation' => 'NewPass#2026'])
+            ->call('save')
+            ->assertHasNoFormErrors();
+        $this->assertTrue(\Illuminate\Support\Facades\Hash::check('NewPass#2026', $dealer->fresh()->password));
+        $this->assertSame('Murugan V', $dealer->fresh()->name);
+    }
+
     /** User 2026-11-02 (board: WhatsApp is OTP-only): "Send login details" resets the password and sends it as app push + inbox; the password never reaches the activity log. */
     public function test_send_login_details_resets_the_password_and_sends_it_by_app_push_and_inbox_only(): void
     {

@@ -106,10 +106,16 @@ class Sales extends Page implements HasForms
                             ->getOptionLabelUsing(fn ($value) => ($m = Member::find($value)) ? "{$m->name} ({$m->member_code})" : null)
                             ->live()
                             ->afterStateUpdated(fn ($state, Set $set) => $this->fillExisting($state, $set)),
-                        TextInput::make('referrer_code')->label('Referred Distributor User ID')->required()
+                        // An existing distributor keeps its sponsor / placement chain: both IDs are fixed text
+                        // (user 2026-11-02, complaint 2) and may be blank for a root / legacy member.
+                        TextInput::make('referrer_code')->label('Referred Distributor User ID')
+                            ->required(fn (Get $get) => $get('mode') === 'new')
+                            ->readOnly(self::lockedExisting())
                             ->live(onBlur: true)
                             ->helperText(fn (Get $get) => self::codeHint($get('referrer_code'))),
-                        TextInput::make('upline_code')->label('Senior Distributor User ID (Placement)')->required()
+                        TextInput::make('upline_code')->label('Senior Distributor User ID (Placement)')
+                            ->required(fn (Get $get) => $get('mode') === 'new')
+                            ->readOnly(self::lockedExisting())
                             ->live(onBlur: true)
                             ->helperText(fn (Get $get) => self::codeHint($get('upline_code'))),
                         Select::make('payment_type')->label('Pay Mode')
@@ -161,7 +167,10 @@ class Sales extends Page implements HasForms
                             ->disabled(self::lockedExisting())->dehydrated()
                             // live so the phone hint + validation follow the chosen country
                             ->live(),
-                        TextInput::make('customer.phone')->label('Phone')->tel()
+                        // type('tel') only — Filament's tel() adds a telephone regex that rejects the MASKED
+                        // value a dealer login sees for an existing distributor (98XXXXXX21) and blocked the bill
+                        // (user 2026-11-02, complaint 2). New distributors are validated by PhoneLength below.
+                        TextInput::make('customer.phone')->label('Phone')->type('tel')
                             ->readOnly(self::lockedExisting())
                             ->required(fn (Get $get) => $get('mode') === 'new')
                             // Per-country digit length (India = 10). Only enforced for NEW

@@ -27,6 +27,9 @@ class AdminPanelProvider extends PanelProvider
             ->id('admin')
             ->path('admin')
             ->login()
+            // User 2026-11-02 (complaint 1): every login — dealers included — changes its own
+            // password / name from the user menu (top right → Profile).
+            ->profile()
             // HQ bell (board 2026-08-11): new orders / inquiries / tickets / branch
             // events land in the panel's notification bell for admins.
             ->databaseNotifications()
