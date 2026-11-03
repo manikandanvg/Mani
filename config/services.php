@@ -93,6 +93,13 @@ return [
         'url' => rtrim(env('LEGACY_SITE_URL', 'https://old.lordicl.com'), '/'),
     ],
 
+    // Login OTP (board 2026-11-03: WhatsApp gateway switched off) — the code is shown to the
+    // distributor's dealer and HQ on Login Codes, pushed to a registered phone, and sent on
+    // WhatsApp only while that gateway is on. TTL long enough for a dealer to relay it.
+    'otp' => [
+        'ttl_minutes' => (int) env('OTP_TTL_MINUTES', 10),
+    ],
+
     // Exotel cloud telephony — missed-call number verification (board 2026-11-02: no OTP of any
     // kind for the trusted-device flow). The distributor miss-calls the virtual number; Exotel's
     // Passthru applet calls our webhook with the caller number. Region Singapore → api.exotel.com,

@@ -32,13 +32,21 @@ class OtpController extends Controller
         ]);
 
         $result = $this->otp->issue($data['phone'], 'login');
+        $ttl = OtpService::ttl();
+
+        // board 2026-11-03: WhatsApp is off — the code reaches the person by app push (registered
+        // phone) or through their dealer / Head Office (Login Codes page)
+        $message = match (true) {
+            $result['sent'] => 'OTP sent.',
+            $result['push'] ?? false => "Your login code is in your app notifications and inbox (valid {$ttl} minutes).",
+            default => "Ask your dealer or Head Office for your login code — they can see it now (valid {$ttl} minutes).",
+        };
 
         return response()->json(array_filter([
-            'message' => $result['sent']
-                ? 'OTP sent.'
-                : 'OTP generated but delivery failed — try again or contact support.',
-            'sent' => $result['sent'],
-            'expires_in' => OtpService::CODE_TTL_MINUTES * 60,
+            'message' => $message,
+            'sent' => $result['sent'] || ($result['push'] ?? false),
+            'relay' => ! $result['sent'] && ! ($result['push'] ?? false),
+            'expires_in' => $ttl * 60,
             // Only present outside production, to ease local/dev testing.
             'debug_code' => $result['debug_code'],
         ], fn ($v) => $v !== null));

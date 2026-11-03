@@ -23,6 +23,12 @@ class OtpService
 
     public function __construct(protected WhatsappSender $whatsapp) {}
 
+    /** Code lifetime (board 2026-11-03: 10 minutes, long enough for a dealer to relay the code). */
+    public static function ttl(): int
+    {
+        return max(1, (int) config('services.otp.ttl_minutes', self::CODE_TTL_MINUTES));
+    }
+
     /**
      * Issue a code for a phone + purpose and deliver it. Returns the OTP row.
      * In non-production environments the plain code is also returned to the caller
@@ -45,29 +51,39 @@ class OtpService
                 'phone' => $phone,
                 'code' => $code,
                 'purpose' => $purpose,
-                'expires_at' => Carbon::now()->addMinutes(self::CODE_TTL_MINUTES),
+                'expires_at' => Carbon::now()->addMinutes(self::ttl()),
             ]);
         }
 
-        $result = $this->whatsapp->sendText(
-            $phone,
-            "Your Lord ICL verification code is {$code}. It expires in " . self::CODE_TTL_MINUTES . ' minutes. Do not share it with anyone.'
-        );
+        // Delivery (board 2026-11-03, WhatsApp gateway off): WhatsApp only while the gateway is on;
+        // an app push + inbox entry when the member has a registered phone; and always visible to
+        // the member's dealer and to HQ on Login Codes, who relay it by hand.
+        $text = "Your Lord ICL verification code is {$code}. It expires in " . self::ttl() . ' minutes. Do not share it with anyone.';
+        $gatewayOn = (bool) (\App\Models\WhatsappSetting::current()->effective()['is_active'] ?? true);
+        $result = $gatewayOn ? $this->whatsapp->sendText($phone, $text, sensitive: true) : ['ok' => false, 'message' => 'WhatsApp gateway is off'];
+
+        $pushed = false;
+        $member = \App\Models\Member::where('phone', 'like', '%' . substr($phone, -10))->first();
+        if ($member && $member->deviceTokens()->exists()) {
+            \App\Services\Push\Notifier::to($member, 'system', 'Your login code', $text, null, ['sensitive' => true]);
+            $pushed = true;
+        }
 
         \App\Services\Activity\ActivityLogger::log('otp', 'otp_sent',
             ucfirst($purpose) . ' OTP to ' . \App\Services\Activity\ActivityLogger::phone($phone) . (($result['ok'] ?? false) ? ' sent' : ' FAILED to send'), [
-                'channel' => 'whatsapp', 'status' => ($result['ok'] ?? false) ? 'ok' : 'failed',
-                'member' => \App\Models\Member::where('phone', $phone)->value('id'),
+                'channel' => ($result['ok'] ?? false) ? 'whatsapp' : ($pushed ? 'push' : 'login_codes'), 'status' => (($result['ok'] ?? false) || $pushed) ? 'ok' : 'relay',
+                'member' => $member?->id,
                 // otp_code is NOT in ActivityLogger::HIDDEN on purpose (user 2026-10-31): Head Office
                 // reads the generated code off the Activity Log when a distributor cannot receive it.
                 // The viewer shows it to super admins only (ActivityLogResource::canSeeOtp()).
                 'details' => ['purpose' => $purpose, 'phone' => \App\Services\Activity\ActivityLogger::phone($phone), 'reused_live_code' => $recent && $otp->is($recent),
-                    'otp_code' => $code, 'expires_at' => $otp->expires_at?->toDateTimeString()],
+                    'otp_code' => $code, 'expires_at' => $otp->expires_at?->toDateTimeString(), 'whatsapp' => (bool) ($result['ok'] ?? false), 'push' => $pushed],
             ]);
 
         return [
             'otp' => $otp,
             'sent' => (bool) ($result['ok'] ?? false),
+            'push' => $pushed,
             'debug_code' => app()->environment('production') ? null : $code,
         ];
     }
