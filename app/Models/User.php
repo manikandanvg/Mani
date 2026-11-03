@@ -94,8 +94,16 @@ class User extends Authenticatable implements FilamentUser
      * Stock order ceiling = max(member BV, invested) — the legacy admin/Master.php rule.
      * Returns 0.0 when neither is on record (callers treat 0 as "no limit configured").
      */
+    /**
+     * The ceiling for ONE order (user 2026-11-03: each order on its own, never a running total):
+     * the branch's Order limit when Head Office filled it in, else max(member BV, invested).
+     */
     public function orderLimit(): float
     {
+        $branchLimit = (float) ($this->branch?->order_limit ?? 0);
+        if ($branchLimit > 0) {
+            return $branchLimit;
+        }
         $bv = (float) ($this->memberAccount?->bv ?? 0);
 
         return max($bv, (float) $this->invested);

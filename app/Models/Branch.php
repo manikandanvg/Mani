@@ -48,9 +48,16 @@ class Branch extends Model
      */
     public const NO_PAYMENT_QR_LEVELS = ['reseller', 'area_dealer', 'sub_dealer'];
 
+    /** Admin override on the branch form (user 2026-11-03): null = by level, on, off. */
+    public const STATIC_QR_OPTIONS = ['on' => 'Enabled', 'off' => 'Disabled'];
+
     public function showsPaymentQr(): bool
     {
-        return ! in_array((string) $this->level, self::NO_PAYMENT_QR_LEVELS, true);
+        return match ((string) $this->static_qr) {
+            'on' => true,
+            'off' => false,
+            default => ! in_array((string) $this->level, self::NO_PAYMENT_QR_LEVELS, true),
+        };
     }
 
     public const KIND_DEALER = 'dealer';

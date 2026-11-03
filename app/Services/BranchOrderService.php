@@ -538,33 +538,26 @@ class BranchOrderService
     }
 
     /**
-     * Enforce the distributor's order limit on outstanding (pending) orders. The limit is
-     * max(member BV, invested) — legacy admin/Master.php. Admin / HQ staff (non-distributors)
-     * are unlimited; a distributor with neither BV nor investment on record is treated as
-     * "no limit configured" rather than locked out.
+     * The order limit is a silent per-order ceiling (user 2026-11-03): THIS order's value may
+     * not exceed the limit — ₹5,00,000 then ₹4,50,000 then ₹50,000 all pass a ₹5,00,000 limit,
+     * ₹5,00,001 never does. Pending orders are NOT added up. The limit is the branch's Order
+     * limit when HQ set one, else max(member BV, invested) (User::orderLimit). Admin / HQ staff
+     * are unlimited; a distributor with no limit on record is not locked out.
      */
     protected function assertWithinOrderLimit(?User $user, int $branchId, float $grand): void
     {
         if (! $user || ! $user->isDistributor()) {
             return;   // admin / HQ staff: unlimited
         }
-        $limit = $user->orderLimit();   // max(member BV, invested)
+        $limit = $user->orderLimit();
         if ($limit <= 0) {
             return;
         }
 
-        $pending = (float) BranchOrderRequest::where('branch_id', $branchId)
-            ->where('status', 'pending')->sum('grand_total');
-
         abort_if(
-            $pending + $grand > $limit + 0.004,
+            $grand > $limit + 0.004,
             422,
-            sprintf(
-                'Order exceeds your limit of ₹%s (₹%s already pending, this order ₹%s).',
-                \App\Support\Money::group($limit),
-                \App\Support\Money::group($pending),
-                \App\Support\Money::group($grand)
-            )
+            sprintf('This order of ₹%s exceeds your order limit of ₹%s.', \App\Support\Money::group($grand), \App\Support\Money::group($limit))
         );
     }
 

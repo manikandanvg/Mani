@@ -89,6 +89,9 @@ class BranchPayoutFlowTest extends TestCase
         $this->assertEquals(5000.0, (float) $req->amount);
         $this->assertSame('requested', $req->status);
 
+        // the dealer's own view of the bundle is labelled "HQ Payout Requests" (user 2026-11-03)
+        Livewire::test(ListBranchPayoutRequests::class)->assertCanSeeTableRecords([$req])->assertSee('HQ Payout Requests')->assertDontSee('Branch Payout Requests');
+
         // a requested row cannot be bundled twice
         try {
             $svc->requestPayout($this->dealer, [$a->id]);
@@ -101,6 +104,7 @@ class BranchPayoutFlowTest extends TestCase
         $this->actingAs($admin);
         Livewire::test(ListBranchPayoutRequests::class)
             ->assertCanSeeTableRecords([$req])
+            ->assertSee('Branch Payout Requests')->assertDontSee('HQ Payout Requests')
             ->assertSee('30012345678')->assertSee('SBIN0000123')->assertSee('Rajapalayam')
             ->callTableAction('pay', $req, ['payment_ref' => 'UTR123', 'note' => 'NEFT done'])
             ->assertNotified();

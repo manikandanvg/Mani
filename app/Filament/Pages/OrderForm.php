@@ -105,24 +105,11 @@ class OrderForm extends Page implements HasForms
                         ->content(fn () => $this->supplierBanner()),
                 ]),
                 Section::make('Items')->schema([
-                    // Dealer's ceiling up front — don't let them build a cart the
-                    // submit will reject (limit = max(BV, invested); HQ unlimited).
+                    // Dealer's per-order ceiling, one quiet line (user 2026-11-03: no running total).
                     Placeholder::make('order_limit_banner')->label('')
                         ->visible(fn () => (bool) auth()->user()?->isDistributor() && (float) auth()->user()->orderLimit() > 0)
-                        ->content(function (Get $get) {
-                            $limit = (float) auth()->user()->orderLimit();
-                            $pending = (float) \App\Models\BranchOrderRequest::where('branch_id', $get('branch_id'))
-                                ->where('status', 'pending')->sum('grand_total');
-                            $avail = max(0, $limit - $pending);
-
-                            return new HtmlString(sprintf(
-                                '<span class="text-sm">%s <b>₹%s</b> · %s <b>₹%s</b> · %s <b class="%s">₹%s</b></span>',
-                                e(__('Order limit')), \App\Support\Money::group($limit),
-                                e(__('pending approval')), \App\Support\Money::group($pending),
-                                e(__('available now')), $avail > 0 ? 'text-green-600' : 'text-red-600',
-                                \App\Support\Money::group($avail)
-                            ));
-                        }),
+                        ->content(fn () => new HtmlString(sprintf('<span class="text-sm">%s <b>₹%s</b></span>',
+                            e(__('Order limit (per order)')), \App\Support\Money::group((float) auth()->user()->orderLimit())))),
                     Repeater::make('lines')
                         ->label('')
                         ->addActionLabel('Add item')
@@ -308,15 +295,12 @@ class OrderForm extends Page implements HasForms
             $rows[] = ['Approx. (' . strtoupper($fxCode) . ')', $sym . ' ' . \App\Support\Money::group(\App\Support\Money::convert($grand, $fxCode), 2, strtoupper($fxCode))];
         }
 
-        // Show remaining order headroom for a distributor: max(member BV, invested).
+        // The distributor's per-order ceiling (user 2026-11-03: each order on its own).
         $user = auth()->user();
         if ($user && $user->isDistributor()) {
             $limit = $user->orderLimit();
             if ($limit > 0) {
-                $pending = (float) \App\Models\BranchOrderRequest::where('branch_id', $user->branch_id)
-                    ->where('status', 'pending')->sum('grand_total');
-                $rows[] = ['Order limit', \App\Support\Money::inr($limit)];
-                $rows[] = ['Available now', \App\Support\Money::inr(max(0, $limit - $pending - $grand))];
+                $rows[] = ['Order limit (per order)', \App\Support\Money::inr($limit)];
             }
         }
         $html = '<div class="grid grid-cols-4 gap-2 text-sm">';

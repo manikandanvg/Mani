@@ -44,6 +44,17 @@ class BranchPayoutRequestResource extends BaseResource
         return false;   // created by the branch from Wallet Withdrawals → Request payment from HQ
     }
 
+    /** User 2026-11-03: HQ sees "Branch Payout Requests", a dealer sees "HQ Payout Requests". */
+    public static function getPluralModelLabel(): string
+    {
+        return WalletWithdrawalResource::isHq() ? __('Branch Payout Requests') : __('HQ Payout Requests');
+    }
+
+    public static function getModelLabel(): string
+    {
+        return WalletWithdrawalResource::isHq() ? __('Branch Payout Request') : __('HQ Payout Request');
+    }
+
     public static function getNavigationBadge(): ?string
     {
         $n = static::getEloquentQuery()->where('status', 'requested')->count();

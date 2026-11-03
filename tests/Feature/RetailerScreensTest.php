@@ -173,20 +173,48 @@ class RetailerScreensTest extends TestCase
         $this->assertEquals(0, BranchOrderRequest::where('branch_id', $user->branch_id)->count());
     }
 
-    public function test_pending_orders_count_toward_limit(): void
+    public function test_pending_orders_do_not_count_toward_the_limit_each_order_is_checked_alone(): void
     {
+        // user 2026-11-03: ₹5,00,000 limit → ₹5,00,000, then ₹4,50,000, then ₹50,000 all pass
         $user = $this->distributorWith(invested: 10000, bv: 0);   // limit ₹10,000
         BranchOrderRequest::create([
             'request_no' => 'ORD-SEED', 'branch_id' => $user->branch_id, 'no_of_items' => 1,
             'cross_total' => 8000, 'gst_total' => 0, 'grand_total' => 8000, 'payment_type' => 'cash', 'status' => 'pending',
         ]);
-        $gold = $this->catalog('gold');   // ≈ ₹7,210; 8000 + 7210 > 10000
+        $gold = $this->catalog('gold');   // ≈ ₹7,210 ≤ 10,000 on its own, even with ₹8,000 pending
 
-        $this->expectException(\Symfony\Component\HttpKernel\Exception\HttpException::class);
-        app(BranchOrderService::class)->submit([
+        $req = app(BranchOrderService::class)->submit([
             'branch_id' => $user->branch_id, 'requested_by' => $user->id,
             'lines' => [['catalog_product_id' => $gold->id, 'weight' => 1]],
         ]);
+        $this->assertEquals('pending', $req->status);
+        $this->assertEquals(2, BranchOrderRequest::where('branch_id', $user->branch_id)->count());
+    }
+
+    public function test_branch_order_limit_set_by_hq_overrides_bv_and_invested(): void
+    {
+        $user = $this->distributorWith(invested: 5000, bv: 0);   // ₹5,000 by the automatic rule → gold ≈ ₹7,210 blocked
+        Branch::where('id', $user->branch_id)->update(['order_limit' => 500000]);
+        $this->assertEquals(500000.0, $user->fresh()->orderLimit());
+        $gold = $this->catalog('gold');
+        $req = app(BranchOrderService::class)->submit([
+            'branch_id' => $user->branch_id, 'requested_by' => $user->fresh()->id,
+            'lines' => [['catalog_product_id' => $gold->id, 'weight' => 1]],
+        ]);
+        $this->assertEquals('pending', $req->status);
+
+        // one order above the branch limit is still refused, whatever is pending
+        Branch::where('id', $user->branch_id)->update(['order_limit' => 7000]);
+        try {
+            app(BranchOrderService::class)->submit([
+                'branch_id' => $user->branch_id, 'requested_by' => $user->fresh()->id,
+                'lines' => [['catalog_product_id' => $gold->id, 'weight' => 1]],
+            ]);
+            $this->fail('Expected an over-limit rejection.');
+        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
+            $this->assertEquals(422, $e->getStatusCode());
+            $this->assertStringContainsString('exceeds your order limit of ₹7,000', $e->getMessage());
+        }
     }
 
     public function test_admin_is_exempt_from_order_limit(): void

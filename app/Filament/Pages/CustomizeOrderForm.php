@@ -148,21 +148,11 @@ class CustomizeOrderForm extends Page implements HasForms
                     ->icon('heroicon-o-sparkles')
                     ->description('Type the grams — the live rate, HQ margin, the Charge Bracket making/wastage % for that weight and GST are applied automatically.')
                     ->schema([
+                        // per-order ceiling, one quiet line (user 2026-11-03: no running total)
                         Placeholder::make('order_limit_banner')->hiddenLabel()
                             ->visible(fn () => (bool) auth()->user()?->isDistributor() && (float) auth()->user()->orderLimit() > 0)
-                            ->content(function (Get $get) {
-                                $limit = (float) auth()->user()->orderLimit();
-                                $pending = (float) BranchOrderRequest::where('branch_id', $get('branch_id'))
-                                    ->where('status', 'pending')->sum('grand_total');
-
-                                return new HtmlString(sprintf(
-                                    '<span class="text-sm">%s <b>₹%s</b> · %s <b>₹%s</b> · %s <b class="%s">₹%s</b></span>',
-                                    e(__('Order limit')), Money::group($limit),
-                                    e(__('pending approval')), Money::group($pending),
-                                    e(__('available now')), $limit - $pending > 0 ? 'text-green-600' : 'text-red-600',
-                                    Money::group(max(0, $limit - $pending))
-                                ));
-                            }),
+                            ->content(fn () => new HtmlString(sprintf('<span class="text-sm">%s <b>₹%s</b></span>',
+                                e(__('Order limit (per order)')), Money::group((float) auth()->user()->orderLimit())))),
                         Repeater::make('lines')
                             ->hiddenLabel()
                             ->addActionLabel('Add Items')

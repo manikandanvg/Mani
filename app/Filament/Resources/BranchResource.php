@@ -127,8 +127,15 @@ class BranchResource extends BaseResource
                 // Launch without L-BOX (board 2026-10-31, common 3): each branch has its own
                 // STATIC payment QR; the app shows it so distributors scan and pay the branch.
                 Forms\Components\Section::make('Payment QR')
-                    ->description('The branch payment QR is its L-BOX static QR (Static QR button on the branch list — generated for every dealer, scanned in the app under Wallet → Withdraw at branch). The UPI fields below are optional extras for the store card.')
+                    ->description('The branch payment QR is its L-BOX static QR (Static QR button on the branch list, scanned in the app under Wallet → Withdraw at branch). By level it is not offered to resellers, area dealers and sub dealers — the switch below overrides that for this branch. The UPI fields are optional extras for the store card.')
                     ->columns(2)->schema([
+                        // user 2026-11-03: a reseller / area dealer that asked for the L-BOX QR gets it here
+                        Forms\Components\Select::make('static_qr')->label('Static QR (L-BOX QR)')
+                            ->options(Branch::STATIC_QR_OPTIONS)
+                            ->placeholder('Default by level (not for resellers, area dealers, sub dealers)')
+                            ->native(false)
+                            ->helperText('Enabled: the Static QR button, the dealer\'s My Branch QR page and the app store card show this branch\'s QR whatever its level. Disabled hides it even for a level that normally has one.')
+                            ->columnSpanFull(),
                         Forms\Components\TextInput::make('upi_id')->label('UPI ID')->placeholder('branchname@upi')->maxLength(80),
                         Forms\Components\FileUpload::make('payment_qr_path')->label('QR image (optional)')
                             ->image()->directory('branch-qr')->maxSize(4096),
@@ -205,6 +212,13 @@ class BranchResource extends BaseResource
                     ->label('Missing pincode')
                     ->toggle()
                     ->query(fn (\Illuminate\Database\Eloquent\Builder $query) => $query->where(fn ($w) => $w->whereNull('pincode')->orWhere('pincode', ''))),
+                Tables\Filters\SelectFilter::make('static_qr')->label('Static QR')
+                    ->options(['on' => 'Enabled (override)', 'off' => 'Disabled (override)', 'level' => 'Default by level'])
+                    ->query(fn ($query, array $data) => match ($data['value'] ?? null) {
+                        'on', 'off' => $query->where('static_qr', $data['value']),
+                        'level' => $query->whereNull('static_qr'),
+                        default => $query,
+                    }),
                 Tables\Filters\SelectFilter::make('kind')->label('Kind')
                     ->options(['branch' => "Lord's Branches", 'dealer' => 'Dealers']),
                 Tables\Filters\SelectFilter::make('level')->label('Dealership level')

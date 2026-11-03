@@ -55,6 +55,25 @@ class BranchQrAndWithdrawalBankTest extends TestCase
             ->assertTableActionHidden('staticQr', $retail)
             ->assertTableActionVisible('staticQr', $whole);
 
+        // user 2026-11-03: admin switches the QR on for ONE reseller (and off for a wholesaler)
+        $retail->update(['static_qr' => 'on']);
+        $whole->update(['static_qr' => 'off']);
+        $this->actingAs($retailUser);
+        $this->assertTrue(\App\Filament\Pages\MyBranchQr::canAccess(), 'reseller with the override sees My Branch QR');
+        $this->actingAs($wholeUser);
+        $this->assertFalse(\App\Filament\Pages\MyBranchQr::canAccess(), 'wholesaler switched off loses it');
+        $this->actingAs(User::where('email', 'admin@lordicl.com')->firstOrFail());
+        Livewire::test(\App\Filament\Resources\BranchResource\Pages\ListBranches::class)
+            ->assertTableActionVisible('staticQr', $retail)
+            ->assertTableActionHidden('staticQr', $whole)
+            ->filterTable('static_qr', 'on')->assertCanSeeTableRecords([$retail])->assertCanNotSeeTableRecords([$whole, $area])
+            ->resetTableFilters();
+        $overridden = collect($this->getJson('/api/v1/stores')->assertOk()->json('data'));
+        $this->assertNotNull($overridden->firstWhere('id', $retail->id)['payment_qr_url']);
+        $this->assertNull($overridden->firstWhere('id', $whole->id)['payment_qr_url']);
+        $retail->update(['static_qr' => null]);
+        $whole->update(['static_qr' => null]);
+
         $stores = collect($this->getJson('/api/v1/stores')->assertOk()->json('data'));
         $this->assertNull($stores->firstWhere('id', $area->id)['payment_qr_url']);
         $this->assertNull($stores->firstWhere('id', $area->id)['upi_link']);
