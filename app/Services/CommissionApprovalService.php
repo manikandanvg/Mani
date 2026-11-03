@@ -174,12 +174,16 @@ class CommissionApprovalService
             $perBeneficiary[$id] = ['n' => ($perBeneficiary[$id]['n'] ?? 0) + 1, 'sum' => ($perBeneficiary[$id]['sum'] ?? 0) + $amount];
         }
 
-        // acknowledgement (board 2026-08-11: push + inbox) — one per beneficiary, after the money moved
+        // acknowledgement (board 2026-08-11: push + inbox) — one per beneficiary, after the money moved.
+        // CBC (user 2026-11-03): the coupon worth and the coupon wallet are Head Office figures —
+        // the member is told only the cash that reached the wallet.
         foreach ($perBeneficiary as $id => $t) {
             $member = $key === 'member_id' ? \App\Models\Member::find($id) : \App\Models\Branch::find($id)?->distributorUser?->memberAccount;
-            \App\Services\Push\Notifier::to($member, 'commission', 'Commission credited to your wallet',
-                "{$t['n']} " . $type . ' entr' . ($t['n'] === 1 ? 'y' : 'ies') . ' approved — gross ₹' . \App\Support\Money::group($t['sum'])
-                    . '; the net after TDS & service charge is now in your wallet.', route: '/wallet');
+            $body = $type === 'CBC'
+                ? "{$t['n']} promotional incentive coupon" . ($t['n'] === 1 ? '' : 's') . ' approved — ₹' . \App\Support\Money::group(self::cbcSplit($t['sum'])['cash']) . ' credited to your cash wallet.'
+                : "{$t['n']} " . self::label($type) . ' entr' . ($t['n'] === 1 ? 'y' : 'ies') . ' approved — gross ₹' . \App\Support\Money::group($t['sum'])
+                    . '; the net after TDS & service charge is now in your wallet.';
+            \App\Services\Push\Notifier::to($member, 'commission', 'Commission credited to your wallet', $body, route: '/wallet');
         }
         if ($rows > 0) {
             \App\Services\Activity\ActivityLogger::log('commission', 'commissions_approved',
