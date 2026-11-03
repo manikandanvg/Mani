@@ -37,6 +37,12 @@ class CommissionApprove extends Command
         $this->info(sprintf('%s %s → %s: %d un-paid rows, gross ₹%s, %d beneficiaries',
             CommissionApprovalService::label($type), $from ?? '…', $to ?? '…', $rows, number_format($gross, 2),
             (int) $query->distinct()->count(CommissionApprovalService::groupColumn($type))));
+        if ($type === 'CBC' && $rows > 0) {
+            // the coupon worth is not what reaches the wallet — show the board's split
+            $s = CommissionApprovalService::cbcSplit($gross);
+            $this->line(sprintf('  → cash wallet %s%% ₹%s · TDS %s%% ₹%s · service %s%% ₹%s · coupon wallet ₹%s',
+                $s['cash_pct'], number_format($s['cash'], 2), $s['tds_pct'], number_format($s['tds'], 2), $s['service_pct'], number_format($s['service'], 2), number_format($s['coupon'], 2)));
+        }
         if ($rows === 0 || $this->option('dry-run')) {
             return self::SUCCESS;
         }
