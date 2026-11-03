@@ -40,7 +40,7 @@ class CommissionApprove extends Command
         if ($type === 'CBC' && $rows > 0) {
             // the coupon worth is not what reaches the wallet — show the board's split
             $s = CommissionApprovalService::cbcSplit($gross);
-            $this->line(sprintf('  → cash wallet %s%% ₹%s · TDS %s%% ₹%s · service %s%% ₹%s · coupon wallet ₹%s',
+            $this->line(sprintf('  → cash wallet %s%% ₹%s · TDS %s%% ₹%s · service %s%% ₹%s · retained by HQ (not paid) ₹%s',
                 $s['cash_pct'], number_format($s['cash'], 2), $s['tds_pct'], number_format($s['tds'], 2), $s['service_pct'], number_format($s['service'], 2), number_format($s['coupon'], 2)));
         }
         if ($rows === 0 || $this->option('dry-run')) {
