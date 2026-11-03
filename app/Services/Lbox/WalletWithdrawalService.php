@@ -2,9 +2,11 @@
 
 namespace App\Services\Lbox;
 
+use App\Models\BranchPayoutRequest;
 use App\Models\Device;
 use App\Models\Member;
 use App\Models\MemberWallet;
+use App\Models\User;
 use App\Models\WalletWithdrawal;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -12,9 +14,16 @@ use Illuminate\Support\Facades\DB;
 /**
  * Closed-wallet withdrawal through the branch L-BOX static QR. The QR printed on the
  * box carries the device UUID; scanning it in the app targets that box's branch.
- * Requesting moves the balance member→branch immediately (and the box announces it);
- * the branch incharge then hands over gold/cash and marks the row disbursed.
- * Cancelling a pending row refunds the wallet. No payment gateway anywhere.
+ * Requesting debits the member's wallet immediately (and the box announces it).
+ *
+ * Board 2026-11-03 — the branch never fronts the cash:
+ *   pending    the member's request sits at the branch
+ *   requested  the branch bundled rows into a BranchPayoutRequest for Head Office
+ *   admin_paid HQ transferred the bundle to the branch (payRequest) — Disburse appears
+ *   disbursed  the branch handed over the cash/gold at the counter
+ * Only HQ cancels (cancel / cancelRequest); a cancel refunds the pot the row debited.
+ * HQ may also disburse a pending row directly (its own branch's counter).
+ * No payment gateway anywhere.
  */
 class WalletWithdrawalService
 {
@@ -193,11 +202,18 @@ class WalletWithdrawalService
         return $withdrawal;
     }
 
-    /** Branch incharge handed over gold/cash. */
-    public function disburse(WalletWithdrawal $withdrawal, string $mode, ?int $userId = null, ?string $note = null): WalletWithdrawal
+    /**
+     * Branch incharge handed over gold/cash. A branch may disburse only once HQ has paid
+     * the bundle (admin_paid); Head Office may also disburse a pending row directly.
+     */
+    public function disburse(WalletWithdrawal $withdrawal, string $mode, ?int $userId = null, ?string $note = null, bool $byHq = false): WalletWithdrawal
     {
-        if ($withdrawal->status !== 'pending') {
-            throw new \RuntimeException('Only pending withdrawals can be disbursed.');
+        if ($withdrawal->status === 'admin_paid' || ($byHq && $withdrawal->status === 'pending')) {
+            // allowed
+        } elseif (in_array($withdrawal->status, ['pending', 'requested'], true)) {
+            throw new \RuntimeException('Head Office has not paid this withdrawal to the branch yet — request the payout and wait for "Admin paid".');
+        } else {
+            throw new \RuntimeException('Only withdrawals paid by Head Office can be disbursed.');
         }
         if (! in_array($mode, ['cash', 'gold'], true)) {
             throw new \InvalidArgumentException("Disbursal mode must be cash or gold, [{$mode}] given.");
@@ -221,11 +237,15 @@ class WalletWithdrawalService
         return $withdrawal;
     }
 
-    /** Cancel a pending withdrawal — the wallet gets the money back. */
+    /**
+     * Cancel an open withdrawal (pending / requested / admin_paid) — the wallet gets the
+     * money back. Head Office only (board 2026-11-03); a branch can only request + disburse.
+     * A row inside a payout bundle leaves it and the bundle's count/amount shrink.
+     */
     public function cancel(WalletWithdrawal $withdrawal, ?int $userId = null, ?string $note = null): WalletWithdrawal
     {
-        if ($withdrawal->status !== 'pending') {
-            throw new \RuntimeException('Only pending withdrawals can be cancelled.');
+        if (! in_array($withdrawal->status, WalletWithdrawal::OPEN, true)) {
+            throw new \RuntimeException('Only open withdrawals (pending, requested or admin paid) can be cancelled.');
         }
 
         DB::transaction(function () use ($withdrawal, $userId, $note) {
@@ -244,6 +264,12 @@ class WalletWithdrawalService
                 'disbursed_by' => $userId,
                 'note' => $note,
             ]);
+            if ($withdrawal->payout_request_id) {
+                $req = BranchPayoutRequest::lockForUpdate()->find($withdrawal->payout_request_id)?->recount();
+                if ($req && $req->rows_count === 0 && $req->status === 'requested') {
+                    $req->update(['status' => 'cancelled', 'cancelled_by' => $userId, 'cancelled_at' => Carbon::now(), 'note' => 'Every withdrawal in it was cancelled']);
+                }
+            }
         });
 
         \App\Services\Push\Notifier::to($withdrawal->member, 'wallet',
@@ -253,6 +279,144 @@ class WalletWithdrawalService
                 . ($note ? '. Reason: ' . $note : '.'),
             route: '/wallet',
         );
+
+        return $withdrawal;
+    }
+
+    /**
+     * Board 2026-11-03 step 2 — the branch bundles its pending rows into ONE payout request
+     * to Head Office. Rows move pending → requested; nothing is paid yet.
+     *
+     * @param  array<int>  $withdrawalIds
+     */
+    public function requestPayout(User $user, array $withdrawalIds, ?string $note = null): BranchPayoutRequest
+    {
+        if (! $user->branch_id) {
+            throw new \RuntimeException('Your login has no branch mapped — contact Head Office.');
+        }
+        $ids = array_values(array_unique(array_map('intval', $withdrawalIds)));
+        if (! $ids) {
+            throw new \InvalidArgumentException('Select at least one pending withdrawal.');
+        }
+
+        $request = DB::transaction(function () use ($user, $ids, $note) {
+            $rows = WalletWithdrawal::lockForUpdate()->whereIn('id', $ids)->get();
+            if ($rows->count() !== count($ids)) {
+                throw new \RuntimeException('Some selected withdrawals no longer exist.');
+            }
+            if ($rows->contains(fn (WalletWithdrawal $w) => (int) $w->branch_id !== (int) $user->branch_id)) {
+                throw new \RuntimeException('Only your own branch\'s withdrawals can be requested.');
+            }
+            if ($rows->contains(fn (WalletWithdrawal $w) => $w->status !== 'pending')) {
+                throw new \RuntimeException('Only pending withdrawals can be requested — some selected rows are already requested, paid or closed.');
+            }
+
+            $request = BranchPayoutRequest::create([
+                'branch_id' => $user->branch_id,
+                'requested_by' => $user->id,
+                'rows_count' => $rows->count(),
+                'amount' => round((float) $rows->sum('amount'), 2),
+                'status' => 'requested',
+                'note' => $note,
+            ]);
+            WalletWithdrawal::whereIn('id', $ids)->update(['status' => 'requested', 'payout_request_id' => $request->id]);
+
+            return $request;
+        });
+
+        $branchName = $request->branch?->name ?? 'branch #' . $request->branch_id;
+        \App\Services\Push\Notifier::admins(
+            'Payout request — ' . $branchName,
+            sprintf('%s asks Head Office to fund %d withdrawal(s), ₹%s. Pay or cancel under L-BOX → Branch Payout Requests.',
+                $branchName, $request->rows_count, \App\Support\Money::group((float) $request->amount)),
+            url: '/admin/branch-payout-requests',
+            category: 'wallet',
+        );
+
+        return $request;
+    }
+
+    /**
+     * Step 3 — Head Office transferred the bundle to the branch (bank, outside the system).
+     * Records the reference; every row in it becomes admin_paid so the branch can disburse.
+     */
+    public function payRequest(BranchPayoutRequest $request, ?int $userId = null, ?string $paymentRef = null, ?string $note = null): BranchPayoutRequest
+    {
+        if ($request->status !== 'requested') {
+            throw new \RuntimeException('Only a requested bundle can be paid.');
+        }
+
+        DB::transaction(function () use ($request, $userId, $paymentRef, $note) {
+            $request->recount();
+            if ($request->rows_count === 0) {
+                throw new \RuntimeException('This bundle has no open withdrawals left to pay.');
+            }
+            $request->update([
+                'status' => 'paid',
+                'paid_by' => $userId,
+                'paid_at' => Carbon::now(),
+                'payment_ref' => $paymentRef,
+                'note' => $note ?? $request->note,
+            ]);
+            $request->withdrawals()->where('status', 'requested')->update(['status' => 'admin_paid']);
+        });
+
+        $dealer = $request->dealerBank();
+        if ($dealer) {
+            \App\Services\Push\Notifier::to($dealer, 'wallet',
+                'Head Office paid your payout request #' . $request->id,
+                sprintf('₹%s for %d withdrawal(s) transferred%s. Hand over the cash at the counter and press Disburse on each.',
+                    \App\Support\Money::group((float) $request->amount), $request->rows_count,
+                    $paymentRef ? ' (ref ' . $paymentRef . ')' : ''),
+                route: '/wallet',
+            );
+        }
+
+        return $request;
+    }
+
+    /** HQ declines a bundle before paying it — its rows go back to pending (no money moves). */
+    public function cancelRequest(BranchPayoutRequest $request, ?int $userId = null, ?string $note = null): BranchPayoutRequest
+    {
+        if ($request->status !== 'requested') {
+            throw new \RuntimeException('Only a requested (unpaid) bundle can be cancelled.');
+        }
+
+        DB::transaction(function () use ($request, $userId, $note) {
+            $request->withdrawals()->where('status', 'requested')->update(['status' => 'pending', 'payout_request_id' => null]);
+            $request->update(['status' => 'cancelled', 'cancelled_by' => $userId, 'cancelled_at' => Carbon::now(), 'note' => $note]);
+        });
+
+        $dealer = $request->dealerBank();
+        if ($dealer) {
+            \App\Services\Push\Notifier::to($dealer, 'wallet',
+                'Payout request #' . $request->id . ' cancelled by Head Office',
+                'The withdrawals are back to pending' . ($note ? '. Reason: ' . $note : '.'),
+                route: '/wallet',
+            );
+        }
+
+        return $request;
+    }
+
+    /**
+     * Undo a disbursal recorded before the HQ-funding rule (user 2026-11-03: 13 live rows
+     * marked disbursed by the branches themselves). The row returns to pending — the member's
+     * money is still out of the wallet and still owed, so no balance changes.
+     */
+    public function undoDisbursal(WalletWithdrawal $withdrawal, ?string $note = null): WalletWithdrawal
+    {
+        if ($withdrawal->status !== 'disbursed') {
+            throw new \RuntimeException('Only a disbursed withdrawal can be undone.');
+        }
+
+        $withdrawal->update([
+            'status' => 'pending',
+            'disbursal_mode' => null,
+            'disbursed_by' => null,
+            'disbursed_at' => null,
+            'note' => trim(($withdrawal->note ? $withdrawal->note . ' · ' : '') . ($note ?? 'disbursal undone')),
+        ]);
 
         return $withdrawal;
     }

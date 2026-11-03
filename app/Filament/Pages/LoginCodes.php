@@ -120,6 +120,14 @@ class LoginCodes extends Page implements HasTable
         ];
     }
 
+    /** Codes from the last few minutes by default; with a search or a date range, the last 30 days. */
+    protected function lookingBack(): bool
+    {
+        $date = $this->tableFilters['date'] ?? [];
+
+        return trim((string) $this->getTableSearch()) !== '' || filled($date['from'] ?? null) || filled($date['to'] ?? null);
+    }
+
     public function table(Table $table): Table
     {
         $branch = static::dealerBranchId();
@@ -128,7 +136,7 @@ class LoginCodes extends Page implements HasTable
         return $table
             ->query(PhoneOtp::query()
                 ->where('purpose', 'login')
-                ->where('created_at', '>=', now()->subMinutes(max(30, OtpService::ttl() * 3)))
+                ->where('created_at', '>=', $this->lookingBack() ? now()->subDays(30) : now()->subMinutes(max(30, OtpService::ttl() * 3)))
                 ->when($branch, fn ($q) => $q->whereExists(fn (Query $sub) => static::memberMatch($sub->select(\Illuminate\Support\Facades\DB::raw(1))->where('members.branch_id', $branch))))
                 ->addSelect(['*',
                     'member_name' => Member::query()->select('name')->tap(fn ($q) => static::memberMatch($q))->limit(1),
@@ -137,19 +145,44 @@ class LoginCodes extends Page implements HasTable
             ->defaultSort('id', 'desc')
             ->poll('10s')
             ->paginated([25, 50])
+            ->searchPlaceholder(__('Member code, name or phone…'))
             ->columns([
-                Tables\Columns\TextColumn::make('created_at')->label(__('Asked'))->since()->sortable(),
+                Tables\Columns\TextColumn::make('created_at')->label(__('Asked'))->since()->sortable()
+                    ->description(fn (PhoneOtp $r) => $r->created_at?->format('d M H:i')),
+                // user 2026-11-03: search by user id / number — name + member code match the member
+                // row behind the OTP phone, the phone itself matches on its digits
                 Tables\Columns\TextColumn::make('member_name')->label(__('Distributor'))->placeholder(__('— not a distributor —'))
-                    ->description(fn (PhoneOtp $r) => $r->member_code),
+                    ->description(fn (PhoneOtp $r) => $r->member_code)
+                    ->searchable(query: fn (Builder $query, string $search) => $query->whereExists(fn (Query $sub) => static::memberMatch(
+                        $sub->select(\Illuminate\Support\Facades\DB::raw(1))
+                            ->where(fn ($m) => $m->where('members.name', 'like', "%{$search}%")->orWhere('members.member_code', 'like', "%{$search}%"))))),
                 Tables\Columns\TextColumn::make('phone')->label(__('Phone'))
+                    // digits only — "LJW900" must not turn into a phone match on "900"
+                    ->searchable(query: fn (Builder $query, string $search) => preg_match('/^[\d\s+\-]{4,}$/', trim($search))
+                        ? $query->where('phone', 'like', '%' . preg_replace('/\D+/', '', $search) . '%')
+                        : $query->whereRaw('1 = 0'))
                     ->formatStateUsing(fn ($state) => $mask ? Mask::phone($state) : $state),
                 Tables\Columns\TextColumn::make('code')->label(__('Login code'))->copyable()->weight('bold')->size('lg')
                     ->formatStateUsing(fn ($state, PhoneOtp $r) => $r->consumed_at || $r->expires_at->isPast() ? '••••••' : $state),
-                Tables\Columns\TextColumn::make('expires_at')->label(__('Valid until'))->dateTime('H:i:s'),
+                Tables\Columns\TextColumn::make('expires_at')->label(__('Valid until'))->dateTime('H:i:s')->sortable(),
                 Tables\Columns\TextColumn::make('status')->label(__('Status'))->badge()
                     ->getStateUsing(fn (PhoneOtp $r) => $r->consumed_at ? 'used' : ($r->expires_at->isPast() ? 'expired' : 'live'))
                     ->formatStateUsing(fn ($state) => __(ucfirst($state)))
                     ->color(fn ($state) => match ($state) { 'live' => 'success', 'used' => 'gray', default => 'danger' }),
+            ])
+            ->filters([
+                Tables\Filters\Filter::make('date')
+                    ->form([
+                        Forms\Components\DatePicker::make('from')->label(__('Asked from'))->native(false),
+                        Forms\Components\DatePicker::make('to')->label(__('Asked to'))->native(false),
+                    ])
+                    ->query(fn (Builder $query, array $data) => $query
+                        ->when($data['from'] ?? null, fn ($q, $d) => $q->whereDate('created_at', '>=', $d))
+                        ->when($data['to'] ?? null, fn ($q, $d) => $q->whereDate('created_at', '<=', $d)))
+                    ->indicateUsing(fn (array $data) => array_filter([
+                        ($data['from'] ?? null) ? __('From :d', ['d' => $data['from']]) : null,
+                        ($data['to'] ?? null) ? __('To :d', ['d' => $data['to']]) : null,
+                    ])),
             ]);
     }
 }

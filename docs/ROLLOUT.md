@@ -115,6 +115,8 @@ php artisan stock:import-opening /path/filled.xlsx --dry-run && php artisan stoc
 - `.env`: `MONTHLY_TASKS_ENABLED=false` (default) keeps the Monthly Tasks screens idle until the L-BOX launch; `GOOGLE_PLAY_PACKAGE` + `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` enable the daily Play-review → Testimonials import (`testimonials:import-play-reviews`).
 - Branch payment QR = the L-BOX static QR without a box: `php artisan branches:static-qr` generates one virtual device per dealer; print from Master → Branches → Static QR; the app scans it under Wallet → Withdraw at branch, and the store list carries `payment_qr_url` (UPI id / image stay optional extras).
 - Redemption OTPs now go out as app push + inbox only (no WhatsApp).
+- **Wallet withdrawals (board 2026-11-03): a branch never fronts the cash.** `migrate` adds `branch_payout_requests`. Chain: pending (member scanned the branch QR) → the branch ticks rows on L-BOX → Wallet Withdrawals → *Request payment from HQ* → requested → HQ transfers to the dealer's bank and presses *Pay* (UTR + note) on L-BOX → Branch Payout Requests → admin paid → the branch presses *Disburse*. Only HQ cancels (refund). The 13 rows the branches marked disbursed on 2–3 Nov before this rule go back to pending with
+  `php artisan withdrawals:undo-disbursals --ids=1,2,4,5,6,10,11,15,17,30,31,33,42 --dry-run` then without `--dry-run` (no balance changes — the money is still owed to those members).
 
 ### Either way, afterwards on the live server
 

@@ -67,6 +67,15 @@ class LoginCodesTest extends TestCase
             ->assertDontSee('9876543210');
         $this->actingAs(User::where('email', 'admin@lordicl.com')->firstOrFail());
         Livewire::test(LoginCodes::class)->assertSee('Murugan')->assertSee('Other')->assertSee('9876543210');
+        // user 2026-11-03: a search bar — by member code, name or phone digits; an old code is
+        // found too (the lookback widens to 30 days while searching)
+        $old = PhoneOtp::create(['phone' => '919000000002', 'code' => '111222', 'purpose' => 'login', 'expires_at' => now()->subDays(2), 'created_at' => now()->subDays(3)]);
+        $mineOtp = PhoneOtp::where('phone', 'like', '%9876543210')->latest('id')->firstOrFail();
+        $otherOtp = PhoneOtp::where('phone', 'like', '%9000000002')->where('id', '<>', $old->id)->latest('id')->firstOrFail();
+        Livewire::test(LoginCodes::class)->assertCanSeeTableRecords([$mineOtp, $otherOtp])->assertCanNotSeeTableRecords([$old])
+            ->searchTable('LJW900')->assertCanSeeTableRecords([$mineOtp])->assertCanNotSeeTableRecords([$otherOtp])
+            ->searchTable('Other')->assertCanSeeTableRecords([$otherOtp])->assertCanNotSeeTableRecords([$mineOtp])
+            ->searchTable('9000000002')->assertCanSeeTableRecords([$otherOtp, $old])->assertCanNotSeeTableRecords([$mineOtp]);
 
         // the code still logs the person in, once
         $this->postJson('/api/v1/auth/otp/verify', ['phone' => '9876543210', 'code' => $code])->assertOk()->assertJsonPath('mode', 'distributor');
@@ -75,7 +84,7 @@ class LoginCodesTest extends TestCase
         // a dealer can issue a code for someone at the counter — own branch only
         $this->actingAs($dealer1);
         Livewire::test(LoginCodes::class)->callAction('issue', ['member_id' => $mine->id])->assertNotified();
-        $this->assertSame(3, PhoneOtp::count());
+        $this->assertSame(4, PhoneOtp::count());   // 2 requested + the old search fixture + the issued one
         $this->assertTrue(PhoneOtp::latest('id')->first()->expires_at->gt(now()->addMinutes(9)), '10-minute validity');
     }
 }

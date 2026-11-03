@@ -11,5 +11,7 @@
         </form>
 
         @include('filament.pages.partials.data-sections')
+
+        {{ $this->table }}
     </div>
 </x-filament-panels::page>

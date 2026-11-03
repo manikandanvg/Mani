@@ -11,17 +11,25 @@ use Filament\Forms\Contracts\HasForms;
 use Filament\Forms\Form;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
+use Filament\Tables;
+use Filament\Tables\Concerns\InteractsWithTable;
+use Filament\Tables\Contracts\HasTable;
+use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 /**
  * L-BOX — Withdraw My Wallet (board spec 2026-08-09). Dealer-only screen: pick a
  * wallet — own commission wallet OR the branch Digi cash wallet — enter an amount,
- * and the request lands in L-BOX → Wallet Withdrawals for HQ to disburse or cancel.
- * Money logic lives in WalletWithdrawalService (requestFromPanel).
+ * and the request lands in L-BOX → Wallet Withdrawals. Board 2026-11-03: like every
+ * row at the branch it is funded by Head Office first (Request payment from HQ →
+ * Admin paid → Disburse). Money logic lives in WalletWithdrawalService (requestFromPanel).
+ * "My recent requests" is a real table (search / status / date range / sort, user 2026-11-03).
  */
-class WithdrawMyWallet extends Page implements HasForms
+class WithdrawMyWallet extends Page implements HasForms, HasTable
 {
     use \App\Filament\Concerns\TranslatesNavigation;
     use InteractsWithForms;
+    use InteractsWithTable;
 
     protected static ?string $navigationIcon = 'heroicon-o-banknotes';
 
@@ -113,39 +121,74 @@ class WithdrawMyWallet extends Page implements HasForms
 
         Notification::make()->success()
             ->title(__('Withdrawal request #:id submitted', ['id' => $w->id]))
-            ->body(__('Head Office will disburse or cancel it under L-BOX → Wallet Withdrawals.'))
+            ->body(__('It is pending under L-BOX → Wallet Withdrawals; include it in "Request payment from HQ".'))
             ->send();
 
         $this->form->fill(['wallet' => $d['wallet']]);
         $this->refreshSections();
+        $this->resetTable();
     }
 
-    /** Balances + the dealer's recent requests, rendered by the shared partial. */
+    /** Balances block above the table. */
     protected function refreshSections(): void
     {
-        $u = auth()->user();
         $b = $this->balances();
-
-        $recent = WalletWithdrawal::where('branch_id', $u->branch_id)
-            ->when($u->memberAccount, fn ($q, $m) => $q
-                ->where(fn ($w) => $w->where('member_id', $m->id)->orWhere('wallet', 'branch_digi')))
-            ->latest()->limit(15)->get();
 
         $this->sections = [
             ['heading' => __('Balances'), 'kv' => [
                 __('My commission wallet') => \App\Support\Money::group($b['member_cash']),
                 __('Branch Digi cash wallet') => \App\Support\Money::group($b['branch_digi']),
             ]],
-            ['heading' => __('My recent requests'),
-                'columns' => [__('Date'), __('Wallet'), __('Amount'), __('Status'), __('Disbursed at'), __('Note')],
-                'rows' => $recent->map(fn ($w) => [
-                    $w->created_at?->format('d M Y H:i'),
-                    $w->wallet === 'branch_digi' ? __('Branch Digi cash') : __('Commission wallet'),
-                    \App\Support\Money::group((float) $w->amount),
-                    ucfirst((string) $w->status),
-                    $w->disbursed_at?->format('d M Y H:i'),
-                    $w->note,
-                ])->all()],
         ];
+    }
+
+    /** The dealer's own commission-wallet rows + every branch-Digi row of their branch. */
+    public function table(Table $table): Table
+    {
+        $u = auth()->user();
+        $memberId = $u?->memberAccount?->id;
+
+        return $table
+            ->heading(__('My recent requests'))
+            ->query(WalletWithdrawal::query()
+                ->where('branch_id', (int) $u?->branch_id)
+                ->where(fn (Builder $q) => $q->where('wallet', 'branch_digi')
+                    ->when($memberId, fn ($q, $m) => $q->orWhere('member_id', $m))))
+            ->defaultSort('id', 'desc')
+            ->paginated([10, 25, 50])
+            ->columns([
+                Tables\Columns\TextColumn::make('id')->label('#')->sortable()->searchable(),
+                Tables\Columns\TextColumn::make('created_at')->label(__('Date'))->dateTime('d M Y H:i')->sortable(),
+                Tables\Columns\TextColumn::make('wallet')->label(__('Wallet'))->badge()->sortable()
+                    ->formatStateUsing(fn (?string $state) => $state === 'branch_digi' ? __('Branch Digi cash') : __('Commission wallet'))
+                    ->color(fn (?string $state) => $state === 'branch_digi' ? 'warning' : 'info'),
+                Tables\Columns\TextColumn::make('amount')->label(__('Amount'))->baseMoney()->sortable(),
+                Tables\Columns\TextColumn::make('status')->label(__('Status'))->badge()->sortable()
+                    ->formatStateUsing(fn ($state) => __(WalletWithdrawal::STATUSES[$state] ?? ucfirst((string) $state)))
+                    ->color(fn ($state) => match ($state) {
+                        'disbursed', 'admin_paid' => 'success', 'cancelled' => 'danger', 'requested' => 'info', default => 'warning',
+                    }),
+                Tables\Columns\TextColumn::make('payout_request_id')->label(__('Payout request'))->sortable()
+                    ->formatStateUsing(fn ($state) => $state ? '#' . $state : '—'),
+                Tables\Columns\TextColumn::make('disbursed_at')->label(__('Disbursed at'))->dateTime('d M Y H:i')->sortable()->placeholder('—'),
+                Tables\Columns\TextColumn::make('note')->label(__('Note'))->limit(40)->searchable(),
+            ])
+            ->filters([
+                Tables\Filters\SelectFilter::make('status')->options(WalletWithdrawal::STATUSES)->multiple(),
+                Tables\Filters\SelectFilter::make('wallet')->options(['member_cash' => __('Commission wallet'), 'branch_digi' => __('Branch Digi cash')]),
+                Tables\Filters\Filter::make('date')
+                    ->form([
+                        Forms\Components\DatePicker::make('from')->native(false),
+                        Forms\Components\DatePicker::make('to')->native(false),
+                    ])
+                    ->query(fn (Builder $query, array $data) => $query
+                        ->when($data['from'] ?? null, fn ($q, $d) => $q->whereDate('created_at', '>=', $d))
+                        ->when($data['to'] ?? null, fn ($q, $d) => $q->whereDate('created_at', '<=', $d)))
+                    ->indicateUsing(fn (array $data) => array_filter([
+                        ($data['from'] ?? null) ? __('From :d', ['d' => $data['from']]) : null,
+                        ($data['to'] ?? null) ? __('To :d', ['d' => $data['to']]) : null,
+                    ])),
+            ])
+            ->filtersFormColumns(3);
     }
 }

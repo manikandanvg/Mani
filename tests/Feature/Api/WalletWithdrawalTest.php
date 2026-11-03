@@ -106,8 +106,9 @@ class WalletWithdrawalTest extends TestCase
         $second = $svc->request($this->member, $this->device->uuid, 2000);
         $this->assertSame(5000.0, (float) MemberWallet::find($this->member->id)->cash_balance);
 
-        // disburse as gold
-        $svc->disburse($first, 'gold', null, 'Handed 1g coin');
+        // disburse as gold — Head Office at its own counter (a branch must wait for "Admin paid",
+        // board 2026-11-03; see BranchPayoutFlowTest)
+        $svc->disburse($first, 'gold', null, 'Handed 1g coin', byHq: true);
         $this->assertSame('disbursed', $first->fresh()->status);
         $this->assertSame('gold', $first->fresh()->disbursal_mode);
 
