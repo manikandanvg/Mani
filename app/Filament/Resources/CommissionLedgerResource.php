@@ -149,7 +149,7 @@ class CommissionLedgerResource extends BaseResource
                     ->options([
                         'pending' => 'Pending',
                         'passed' => 'Passed (awaiting approval)',
-                        'approved' => 'Approved',
+                        'approved' => 'Statement issued (unpaid)',
                         'paid' => 'Paid',
                         'used' => 'Used (CBC)',
                     ]),

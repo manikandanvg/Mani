@@ -36,7 +36,7 @@ class EarningReport extends ReportPage
                     ->placeholder(__('All streams'))
                     ->native(false),
                 Forms\Components\Select::make('status')
-                    ->options(['pending' => 'Pending', 'approved' => 'Approved', 'paid' => 'Paid'])
+                    ->options(['pending' => 'Pending', 'approved' => 'Statement issued (unpaid)', 'paid' => 'Paid'])
                     ->placeholder(__('All statuses'))
                     ->native(false),
             ]),
@@ -60,19 +60,21 @@ class EarningReport extends ReportPage
         $streams = $base()
             ->select('type',
                 DB::raw('COUNT(*) c'), DB::raw('SUM(amount) gross'),
-                DB::raw("SUM(CASE WHEN status = 'pending' THEN amount ELSE 0 END) pending"),
+                // unpaid = everything the approval gate has not credited yet: 'pending' AND the
+                // 'approved' (statement issued) state — user 2026-11-03, ₹5.16 cr of GAP read as 0
+                DB::raw("SUM(CASE WHEN status <> 'paid' THEN amount ELSE 0 END) pending"),
                 DB::raw('SUM(tds) tds'), DB::raw('SUM(service_charge) svc'),
                 DB::raw('SUM(COALESCE(net_amount, 0)) net'))
             ->groupBy('type')->get();
         $this->sections[] = ['heading' => __('By stream (commission ledger)'),
             'kv' => [
                 __('Gross') => $this->money($streams->sum('gross')),
-                __('Pending') => $this->money($streams->sum('pending')),
+                __('Unpaid') => $this->money($streams->sum('pending')),
                 __('TDS withheld') => $this->money($streams->sum('tds')),
                 __('Service charge') => $this->money($streams->sum('svc')),
                 __('Net credited') => $this->money($streams->sum('net')),
             ],
-            'columns' => [__('Stream'), __('Entries'), __('Gross'), __('Pending'), __('TDS'), __('Service'), __('Net credited')],
+            'columns' => [__('Stream'), __('Entries'), __('Gross'), __('Unpaid'), __('TDS'), __('Service'), __('Net credited')],
             'rows' => $streams->map(fn ($s) => [
                 \App\Services\CommissionApprovalService::label($s->type), (string) $s->c, $this->money($s->gross), $this->money($s->pending),
                 $this->money($s->tds), $this->money($s->svc), $this->money($s->net),
