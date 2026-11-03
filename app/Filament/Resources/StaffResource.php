@@ -93,6 +93,8 @@ class StaffResource extends BaseResource
         return $table
             ->columns([
                 Tables\Columns\TextColumn::make('name')->searchable()->sortable(),
+                // the legacy login id (ci_users.mapid) — what the dealer knows as their User ID
+                Tables\Columns\TextColumn::make('member_code')->label('User ID')->searchable()->sortable()->copyable()->placeholder('—'),
                 Tables\Columns\TextColumn::make('email')->searchable(),
                 Tables\Columns\TextColumn::make('phone')->label('Phone')->searchable()->sortable()->copyable()->placeholder('—'),
                 Tables\Columns\TextColumn::make('roles.name')->badge()->label('Roles'),
