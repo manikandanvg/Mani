@@ -70,7 +70,9 @@ class OtpService
         }
 
         \App\Services\Activity\ActivityLogger::log('otp', 'otp_sent',
-            ucfirst($purpose) . ' OTP to ' . \App\Services\Activity\ActivityLogger::phone($phone) . (($result['ok'] ?? false) ? ' sent' : ' FAILED to send'), [
+            ucfirst($purpose) . ' OTP to ' . \App\Services\Activity\ActivityLogger::phone($phone)
+                . (($result['ok'] ?? false) ? ' sent on WhatsApp' : ($gatewayOn ? ' FAILED to send on WhatsApp' : ' — WhatsApp off, not sent'))
+                . ($pushed ? '; app push + inbox' : '') . '; shown on Login Codes', [
                 'channel' => ($result['ok'] ?? false) ? 'whatsapp' : ($pushed ? 'push' : 'login_codes'), 'status' => (($result['ok'] ?? false) || $pushed) ? 'ok' : 'relay',
                 'member' => $member?->id,
                 // otp_code is NOT in ActivityLogger::HIDDEN on purpose (user 2026-10-31): Head Office
