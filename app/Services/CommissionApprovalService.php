@@ -206,6 +206,26 @@ class CommissionApprovalService
         };
     }
 
+    /**
+     * Inside the row's transaction: re-read it under a row lock and give up if another run
+     * (page job, shell command, cut-off approval) paid it meanwhile — so two runs on the same
+     * stream can never credit a wallet twice. Refreshes $row with the locked state.
+     */
+    protected function claim(Model $row): bool
+    {
+        $fresh = $row->newQueryWithoutScopes()->lockForUpdate()->find($row->getKey());
+        if (! $fresh) {
+            return false;
+        }
+        $unpaid = $fresh instanceof CbcEntry ? $fresh->status === 'pending' : $fresh->status !== 'paid';
+        if (! $unpaid) {
+            return false;
+        }
+        $row->setRawAttributes($fresh->getAttributes(), true);
+
+        return true;
+    }
+
     /** IC / GAP → member's cash wallet, net of TDS + service charge. */
     protected function approveLedger(CommissionLedger $row, string $paidOn): bool
     {
@@ -213,7 +233,10 @@ class CommissionApprovalService
             return false;
         }
 
-        DB::transaction(function () use ($row, $paidOn) {
+        $ok = DB::transaction(function () use ($row, $paidOn) {
+            if (! $this->claim($row)) {
+                return false;
+            }
             // amount is INR base; pay in the earner's currency at the rate frozen on the row.
             $gross = round((float) $row->amount / (float) ($row->fx_rate ?: 1), 2);
             // GAP: the slab is judged on the member's month total (legacy tbl_gap_log nettotal),
@@ -230,9 +253,11 @@ class CommissionApprovalService
                 'status' => 'paid', 'paid_on' => $paidOn,
                 'tds' => $tds, 'service_charge' => $svc, 'net_amount' => $net,
             ]);
+
+            return true;
         });
 
-        return true;
+        return (bool) $ok;
     }
 
     /**
@@ -245,7 +270,10 @@ class CommissionApprovalService
             return false;
         }
 
-        DB::transaction(function () use ($row, $paidOn) {
+        $ok = DB::transaction(function () use ($row, $paidOn) {
+            if (! $this->claim($row)) {
+                return false;
+            }
             // worth is INR base; pay in the currency + rate FROZEN at issue on the row
             // (rows from before the stamping default to INR/1.0 — unchanged behaviour).
             $fx = (float) ($row->fx_rate ?: 1);
@@ -257,9 +285,11 @@ class CommissionApprovalService
                 'status' => 'paid', 'paid_on' => $paidOn,
                 'cash_amount' => $s['cash'], 'tds' => $s['tds'], 'service_charge' => $s['service'], 'coupon_amount' => $s['coupon'],
             ]);
+
+            return true;
         });
 
-        return true;
+        return (bool) $ok;
     }
 
     /**
@@ -289,7 +319,10 @@ class CommissionApprovalService
             return false;
         }
 
-        DB::transaction(function () use ($row, $paidOn) {
+        $ok = DB::transaction(function () use ($row, $paidOn) {
+            if (! $this->claim($row)) {
+                return false;
+            }
             // com_value is INR base; pay in the earner's currency at the frozen rate.
             $gross = round((float) $row->com_value / (float) ($row->fx_rate ?: 1), 2);
             ['tds' => $tds, 'service' => $svc, 'net' => $net] = $this->deduct($gross, self::resellerTypeKey($row));
@@ -302,9 +335,11 @@ class CommissionApprovalService
                 'status' => 'paid', 'paid_on' => $paidOn,
                 'tds' => $tds, 'service_charge' => $svc, 'net_amount' => $net,
             ]);
+
+            return true;
         });
 
-        return true;
+        return (bool) $ok;
     }
 
     /**
