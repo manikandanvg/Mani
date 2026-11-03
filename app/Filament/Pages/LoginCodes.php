@@ -59,6 +59,14 @@ class LoginCodes extends Page implements HasTable
         return __('A distributor presses "Get OTP" in the app; the code appears here within seconds — tell it to them. Codes are valid :m minutes, single use.', ['m' => OtpService::ttl()]);
     }
 
+    /** "Name (member code / phone)" — phone masked for dealer logins (board 2026-10-31 item 19). */
+    protected static function optionLabel(Member $m): string
+    {
+        $phone = auth()->user()?->isDistributor() ? Mask::phone($m->phone) : $m->phone;
+
+        return trim($m->name) . ' (' . $m->member_code . ($phone ? ' / ' . $phone : '') . ')';
+    }
+
     /** Dealers see their own branch's distributors only; HQ and support see everyone. */
     protected static function dealerBranchId(): ?int
     {
@@ -90,12 +98,12 @@ class LoginCodes extends Page implements HasTable
                         ->options(fn () => Member::query()
                             ->when(static::dealerBranchId(), fn ($q, $b) => $q->where('branch_id', $b))
                             ->where('status', 'active')->orderBy('name')->limit(30)->get()
-                            ->mapWithKeys(fn ($m) => [$m->id => "{$m->name} ({$m->member_code})"])->all())
+                            ->mapWithKeys(fn ($m) => [$m->id => static::optionLabel($m)])->all())
                         ->getSearchResultsUsing(fn (string $search) => Member::query()
                             ->when(static::dealerBranchId(), fn ($q, $b) => $q->where('branch_id', $b))
                             ->where(fn ($q) => $q->where('member_code', 'like', "%{$search}%")->orWhere('name', 'like', "%{$search}%")->orWhere('phone', 'like', "%{$search}%"))
-                            ->limit(30)->get()->mapWithKeys(fn ($m) => [$m->id => "{$m->name} ({$m->member_code})"])->all())
-                        ->getOptionLabelUsing(fn ($value) => ($m = Member::find($value)) ? "{$m->name} ({$m->member_code})" : null),
+                            ->limit(30)->get()->mapWithKeys(fn ($m) => [$m->id => static::optionLabel($m)])->all())
+                        ->getOptionLabelUsing(fn ($value) => ($m = Member::find($value)) ? static::optionLabel($m) : null),
                 ])
                 ->action(function (array $data) {
                     $m = Member::query()->when(static::dealerBranchId(), fn ($q, $b) => $q->where('branch_id', $b))->find($data['member_id']);
