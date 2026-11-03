@@ -78,8 +78,19 @@ class LoginCodes extends Page implements HasTable
         return [
             Actions\Action::make('issue')
                 ->label(__('Issue a code'))->icon('heroicon-o-key')
+                ->modalWidth('xl')
+                ->modalHeading(__('Issue a login code'))
+                ->modalDescription(__('Pick the distributor; the code appears in the list below and in a message to you. Type a name, member code or phone to search.'))
                 ->form([
                     Forms\Components\Select::make('member_id')->label(__('Distributor'))->required()->searchable()
+                        ->searchPrompt(__('Type a name, member code or phone…'))
+                        ->noSearchResultsMessage(__('No distributor matches — only your own branch\'s distributors are listed.'))
+                        ->searchDebounce(300)
+                        // the first names show before any typing, so the box is never empty
+                        ->options(fn () => Member::query()
+                            ->when(static::dealerBranchId(), fn ($q, $b) => $q->where('branch_id', $b))
+                            ->where('status', 'active')->orderBy('name')->limit(30)->get()
+                            ->mapWithKeys(fn ($m) => [$m->id => "{$m->name} ({$m->member_code})"])->all())
                         ->getSearchResultsUsing(fn (string $search) => Member::query()
                             ->when(static::dealerBranchId(), fn ($q, $b) => $q->where('branch_id', $b))
                             ->where(fn ($q) => $q->where('member_code', 'like', "%{$search}%")->orWhere('name', 'like', "%{$search}%")->orWhere('phone', 'like', "%{$search}%"))
