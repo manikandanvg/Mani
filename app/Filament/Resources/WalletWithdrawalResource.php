@@ -32,6 +32,13 @@ class WalletWithdrawalResource extends BaseResource
 
     protected static ?string $pluralModelLabel = 'Wallet Withdrawals';
 
+    /**
+     * User 2026-11-03: Disburse and Cancel & refund are PAUSED on live while the withdrawal
+     * complaints are being sorted out — requests keep arriving and are listed, nobody can act on
+     * them from here. Flip to false (one line) to re-enable both buttons.
+     */
+    public static bool $actionsPaused = true;
+
     protected static ?int $navigationSort = 3;
 
     public static function canCreate(): bool
@@ -49,6 +56,7 @@ class WalletWithdrawalResource extends BaseResource
     public static function table(Table $table): Table
     {
         return $table
+            ->description(fn () => static::$actionsPaused ? 'Disburse and Cancel & refund are paused while the withdrawal complaints are reviewed — requests are listed but cannot be acted on here.' : null)
             ->defaultSort('id', 'desc')
             ->columns([
                 Tables\Columns\TextColumn::make('created_at')->label('Requested')->since()->sortable(),
@@ -119,7 +127,7 @@ class WalletWithdrawalResource extends BaseResource
                     ->label('Disburse')
                     ->icon('heroicon-o-check-badge')
                     ->color('success')
-                    ->visible(fn (WalletWithdrawal $w) => $w->status === 'pending')
+                    ->visible(fn (WalletWithdrawal $w) => ! static::$actionsPaused && $w->status === 'pending')
                     ->form([
                         Forms\Components\Select::make('mode')
                             ->label('Handed over as')
@@ -137,7 +145,7 @@ class WalletWithdrawalResource extends BaseResource
                     ->label('Cancel & refund')
                     ->icon('heroicon-o-arrow-uturn-left')
                     ->color('danger')
-                    ->visible(fn (WalletWithdrawal $w) => $w->status === 'pending')
+                    ->visible(fn (WalletWithdrawal $w) => ! static::$actionsPaused && $w->status === 'pending')
                     ->requiresConfirmation()
                     ->modalDescription('The full amount goes back to the distributor\'s wallet.')
                     ->form([
