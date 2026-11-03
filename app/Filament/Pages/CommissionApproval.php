@@ -223,44 +223,46 @@ class CommissionApproval extends Page implements HasForms, HasTable
         return $html;
     }
 
+    /**
+     * Above this many entries the approval runs on the queue (ApproveCommissionsJob) instead of
+     * inside the browser request: user 2026-11-03, the 1 Nov CBC approval (11,624 coupons) was cut
+     * off by the web-server timeout after 88 rows. The queue is drained every minute.
+     */
+    public const INLINE_LIMIT = 300;
+
     /** Approve every underlying entry of each selected beneficiary row. */
     protected function approveSelected(Collection $records): void
     {
         $svc = app(CommissionApprovalService::class);
-        $count = 0;
-        $sum = 0.0;
-        $beneficiaries = 0;
-        foreach ($records as $aggregate) {
-            $beneficiaries++;
-            $memberSum = 0.0;
-            $memberCount = 0;
-            foreach ($this->underlyingRows($aggregate) as $row) {
-                if ($svc->approve($row)) {
-                    $count++;
-                    $memberCount++;
-                    $sum += $this->amountOf($row);
-                    $memberSum += $this->amountOf($row);
-                }
-            }
+        $type = $this->data['type'] ?? 'IC';
+        $from = $this->data['from'] ?? null;
+        $to = $this->data['to'] ?? null;
+        $key = $this->groupColumn();
+        $ids = $records->pluck($key)->map(fn ($v) => (int) $v)->unique()->values()->all();
+        // Filament reloads the selected aggregates by key (MIN(id)), which shrinks each group to one
+        // row — count the real entries behind the chosen beneficiaries afresh.
+        $entries = (int) $this->approvalQuery()->whereIn($key, $ids)->count();
 
-            // Commission-distribution acknowledgement (board 2026-08-11: push + inbox).
-            if ($memberCount > 0) {
-                $member = $this->groupColumn() === 'member_id'
-                    ? \App\Models\Member::find($aggregate->member_id)
-                    : \App\Models\Branch::find($aggregate->branch_id)?->distributorUser?->memberAccount;
-                \App\Services\Push\Notifier::to($member, 'commission',
-                    'Commission credited to your wallet',
-                    "{$memberCount} " . ($this->data['type'] ?? 'commission') . ' entr' . ($memberCount === 1 ? 'y' : 'ies')
-                        . ' approved — gross ₹' . \App\Support\Money::group($memberSum) . '; the net after TDS & service charge is now in your wallet.',
-                    route: '/wallet',
-                );
-            }
+        if ($entries > self::INLINE_LIMIT) {
+            \App\Jobs\ApproveCommissionsJob::dispatch($type, $from, $to, $ids, auth()->id());
+            Notification::make()
+                ->info()
+                ->title("Approval of {$entries} entries for " . count($ids) . ' beneficiaries started in the background')
+                ->body('Too many to finish inside one page request. They are paid in batches over the next minutes; this list empties as each row is credited, and the Activity Log records every batch. Do not approve the same rows again.')
+                ->persistent()
+                ->send();
+
+            return;
         }
+
+        $res = $svc->approveBatch($type, $from, $to, $ids, null, auth()->id());
+        $count = $res['rows'];
+        $beneficiaries = $res['beneficiaries'];
 
         Notification::make()
             ->success()
             ->title($count > 0 ? "Approved {$count} commission(s) for {$beneficiaries} beneficiar" . ($beneficiaries === 1 ? 'y' : 'ies') : 'Nothing to approve')
-            ->body($count > 0 ? \App\Support\Money::inr($sum) . ' credited to wallets.' : 'Selected rows were already paid.')
+            ->body($count > 0 ? \App\Support\Money::inr($res['gross']) . ' credited to wallets.' : 'Selected rows were already paid.')
             ->send();
     }
 

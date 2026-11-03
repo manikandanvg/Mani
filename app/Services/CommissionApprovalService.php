@@ -131,6 +131,66 @@ class CommissionApprovalService
     }
 
     /**
+     * Beneficiary grouping column of a stream: members earn IC/GAP/CBC, branches the margins.
+     */
+    public static function groupColumn(string $type): string
+    {
+        return isset(self::RESELLER_COM[$type]) ? 'branch_id' : 'member_id';
+    }
+
+    /**
+     * Approve every un-paid row of a stream in a date window (optionally only the given
+     * beneficiaries), row by row through approve(), then push ONE acknowledgement per
+     * beneficiary. Stops early — returning done=false — once $budgetSeconds of work is used,
+     * so a queued job can re-dispatch itself for the rest: user 2026-11-03, the CBC approval of
+     * 1 Nov (11,624 coupons, 8,843 members) was killed by the web-server timeout after 88 rows.
+     *
+     * @param  int[]|null  $beneficiaryIds  member ids (IC/GAP/CBC) or branch ids (margins); null = all
+     * @return array{rows:int, gross:float, beneficiaries:int, done:bool}
+     */
+    public function approveBatch(string $type, ?string $from, ?string $to, ?array $beneficiaryIds = null, ?float $budgetSeconds = null, ?int $by = null): array
+    {
+        $key = self::groupColumn($type);
+        $started = microtime(true);
+        $query = $this->query($type, $from, $to)->without(['member', 'fromMember', 'branch', 'referenceMember'])
+            ->when($beneficiaryIds !== null, fn ($q) => $q->whereIn($key, $beneficiaryIds));
+        $perBeneficiary = [];
+        $rows = 0;
+        $gross = 0.0;
+        $done = true;
+        foreach ($query->cursor() as $row) {
+            // always make progress: the budget is checked only after at least one row went through
+            if ($rows > 0 && $budgetSeconds !== null && microtime(true) - $started > $budgetSeconds) {
+                $done = false;
+                break;
+            }
+            if (! $this->approve($row)) {
+                continue;
+            }
+            $amount = (float) ($row instanceof CbcEntry ? $row->worth : ($row instanceof ResellerCommission ? $row->com_value : $row->amount));
+            $rows++;
+            $gross += $amount;
+            $id = (int) $row->{$key};
+            $perBeneficiary[$id] = ['n' => ($perBeneficiary[$id]['n'] ?? 0) + 1, 'sum' => ($perBeneficiary[$id]['sum'] ?? 0) + $amount];
+        }
+
+        // acknowledgement (board 2026-08-11: push + inbox) — one per beneficiary, after the money moved
+        foreach ($perBeneficiary as $id => $t) {
+            $member = $key === 'member_id' ? \App\Models\Member::find($id) : \App\Models\Branch::find($id)?->distributorUser?->memberAccount;
+            \App\Services\Push\Notifier::to($member, 'commission', 'Commission credited to your wallet',
+                "{$t['n']} " . $type . ' entr' . ($t['n'] === 1 ? 'y' : 'ies') . ' approved — gross ₹' . \App\Support\Money::group($t['sum'])
+                    . '; the net after TDS & service charge is now in your wallet.', route: '/wallet');
+        }
+        if ($rows > 0) {
+            \App\Services\Activity\ActivityLogger::log('commission', 'commissions_approved',
+                self::label($type) . ': ' . $rows . ' entries (gross ₹' . \App\Support\Money::group($gross) . ') approved for ' . count($perBeneficiary) . ' beneficiar' . (count($perBeneficiary) === 1 ? 'y' : 'ies') . ($done ? '' : ' — more to follow'),
+                ['details' => ['type' => $type, 'from' => $from, 'to' => $to, 'rows' => $rows, 'gross' => round($gross, 2), 'beneficiaries' => count($perBeneficiary), 'done' => $done, 'by' => $by]]);
+        }
+
+        return ['rows' => $rows, 'gross' => round($gross, 2), 'beneficiaries' => count($perBeneficiary), 'done' => $done];
+    }
+
+    /**
      * Approve one record: mark paid (+ paid date) and credit the beneficiary wallet.
      * Idempotent — returns false if the row was already paid. Wrapped in a transaction.
      */
