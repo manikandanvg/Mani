@@ -26,9 +26,12 @@ class CommissionApprovalService
      * CBC split (board 2026-11-01), on the coupon's whole worth — e.g. ₹12,000:
      *   sales profit  50 %  → ₹6,000 to the CASH wallet
      *   TDS + service  5 + 5 % → ₹1,200 withheld
-     *   remainder            → ₹4,800 to the COUPON wallet (hidden — HQ reference only)
+     *   remainder            → ₹4,800 RETAINED by Head Office (recorded on the coupon row as
+     *                          coupon_amount; it is NOT posted to any member wallet)
      * The percentages come from Commission Setup (stream CBC: cash_pct, tds, service); these
      * are the defaults. The legacy 40 % EPIN credit at cut-off is retired with the digi wallet.
+     * User 2026-11-03: member_wallets.coupon_balance is a SEPARATE, admin-only wallet kept for
+     * another purpose — CBC never touches it.
      */
     public const CBC_CASH_PCT = 50.0;
 
@@ -266,7 +269,7 @@ class CommissionApprovalService
 
     /**
      * CBC (board 2026-11-01): sales-profit share → CASH wallet; TDS + service withheld on the
-     * whole coupon; the remainder → COUPON wallet (HQ-only reference). See cbcSplit().
+     * whole coupon; the remainder is retained by HQ on the row (coupon_amount). See cbcSplit().
      */
     protected function approveCbc(CbcEntry $row, string $paidOn): bool
     {
@@ -284,7 +287,8 @@ class CommissionApprovalService
             $ccy = $row->currency_code ?: 'INR';
             $worth = round((float) $row->worth / $fx, 2);
             $s = self::cbcSplit($worth);
-            $this->creditWallet($row->member_id, cash: $s['cash'], coupon: $s['coupon'], earning: $worth, currency: $ccy);
+            // cash share only; the remainder stays on the row (coupon_amount) as an HQ figure
+            $this->creditWallet($row->member_id, cash: $s['cash'], earning: $worth, currency: $ccy);
             $row->update([
                 'status' => 'paid', 'paid_on' => $paidOn,
                 'cash_amount' => $s['cash'], 'tds' => $s['tds'], 'service_charge' => $s['service'], 'coupon_amount' => $s['coupon'],

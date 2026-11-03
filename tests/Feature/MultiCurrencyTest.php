@@ -244,7 +244,7 @@ class MultiCurrencyTest extends TestCase
         // 2026-11-01 rule: 50 % → cash €5, 5 + 5 % withheld, €4 → coupon wallet. No EPIN wallet.
         $this->assertEquals('EUR', $wallet->currency_code);
         $this->assertEquals(5.0, (float) $wallet->cash_balance);
-        $this->assertEquals(4.0, (float) $wallet->coupon_balance);
+        $this->assertEquals(0.0, (float) $wallet->coupon_balance, 'CBC remainder is retained by HQ, never posted to the coupon wallet');
         $this->assertEquals(0.0, (float) $wallet->epin_balance);
         $this->assertEquals(10.0, (float) $wallet->earning_total);
     }

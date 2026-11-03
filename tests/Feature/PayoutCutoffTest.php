@@ -234,7 +234,7 @@ class PayoutCutoffTest extends TestCase
         $w = MemberWallet::where('member_id', $m->id)->first();
         // board 2026-11-01 split of the ₹1,000 coupon: 50 % sales profit → cash, 5 + 5 % withheld, rest → coupon wallet (HQ reference)
         $this->assertEquals(500.0, (float) $w->cash_balance);
-        $this->assertEquals(400.0, (float) $w->coupon_balance);
+        $this->assertEquals(0.0, (float) $w->coupon_balance, 'CBC remainder is retained by HQ, never posted to the coupon wallet');
         $this->assertEquals(0.0, (float) $w->epin_balance, 'no EPIN wallet in the new system');
         $this->assertEquals(1000.0, (float) $w->earning_total);
         $due->refresh();

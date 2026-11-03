@@ -205,7 +205,7 @@ class EngineTest extends TestCase
 
         $wallet = $m->fresh()->wallet;
         $this->assertEquals(50, $wallet->cash_balance);
-        $this->assertEquals(40, $wallet->coupon_balance);
+        $this->assertEquals(0, $wallet->coupon_balance, 'CBC remainder is retained by HQ, never posted to the coupon wallet (user 2026-11-03)');
         $this->assertEquals(0, $wallet->epin_balance);
         $this->assertEquals('paid', $entry->fresh()->status);
     }

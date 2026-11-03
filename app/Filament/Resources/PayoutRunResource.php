@@ -124,7 +124,7 @@ class PayoutRunResource extends BaseResource
                     ->state(fn (PayoutRun $r) => new HtmlString(static::summaryHtml($r))),
             ]),
             // Board 2026-11-01 split of every coupon: sales profit → cash wallet, TDS + service withheld,
-            // remainder → coupon wallet (HQ reference). Percentages from Commission Setup.
+            // remainder retained by HQ on the coupon rows (no wallet). Percentages from Commission Setup.
             Infolists\Components\Section::make('Promotional Incentive (CBC) due this month')->columns(3)->schema([
                 Infolists\Components\TextEntry::make('cbc_rows')->label('Coupons')->numeric(),
                 Infolists\Components\TextEntry::make('cbc_worth')->label('Worth')->formatStateUsing(fn ($state) => Money::inr((float) $state)),
@@ -132,7 +132,7 @@ class PayoutRunResource extends BaseResource
                     ->state(fn (PayoutRun $r) => Money::inr(CommissionApprovalService::cbcSplit((float) $r->cbc_worth)['cash'])),
                 Infolists\Components\TextEntry::make('cbc_charges')->label('TDS + service withheld')
                     ->state(fn (PayoutRun $r) => Money::inr(CommissionApprovalService::cbcSplit((float) $r->cbc_worth)['tds'] + CommissionApprovalService::cbcSplit((float) $r->cbc_worth)['service'])),
-                Infolists\Components\TextEntry::make('cbc_coupon')->label('Coupon wallet (HQ reference)')
+                Infolists\Components\TextEntry::make('cbc_coupon')->label('Retained by HQ (not paid)')
                     ->state(fn (PayoutRun $r) => Money::inr(CommissionApprovalService::cbcSplit((float) $r->cbc_worth)['coupon'])),
             ]),
             Infolists\Components\Section::make('Log')->schema([
