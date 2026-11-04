@@ -68,7 +68,9 @@ class RankChangeResource extends BaseResource
     public static function table(Table $table): Table
     {
         return $table
-            ->modifyQueryUsing(fn (Builder $q) => $q->with(['member.branch', 'fromRank', 'toRank']))
+            // Filament injects closure params by NAME: it must be $query, never $q (a typed $q is
+            // resolved from the container as a model-less Builder → "::class on null" 500).
+            ->modifyQueryUsing(fn (Builder $query) => $query->with(['member.branch', 'fromRank', 'toRank']))
             ->defaultSort('changed_at', 'desc')
             ->defaultPaginationPageOption(50)
             ->columns([

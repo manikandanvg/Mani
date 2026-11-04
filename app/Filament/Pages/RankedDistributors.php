@@ -75,7 +75,7 @@ class RankedDistributors extends Page implements HasTable
                 Tables\Columns\TextColumn::make('branch.name')->label('Branch')->toggleable()->placeholder('—'),
                 Tables\Columns\TextColumn::make('rank.code')->label('Rank')->badge()->color('success')
                     ->formatStateUsing(fn ($state, Member $r) => RankChangeResource::rankLabel($r->rank))
-                    ->sortable(query: fn (Builder $q, string $direction) => $q->orderBy(
+                    ->sortable(query: fn (Builder $query, string $direction) => $query->orderBy(
                         Rank::select('depth')->whereColumn('ranks.id', 'members.rank_id'), $direction)),
                 Tables\Columns\TextColumn::make('achieved_at')->label('Achieved on')->dateTime('d M Y')->sortable()->placeholder('—')
                     ->description(fn (Member $r) => $this->achievedVia($r)),
