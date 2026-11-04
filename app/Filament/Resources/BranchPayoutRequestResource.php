@@ -77,7 +77,11 @@ class BranchPayoutRequestResource extends BaseResource
                 Tables\Columns\TextColumn::make('id')->label('#')->sortable()->searchable(),
                 Tables\Columns\TextColumn::make('created_at')->label('Requested')->dateTime('d M Y H:i')->sortable()
                     ->description(fn (BranchPayoutRequest $r) => $r->requestedBy?->name),
+                // User 2026-11-04: "branch name (userid)" — the dealer's distributor ID beside the branch name.
                 Tables\Columns\TextColumn::make('branch.name')->label('From branch')->sortable()->searchable()
+                    ->formatStateUsing(fn ($state, BranchPayoutRequest $r) => ($uid = $r->dealerUserId()) ? $state . ' (' . $uid . ')' : $state)
+                    ->searchable(query: fn ($query, string $search) => $query->whereHas('branch', fn ($b) => $b->where('name', 'like', "%{$search}%")
+                        ->orWhereHas('distributorUser', fn ($u) => $u->where('member_code', 'like', "%{$search}%"))))
                     ->description(fn (BranchPayoutRequest $r) => trim(($r->branch?->city ?? '') . ($r->branch?->level ? ' · ' . (Branch::LEVEL_LABELS[$r->branch->level] ?? $r->branch->level) : ''))),
                 Tables\Columns\TextColumn::make('branch.city')->label('City')->sortable()->searchable()->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('branch.phone')->label('Phone')->searchable()->copyable()->placeholder('—'),

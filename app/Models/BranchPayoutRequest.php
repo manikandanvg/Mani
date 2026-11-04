@@ -47,6 +47,14 @@ class BranchPayoutRequest extends Model
         return $this->belongsTo(User::class, 'paid_by');
     }
 
+    /** The dealer's login/distributor ID (e.g. LJW24774) — shown as "branch name (userid)". */
+    public function dealerUserId(): ?string
+    {
+        $code = $this->branch?->distributorUser?->member_code;
+
+        return $code !== null && $code !== '' ? (string) $code : null;
+    }
+
     /** The dealer's bank details (branches carry none of their own) — for HQ's transfer. */
     public function dealerBank(): ?Member
     {
