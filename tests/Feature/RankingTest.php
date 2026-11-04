@@ -48,7 +48,8 @@ class RankingTest extends TestCase
     {
         return Bond::create([
             'member_id' => $m->id, 'plan_id' => $plan->id, 'bond_date' => $date ?? now(),
-            'value' => $value, 'epin_value' => $value, 'lvlcom_count' => 11, 'status' => 'active',
+            // epin_value = the FULL bill (legacy epinvalue); $value is the bond share
+            'value' => $value, 'epin_value' => $plan->billValueFromBond($value), 'lvlcom_count' => 11, 'status' => 'active',
         ]);
     }
 
@@ -117,9 +118,9 @@ class RankingTest extends TestCase
         app(NetworkService::class)->recomputeUnpureBv();
 
         $this->assertEquals(130000, (float) $m->fresh()->unpure_bv);
-        // bv (face) counts every active bond's (allocation-adjusted) value
+        // bv (face) = Σ FULL bill of every active bond (legacy mybv = Σ epinvalue), not the bond share
         app(NetworkService::class)->recomputePersonalBv();
-        $this->assertEquals(290000, (float) $m->fresh()->bv);
+        $this->assertEquals(400000, (float) $m->fresh()->bv);
     }
 
     /** A bond past its plan validity is closed and stops counting toward BV. */

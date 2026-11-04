@@ -45,7 +45,7 @@ class RanksCalibrate extends Command
 
         $plans = Plan::get()->keyBy('id');
         $members = DB::table('members')->select('id', 'upline_id', 'rank_id')->get();
-        $bonds = DB::table('bonds')->select('member_id', 'plan_id', 'bond_date', 'value')
+        $bonds = DB::table('bonds')->select('member_id', 'plan_id', 'bond_date', 'value', 'epin_value')
             ->where('status', '!=', 'cancelled')->whereNotNull('bond_date')->orderBy('bond_date')->get();
 
         // --- bonds → (start, end, ranking BV) ---------------------------------------------------
@@ -57,7 +57,7 @@ class RanksCalibrate extends Command
             if (! $plan) {
                 continue;
             }
-            $unpure = $plan->unpureFromBondValue((float) $b->value);
+            $unpure = $plan->unpureFromBondValue((float) $b->value, (float) $b->epin_value);
             if ($unpure <= 0) {
                 continue;
             }

@@ -56,7 +56,8 @@ class PlanResource extends BaseResource
                         ->helperText('Per-bill ceiling; blank = no limit'),
                     Forms\Components\TextInput::make('max_sales_value')->label('Max sales / month')->numeric()
                         ->helperText('Reseller monthly billing cap; blank = no cap'),
-                    Forms\Components\TextInput::make('allocation_bv')->label('Allocation BV %')->required()->numeric()->default(100),
+                    Forms\Components\TextInput::make('allocation_bv')->label('Allocation BV % (legacy column, not used by billing)')->required()->numeric()->default(100),
+                    Forms\Components\TextInput::make('allocation')->label('Bond share % (legacy allocation: bond = bill × this)')->numeric()->helperText('80 dealerships, 70 G24, 50 G5, 25 Sub Dealer, 10 Area, 100 saving/purchase plans. TBP/rank BV uses "Rank BV %" below, not this.'),
                     Forms\Components\TextInput::make('allocation_cont')->label('Allocation contract %')->numeric()->default(0),
                     Forms\Components\TextInput::make('validity_months')->required()->numeric()->default(12),
                 ]),

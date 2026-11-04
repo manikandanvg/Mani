@@ -120,19 +120,27 @@ class Plan extends Model
      * G5 example: ₹1,00,000 bill × 50 % → bond 50,000; unpure = 1,00,000 × 50 % = 50,000
      * (NOT 50 % of 50,000).
      */
-    public function unpureFromBondValue(float $bondValue): float
+    public function unpureFromBondValue(float $bondValue, ?float $epinValue = null): float
     {
         $factor = $this->rankFactor();
-        if ($factor <= 0 || $bondValue <= 0) {
+        if ($factor <= 0 || ($bondValue <= 0 && (float) $epinValue <= 0)) {
             return 0.0;
         }
 
-        return round($this->billValueFromBond($bondValue) * $factor, 2);
+        return round($this->billValueFromBond($bondValue, $epinValue) * $factor, 2);
     }
 
-    /** The bill a bond of $bondValue came from (bond ÷ legacy allocation share). */
-    public function billValueFromBond(float $bondValue): float
+    /**
+     * The bill a bond came from. bonds.epin_value holds it as billed (legacy tbl_bond.epinvalue,
+     * the grand total) — legacy mybv/mygbv and the R/A BV cron sum exactly that, so prefer it;
+     * derive from the bond share (bond ÷ allocation) only when it was never stored. Deriving
+     * under-counts bonds booked under an older share (old G24 bonds carry a 30 % bvalue).
+     */
+    public function billValueFromBond(float $bondValue, ?float $epinValue = null): float
     {
+        if ((float) $epinValue > 0) {
+            return round((float) $epinValue, 2);
+        }
         $alloc = $this->bondShare();
 
         return round(($alloc > 0 && $alloc < 100) ? $bondValue * 100 / $alloc : $bondValue, 2);

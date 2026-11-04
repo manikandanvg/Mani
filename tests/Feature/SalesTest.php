@@ -104,10 +104,10 @@ class SalesTest extends TestCase
         $this->assertEquals(20, CommissionLedger::where('member_id', $u1->id)->where('type', 'IC')->sum('amount'));
         $this->assertEquals('pending', CommissionLedger::where('member_id', $u3->id)->first()->status);
 
-        // GBV roll-up uses the allocated amount
-        $this->assertEquals(1000, $u3->fresh()->gbv);
-        $this->assertEquals(1000, $u2->fresh()->gbv);
-        $this->assertEquals(1000, $u1->fresh()->gbv);
+        // GBV roll-up uses the grand total as billed (legacy mygbv += invoicegrandtotal)
+        $this->assertEquals(1030, $u3->fresh()->gbv);
+        $this->assertEquals(1030, $u2->fresh()->gbv);
+        $this->assertEquals(1030, $u1->fresh()->gbv);
         $this->assertEquals(1, $u3->fresh()->downline_count);
 
         // stock deducted
@@ -422,8 +422,9 @@ class SalesTest extends TestCase
 
         $bill($b);   // B: self 50k → A now has a 50k direct leg → A promotes, live
         $this->assertEquals('TALUK_DIRECTOR', $a->fresh()->rank->code);
-        $this->assertEquals(50000, (float) $a->fresh()->unpure_bv);
-        $this->assertEquals(50000, (float) $a->fresh()->unpure_gbv);   // B's unpure rolled up
+        // ranking BV = grand total as billed (legacy epinvalue × factor), tax included
+        $this->assertEquals(51500, (float) $a->fresh()->unpure_bv);
+        $this->assertEquals(51500, (float) $a->fresh()->unpure_gbv);   // B's unpure rolled up
     }
 
     public function test_instant_commission_respects_earning_cap(): void

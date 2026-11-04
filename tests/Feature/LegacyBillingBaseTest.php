@@ -88,9 +88,10 @@ class LegacyBillingBaseTest extends TestCase
         $this->assertEquals(round(10000 / 30 * 27, 2), (float) $coupons->first()->worth, 'first coupon prorated by days (4 Nov → 1 Dec = 27)');
         $this->assertEquals(10000.0, (float) $coupons[1]->worth);
 
-        // legacy mybv / mygbv grow by the bill, not the bond share
-        $this->assertEquals(500000.0, (float) $buyer->fresh()->bv);
-        $this->assertEquals(500000.0, (float) $u2->fresh()->gbv);
+        // legacy mybv / mygbv grow by the grand total as billed (epinvalue, tax included), not the bond share
+        $this->assertEquals(515000.0, (float) $bond->epin_value);
+        $this->assertEquals(515000.0, (float) $buyer->fresh()->bv);
+        $this->assertEquals(515000.0, (float) $u2->fresh()->gbv);
     }
 
     public function test_cbc_split_follows_the_legacy_month_report(): void

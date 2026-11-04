@@ -87,8 +87,8 @@ class SalesCancelTest extends TestCase
         $this->assertGreaterThan(0, CommissionLedger::where('bond_id', $bond->id)->count());
         $this->assertGreaterThan(0, ResellerCommission::where('invoice_no', $invoice->invoice_no)->count());
         $this->assertGreaterThan(0, (float) $dealer->fresh()->bill_margin);
-        $this->assertSame(14000.0, (float) $member->fresh()->bv);
-        $this->assertSame($uplineGbvBefore + 14000.0, (float) $upline->fresh()->gbv);
+        $this->assertSame(14420.0, (float) $member->fresh()->bv);   // grand total as billed (legacy mygbv)
+        $this->assertSame($uplineGbvBefore + 14420.0, (float) $upline->fresh()->gbv);
         $uplineTeamBefore = (int) $upline->fresh()->downline_count;
         $this->assertTrue(RedeemableQr::where('bond_id', $bond->id)->where('status', 'pending')->exists());
 

@@ -123,26 +123,38 @@ class NetworkService
             });
     }
 
-    /** bv = Σ value of the member's ACTIVE bonds. */
+    /**
+     * bv = Σ FULL bill of the member's ACTIVE bonds (legacy mybv / mygbv = Σ tbl_bond.epinvalue,
+     * the grand total as billed) — NOT the bond share (bonds.value = bill × plan.allocation).
+     * Same figure the instant billing path credits, so a recompute never drifts from it.
+     */
     public function recomputePersonalBv(): void
     {
+        $plans = Plan::get()->keyBy('id');
+
         DB::table('members')->update(['bv' => 0]);
 
-        $sums = DB::table('bonds')
-            ->select('member_id', DB::raw('SUM(value) as total'))
+        $rows = DB::table('bonds')
+            ->select('member_id', 'plan_id', 'value', 'epin_value')
             ->where('status', 'active')
-            ->groupBy('member_id')
-            ->pluck('total', 'member_id');
+            ->get();
 
-        foreach ($sums as $memberId => $total) {
-            DB::table('members')->where('id', $memberId)->update(['bv' => $total]);
+        $totals = [];
+        foreach ($rows as $r) {
+            $plan = $plans->get($r->plan_id);
+            $bill = $plan ? $plan->billValueFromBond((float) $r->value, (float) $r->epin_value) : (float) ($r->epin_value ?: $r->value);
+            $totals[$r->member_id] = ($totals[$r->member_id] ?? 0) + $bill;
+        }
+
+        foreach ($totals as $memberId => $total) {
+            DB::table('members')->where('id', $memberId)->update(['bv' => round($total, 2)]);
         }
     }
 
     /**
-     * unpure_bv = Σ ranking BV of active bonds. rank_factor % applies to the ORIGINAL
-     * billed value (bond values are stored allocation_bv-adjusted, so the Plan helper
-     * scales back up first) — same maths as the instant billing path.
+     * unpure_bv = Σ ranking BV of active bonds = FULL bill × rank_factor % (legacy R/A BV cron:
+     * epinvalue × (100 − allocation) %, Area 10 %, 100 %-plans ×1, G10 Gold / PLUS1 excluded)
+     * — same maths as the instant billing path.
      */
     public function recomputeUnpureBv(): void
     {
@@ -151,13 +163,13 @@ class NetworkService
         DB::table('members')->update(['unpure_bv' => 0]);
 
         $rows = DB::table('bonds')
-            ->select('member_id', 'plan_id', 'value')
+            ->select('member_id', 'plan_id', 'value', 'epin_value')
             ->where('status', 'active')
             ->get();
 
         $totals = [];
         foreach ($rows as $r) {
-            $unpure = $plans->get($r->plan_id)?->unpureFromBondValue((float) $r->value) ?? 0.0;
+            $unpure = $plans->get($r->plan_id)?->unpureFromBondValue((float) $r->value, (float) $r->epin_value) ?? 0.0;
             if ($unpure <= 0) {
                 continue;
             }

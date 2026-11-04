@@ -107,6 +107,9 @@ class SalesService
             // Both in INR base so caps/ranks stay coherent across currencies.
             $billBase = round($crossTotal * $fx, 2);
             $allocation = $plan->bondValueFor($billBase);
+            // Legacy BV / GBV (mybv, mygbv, R/A BV) grow by the GRAND total as billed — tax
+            // included — which legacy kept on the bond as epinvalue. Same INR base here.
+            $grandBase = round($grandTotal * $fx, 2);
 
             // --- invoice (amounts stored in the branch currency, stamped with code + rate) ---
             $invoice = SalesInvoice::create([
@@ -175,7 +178,7 @@ class SalesService
                 'cbc_issued' => 0,
                 'lvlcom_count' => (int) ($plan->level_com_duration ?: $plan->validity_months),
                 'lvlcom_issued' => 0,
-                'epin_value' => round($grandTotal * $fx, 2),   // INR base
+                'epin_value' => $grandBase,   // the full bill as billed (legacy epinvalue)
                 'mou_id' => $plan->mou_id,
                 'status' => 'active',
             ]);
@@ -187,7 +190,7 @@ class SalesService
             $this->scheduleCbc($bond, $member, $cbcMonthly, (int) $plan->cbc_count, $billDate);
             $this->issueInstantCommission($member, $bond, $invoice, $plan, $billBase, $billDate, $branchId);
             // legacy: the buyer's BV and every upline's group BV grow by the bill, not the bond share
-            $this->applyNetworkDeltas($member, $plan, $billBase, $isNew);
+            $this->applyNetworkDeltas($member, $plan, $grandBase, $isNew);
             $this->payBillMargin($plan, $invoice, $branchId, $userId, $crossTotal, $member);
             $this->payGmMargin($cart, $invoice, $branchId, $userId, $member);
             $this->deductStock($cart, $branchId, $billDate, $userId, $invoice->id);
@@ -522,7 +525,8 @@ class SalesService
 
     protected function applyNetworkDeltas(Member $member, Plan $plan, float $value, bool $isNew): void
     {
-        // $value is the FULL bill (legacy mybv/mygbv); the rank % is taken off the same bill.
+        // $value is the FULL bill as billed, tax included (legacy mybv/mygbv += invoicegrandtotal,
+        // stored on the bond as epin_value); the rank % is taken off the same bill.
         $unpure = round($value * $plan->rankFactor(), 2);
 
         $member->increment('bv', $value);
