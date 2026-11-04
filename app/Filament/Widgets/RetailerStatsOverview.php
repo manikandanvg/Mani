@@ -52,6 +52,18 @@ class RetailerStatsOverview extends BaseWidget
 
         $billMargin = (float) (Branch::find($branchId)?->bill_margin ?? 0);
 
+        // Pending billing margin (user 2026-11-04): what the dealer is still owed —
+        //   legacy balance waiting on Commissions → Pending Billing Margin (sent by HQ per row), plus
+        //   margin on NEW bills not yet approved on Commission Approval.
+        $legacyPending = (float) \App\Models\PendingBillMargin::where('branch_id', $branchId)
+            ->where('status', \App\Models\PendingBillMargin::STATUS_PENDING)->sum('amount');
+        $newPending = (float) \App\Models\ResellerCommission::where('branch_id', $branchId)
+            ->where('com_type_id', \App\Models\ResellerCommission::COM_BILL_MARGIN)
+            ->where('status', '!=', 'paid')
+            ->where('source', '!=', \App\Models\ResellerCommission::SOURCE_LEGACY)
+            ->sum('com_value');
+        $pendingMargin = round($legacyPending + $newPending, 2);
+
         return [
             Stat::make('Bills (this month)', number_format($bills))
                 ->descriptionIcon('heroicon-m-document-text')->color('warning'),
@@ -65,7 +77,13 @@ class RetailerStatsOverview extends BaseWidget
                 ->descriptionIcon('heroicon-m-cube')->color('gray'),
             Stat::make('Cash stock', Money::display($stock('cash')))
                 ->descriptionIcon('heroicon-m-wallet')->color('success'),
+            Stat::make('Billing margin pending', Money::display($pendingMargin))
+                ->description(trim(($legacyPending > 0 ? Money::display($legacyPending) . ' legacy balance at HQ' : '')
+                    . ($legacyPending > 0 && $newPending > 0 ? ' · ' : '')
+                    . ($newPending > 0 ? Money::display($newPending) . ' on new bills, awaiting approval' : '')) ?: 'Nothing pending')
+                ->descriptionIcon('heroicon-m-clock')->color($pendingMargin > 0 ? 'warning' : 'gray'),
             Stat::make('Bill margin earned', Money::display($billMargin))
+                ->description('Running total — legacy balance plus new bills')
                 ->descriptionIcon('heroicon-m-receipt-percent')->color('danger'),
         ];
     }
