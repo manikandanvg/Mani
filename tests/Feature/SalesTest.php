@@ -201,8 +201,9 @@ class SalesTest extends TestCase
     {
         return Plan::create([
             'code' => 'CBC', 'name' => ['en' => 'Cbc Plan'], 'plan_type' => 2, 'type' => 'digital',
-            'min_value' => 0, 'allocation_bv' => 100, 'validity_months' => 10,
-            'cbc_value' => 30, 'cbc_count' => 10,
+            'min_value' => 0, 'allocation_bv' => 100, 'allocation' => 100, 'validity_months' => 10,
+            // legacy: the coupon is bill × cbc % EVERY month (user 2026-11-04) → 3 % of ₹1,000 = ₹30 a month
+            'cbc_value' => 3, 'cbc_count' => 10,
             'ic_schedule' => [], 'level_schedule' => [], 'level_depth' => 0, 'level_com_duration' => 10,
             'billing_margin' => 0, 'is_active' => true,
         ]);

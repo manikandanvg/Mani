@@ -83,6 +83,54 @@ class CommissionService
     }
 
     /**
+     * Instant Commission on an amount other than the bond value — the legacy Gold Saving
+     * instalment (Trade::rdsales, user 2026-11-04): every monthly collection pays the plan's
+     * 10-level IC schedule again on the bond's billed value (legacy epinvalue), each level
+     * capped by that upline's earning potential on the day. Rows are pending until approved.
+     */
+    public function issueInstantCommissionOn(Bond $bond, float $base, string $earnedOn, ?string $reference = null, ?int $branchId = null): int
+    {
+        $schedule = $bond->plan?->ic_schedule ?? [];
+        if (empty($schedule) || $base <= 0) {
+            return 0;
+        }
+
+        $issued = 0;
+        $member = $bond->member;
+        if (! $member) {
+            return 0;
+        }
+        foreach ($this->uplineChain($member, 10) as $i => $upline) {
+            $pct = (float) ($schedule[$i] ?? 0);
+            if ($pct <= 0) {
+                continue;
+            }
+            $ep = $this->earningPotential($upline, $earnedOn);
+            if ($ep <= 0) {
+                continue;
+            }
+            $amount = min(round($base * $pct / 100, 2), round($ep, 2));
+            if ($amount <= 0) {
+                continue;
+            }
+            $this->credit($upline, $amount, [
+                'type' => 'IC',
+                'from_member_id' => $bond->member_id,
+                'bond_id' => $bond->id,
+                'invoice_no' => $reference ?? $bond->invoice_no,
+                'level' => $i + 1,
+                'amount' => $amount,
+                'status' => 'pending',
+                'earned_on' => $earnedOn,
+                'branch_id' => $branchId,
+            ]);
+            $issued++;
+        }
+
+        return $issued;
+    }
+
+    /**
      * GAP / level commission batch. For each active bond with installments left,
      * walk 5 uplines and pay level_schedule[n] only if the upline's rank depth >= n.
      */

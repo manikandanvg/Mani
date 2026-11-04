@@ -101,8 +101,12 @@ class SalesService
 
             $this->assertPlanCaps($plan, $member, $grandTotal, $fx, $billDate);
 
-            // Network/commission maths run in INR base: convert the allocated amount once.
-            $allocation = round($crossTotal * (float) $plan->allocation_bv / 100 * $fx, 2);
+            // Legacy way to bill (user 2026-11-04): every commission — IC, level income, CBC —
+            // is a % of the FULL bill value (pre-tax cross total, legacy `billingvalue`); the
+            // bond keeps only the legacy allocation share (bvalue = bill × plan.allocation).
+            // Both in INR base so caps/ranks stay coherent across currencies.
+            $billBase = round($crossTotal * $fx, 2);
+            $allocation = $plan->bondValueFor($billBase);
 
             // --- invoice (amounts stored in the branch currency, stamped with code + rate) ---
             $invoice = SalesInvoice::create([
@@ -147,11 +151,13 @@ class SalesService
             }
 
             // --- bond (the commission-bearing unit) ---
+            // Legacy: the coupon is bill × cbc % EVERY month for cbc_count months (a ₹1,00,000
+            // G5 bill → ₹6,000 × 24), and the five level amounts are bill × level % per month.
             $cbcMonthly = $plan->cbc_count > 0
-                ? round($allocation * (float) $plan->cbc_value / 100 / $plan->cbc_count, 2)
+                ? round($billBase * (float) $plan->cbc_value / 100, 2)
                 : 0.0;
             $levelAmounts = array_map(
-                fn ($pct) => round($allocation * (float) $pct / 100, 2),
+                fn ($pct) => round($billBase * (float) $pct / 100, 2),
                 $plan->level_schedule ?? []
             );
 
@@ -179,8 +185,9 @@ class SalesService
             app(\App\Services\DealershipService::class)->applyPlanLevel($member, $plan);
 
             $this->scheduleCbc($bond, $member, $cbcMonthly, (int) $plan->cbc_count, $billDate);
-            $this->issueInstantCommission($member, $bond, $invoice, $plan, $allocation, $billDate, $branchId);
-            $this->applyNetworkDeltas($member, $plan, $allocation, $isNew);
+            $this->issueInstantCommission($member, $bond, $invoice, $plan, $billBase, $billDate, $branchId);
+            // legacy: the buyer's BV and every upline's group BV grow by the bill, not the bond share
+            $this->applyNetworkDeltas($member, $plan, $billBase, $isNew);
             $this->payBillMargin($plan, $invoice, $branchId, $userId, $crossTotal, $member);
             $this->payGmMargin($cart, $invoice, $branchId, $userId, $member);
             $this->deductStock($cart, $branchId, $billDate, $userId, $invoice->id);
@@ -399,9 +406,9 @@ class SalesService
             }
             $pct = (float) ($schedule[$level - 1] ?? 0);
             if ($pct > 0 && $upline->status === 'active') {
-                // amount is INR base (allocation is INR), so caps/ranks stay coherent.
+                // amount is INR base (the bill base is INR), so caps/ranks stay coherent.
                 $amount = round($allocation * $pct / 100, 2);
-                $cap = $this->earningCap($upline);
+                $cap = $this->earningCap($upline, $billDate);
                 $amount = min($amount, $cap);
                 if ($amount > 0) {
                     // Stamp the EARNER's home currency + frozen rate; the wallet pays out
@@ -434,20 +441,11 @@ class SalesService
      * Earning headroom = bonded BV - lifetime earnings (IC + GAP + bill-margin).
      * A member cannot earn more than they have bonded. Returns 0 if inactive/maxed.
      */
-    public function earningCap(Member $member): float
+    public function earningCap(Member $member, ?string $onDate = null): float
     {
-        if ($member->status !== 'active') {
-            return 0.0;
-        }
-        $bonded = (float) Bond::where('member_id', $member->id)->where('status', 'active')->sum('value');
-        if ($bonded <= 0) {
-            return 0.0;
-        }
-        $earned = (float) CommissionLedger::where('member_id', $member->id)
-            ->whereIn('type', ['IC', 'GAP'])->sum('amount');
-        $earned += (float) ResellerCommission::where('mapped_uid', $member->member_code)->sum('com_value');
-
-        return max(0.0, round($bonded - $earned, 2));
+        // Legacy Trade::checkmemberactive counts only what was booked TODAY (user 2026-11-04:
+        // bill the legacy way) — the same rule the monthly engine and the margins already use.
+        return app(CommissionService::class)->earningPotential($member, $onDate);
     }
 
     /** First installment prorated to the 1st of next month, then monthly. */
@@ -524,8 +522,8 @@ class SalesService
 
     protected function applyNetworkDeltas(Member $member, Plan $plan, float $value, bool $isNew): void
     {
-        // $value is the allocated (BV) amount; the rank % is taken off the ORIGINAL bill.
-        $unpure = $plan->unpureFromBondValue($value);
+        // $value is the FULL bill (legacy mybv/mygbv); the rank % is taken off the same bill.
+        $unpure = round($value * $plan->rankFactor(), 2);
 
         $member->increment('bv', $value);
         if ($unpure > 0) {

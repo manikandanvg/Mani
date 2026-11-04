@@ -102,11 +102,11 @@ class RankingTest extends TestCase
     /** unpure_bv applies the plan factor and excludes non-counting plans. */
     public function test_unpure_bv_factor_and_exclusion(): void
     {
-        // rank_factor % applies to the ORIGINAL bill; bonds store the allocation_bv share.
-        $full = $this->plan(['allocation_bv' => 100]);                                 // 100% of bill
-        $dealer = $this->plan(['allocation_bv' => 80, 'rank_factor' => 20]);           // 20% of bill
-        $excluded = $this->plan(['allocation_bv' => 100, 'counts_for_rank' => false]); // ×0
-        $area = $this->plan(['allocation_bv' => 10, 'rank_factor' => 10]);             // 10% of bill
+        // rank_factor % applies to the ORIGINAL bill; bonds store the legacy allocation share (plans.allocation).
+        $full = $this->plan(['allocation' => 100, 'allocation_bv' => 100]);                                 // 100% of bill
+        $dealer = $this->plan(['allocation' => 80, 'allocation_bv' => 20, 'rank_factor' => 20]);            // 20% of bill
+        $excluded = $this->plan(['allocation' => 100, 'allocation_bv' => 100, 'counts_for_rank' => false]); // ×0
+        $area = $this->plan(['allocation' => 10, 'allocation_bv' => 10, 'rank_factor' => 10]);              // 10% of bill
 
         $m = $this->member('M', null);
         $this->bond($m, $full, 100000);      // ₹1,00,000 bill → +100000

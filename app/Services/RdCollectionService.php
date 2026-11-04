@@ -83,6 +83,11 @@ class RdCollectionService
             }
 
             $this->payBillMargin($bond, $branchId, $userId, $amount, $paidOn, $currency, $fx);
+            // Legacy Trade::rdsales (user 2026-11-04): every instalment pays the plan's IC
+            // schedule again on the bond's billed value (epinvalue), EP-capped per upline.
+            app(CommissionService::class)->issueInstantCommissionOn(
+                $bond, (float) ($bond->epin_value ?: $bond->value), $paidOn, 'RD-' . $entry->id, $branchId
+            );
             $this->mintRenewalQr($bond, $plan, $dueCount, $fixedAmount);
             $this->refreshContract($bond);
 

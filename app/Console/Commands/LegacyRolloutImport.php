@@ -153,6 +153,7 @@ class LegacyRolloutImport extends LegacyImport
                         'type' => match ($type) { 1 => 'rd', 2 => 'digital', 3 => 'gold', 4 => 'silver', default => 'others' },
                         'min_value' => $this->num($p->minvalue),
                         'allocation_bv' => $this->num($p->allocation),
+                        'allocation' => $this->num($p->allocation),   // legacy bond share (bvalue = bill × allocation)
                         'validity_months' => (int) ($p->levelcomduration ?: 12),
                         'cbc_value' => $this->num($p->cbvalue),
                         'cbc_count' => (int) $p->cbcount,

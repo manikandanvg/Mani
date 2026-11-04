@@ -38,10 +38,16 @@ class CommissionApprove extends Command
             CommissionApprovalService::label($type), $from ?? '…', $to ?? '…', $rows, number_format($gross, 2),
             (int) $query->distinct()->count(CommissionApprovalService::groupColumn($type))));
         if ($type === 'CBC' && $rows > 0) {
-            // the coupon worth is not what reaches the wallet — show the board's split
-            $s = CommissionApprovalService::cbcSplit($gross);
-            $this->line(sprintf('  → cash wallet %s%% ₹%s · TDS %s%% ₹%s · service %s%% ₹%s · retained by HQ (not paid) ₹%s',
-                $s['cash_pct'], number_format($s['cash'], 2), $s['tds_pct'], number_format($s['tds'], 2), $s['service_pct'], number_format($s['service'], 2), number_format($s['coupon'], 2)));
+            // the coupon worth is not what reaches the wallet — show the legacy month-report split
+            // (user 2026-11-04): member plans 50 % cash + TDS/service + HQ coupon wallet; dealership
+            // plans 100 % cash, TDS only.
+            $s = CommissionApprovalService::cbcSplitTotals($query);
+            $m = CommissionApprovalService::cbcSplit($s['member_worth'], false);
+            $d = CommissionApprovalService::cbcSplit($s['dealer_worth'], true);
+            $this->line(sprintf('  member plans ₹%s → cash wallet %s%% ₹%s · TDS %s%% ₹%s · service %s%% ₹%s · coupon wallet (HQ only) ₹%s',
+                number_format($s['member_worth'], 2), $m['cash_pct'], number_format($m['cash'], 2), $m['tds_pct'], number_format($m['tds'], 2), $m['service_pct'], number_format($m['service'], 2), number_format($m['coupon'], 2)));
+            $this->line(sprintf('  dealership plans ₹%s → cash wallet %s%% ₹%s · TDS %s%% ₹%s · service %s%% ₹%s',
+                number_format($s['dealer_worth'], 2), $d['cash_pct'], number_format($d['cash'], 2), $d['tds_pct'], number_format($d['tds'], 2), $d['service_pct'], number_format($d['service'], 2)));
         }
         if ($rows === 0 || $this->option('dry-run')) {
             return self::SUCCESS;

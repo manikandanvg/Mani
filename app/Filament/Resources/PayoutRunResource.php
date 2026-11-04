@@ -78,13 +78,14 @@ class PayoutRunResource extends BaseResource
                 Tables\Columns\TextColumn::make('gap_gross')->label('GAP gross')->formatStateUsing(fn ($state) => Money::inr((float) $state)),
                 Tables\Columns\TextColumn::make('cbc_rows')->label('CBC due')->numeric(),
                 Tables\Columns\TextColumn::make('cbc_worth')->label('CBC worth (before split)')->formatStateUsing(fn ($state) => Money::inr((float) $state))->toggleable(),
-                // Board 2026-11-01 split of the month's coupons (Commission Setup percentages).
+                // Legacy month-report split (user 2026-11-04): member plans 50 % cash / TDS + service /
+                // coupon wallet; dealership plans 100 % cash, TDS only. Summed per rule from the run's rows.
                 Tables\Columns\TextColumn::make('cbc_cash')->label('CBC → cash wallet')
-                    ->state(fn (PayoutRun $r) => Money::inr(CommissionApprovalService::cbcSplit((float) $r->cbc_worth)['cash'])),
+                    ->state(fn (PayoutRun $r) => Money::inr($r->cbcSplit()['cash'])),
                 Tables\Columns\TextColumn::make('cbc_withheld')->label('CBC TDS + service')
-                    ->state(fn (PayoutRun $r) => Money::inr(CommissionApprovalService::cbcSplit((float) $r->cbc_worth)['tds'] + CommissionApprovalService::cbcSplit((float) $r->cbc_worth)['service']))->toggleable(),
-                Tables\Columns\TextColumn::make('cbc_coupon')->label('CBC → coupon wallet')
-                    ->state(fn (PayoutRun $r) => Money::inr(CommissionApprovalService::cbcSplit((float) $r->cbc_worth)['coupon']))->toggleable(),
+                    ->state(fn (PayoutRun $r) => Money::inr($r->cbcSplit()['tds'] + $r->cbcSplit()['service']))->toggleable(),
+                Tables\Columns\TextColumn::make('cbc_coupon')->label('CBC → coupon wallet (HQ)')
+                    ->state(fn (PayoutRun $r) => Money::inr($r->cbcSplit()['coupon']))->toggleable(),
                 Tables\Columns\TextColumn::make('runBy.name')->label('Run by')->placeholder('console')->toggleable(),
                 Tables\Columns\TextColumn::make('finished_at')->label('Generated')->dateTime('d M Y H:i')->toggleable(),
                 Tables\Columns\TextColumn::make('approved_at')->label('Approved')->dateTime('d M Y H:i')->placeholder('—')->toggleable(),
@@ -123,17 +124,20 @@ class PayoutRunResource extends BaseResource
                 Infolists\Components\TextEntry::make('gap_log')->label('GAP log (per member, with TDS & service as Commission Setup would deduct today)')->columnSpanFull()
                     ->state(fn (PayoutRun $r) => new HtmlString(static::summaryHtml($r))),
             ]),
-            // Board 2026-11-01 split of every coupon: sales profit → cash wallet, TDS + service withheld,
-            // remainder retained by HQ on the coupon rows (no wallet). Percentages from Commission Setup.
+            // Legacy month-report split (user 2026-11-04): member plans — sales profit → cash wallet,
+            // TDS + service withheld, remainder to the HQ-only coupon wallet figure on the rows;
+            // dealership plans — 100 % cash, TDS only. Percentages from Commission Setup.
             Infolists\Components\Section::make('Promotional Incentive (CBC) due this month')->columns(3)->schema([
                 Infolists\Components\TextEntry::make('cbc_rows')->label('Coupons')->numeric(),
                 Infolists\Components\TextEntry::make('cbc_worth')->label('Worth')->formatStateUsing(fn ($state) => Money::inr((float) $state)),
-                Infolists\Components\TextEntry::make('cbc_cash')->label(fn (PayoutRun $r) => 'Sales profit → cash wallet (' . rtrim(rtrim(number_format(CommissionApprovalService::cbcSplit(100)['cash_pct'], 2), '0'), '.') . ' %)')
-                    ->state(fn (PayoutRun $r) => Money::inr(CommissionApprovalService::cbcSplit((float) $r->cbc_worth)['cash'])),
+                Infolists\Components\TextEntry::make('cbc_dealer_worth')->label('of which dealership plans (100 % cash, TDS only)')
+                    ->state(fn (PayoutRun $r) => Money::inr($r->cbcSplit()['dealer_worth'])),
+                Infolists\Components\TextEntry::make('cbc_cash')->label(fn (PayoutRun $r) => 'Sales profit → cash wallet (member plans ' . rtrim(rtrim(number_format(CommissionApprovalService::cbcSplit(100)['cash_pct'], 2), '0'), '.') . ' %)')
+                    ->state(fn (PayoutRun $r) => Money::inr($r->cbcSplit()['cash'])),
                 Infolists\Components\TextEntry::make('cbc_charges')->label('TDS + service withheld')
-                    ->state(fn (PayoutRun $r) => Money::inr(CommissionApprovalService::cbcSplit((float) $r->cbc_worth)['tds'] + CommissionApprovalService::cbcSplit((float) $r->cbc_worth)['service'])),
-                Infolists\Components\TextEntry::make('cbc_coupon')->label('Retained by HQ (not paid)')
-                    ->state(fn (PayoutRun $r) => Money::inr(CommissionApprovalService::cbcSplit((float) $r->cbc_worth)['coupon'])),
+                    ->state(fn (PayoutRun $r) => Money::inr($r->cbcSplit()['tds'] + $r->cbcSplit()['service'])),
+                Infolists\Components\TextEntry::make('cbc_coupon')->label('Coupon wallet (Head Office only)')
+                    ->state(fn (PayoutRun $r) => Money::inr($r->cbcSplit()['coupon'])),
             ]),
             Infolists\Components\Section::make('Log')->schema([
                 Infolists\Components\TextEntry::make('log_path')->label('File')->placeholder('—')->copyable(),

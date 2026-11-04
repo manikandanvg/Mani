@@ -54,7 +54,9 @@ class CommissionSetup extends Page implements HasForms
                 'slab_from' => (float) ($cfg['slab_from'] ?? 0), 'slab_tds' => (float) ($cfg['slab_tds'] ?? $tds), 'slab_service' => (float) ($cfg['slab_service'] ?? $svc)];
         }
         $cbc = CommissionApprovalService::cbcSplit(100);   // percentages of the whole coupon
-        $fill['CBC'] = ['cash_pct' => $cbc['cash_pct'], 'tds' => $cbc['tds_pct'], 'service' => $cbc['service_pct']];
+        $dealer = CommissionApprovalService::cbcSplit(100, true);
+        $fill['CBC'] = ['cash_pct' => $cbc['cash_pct'], 'tds' => $cbc['tds_pct'], 'service' => $cbc['service_pct'],
+            'dealer_cash_pct' => $dealer['cash_pct'], 'dealer_tds' => $dealer['tds_pct'], 'dealer_service' => $dealer['service_pct']];
         $fill['digi_market_fee'] = \App\Services\Wallet\DigiMarketService::platformFeePct();
         $fill['customize'] = [
             'gold_margin_per_g' => \App\Support\CustomizeOrderPricing::marginPerGram('gold'),
@@ -104,16 +106,25 @@ class CommissionSetup extends Page implements HasForms
         $sections[] = Forms\Components\Section::make(CommissionApprovalService::TYPES['CBC'])
             ->compact()
             ->columns(3)
-            ->description(__('Percentages of the whole coupon. Sales profit goes to the cash wallet; TDS and service charge are withheld; whatever remains goes to the coupon wallet, which only Head Office sees.'))
+            ->description(__('Legacy month report format. Member plans: sales profit % to the cash wallet, TDS and service withheld, the remainder to the coupon wallet, which only Head Office sees. Dealership plans (Taluka, District, Zonal, Regional): paid in full to the cash wallet, TDS only, nothing to the coupon wallet.'))
             ->schema([
                 Forms\Components\TextInput::make('CBC.cash_pct')
-                    ->label('Sales profit % → cash wallet')
+                    ->label('Member plans: sales profit % → cash wallet')
                     ->numeric()->minValue(0)->maxValue(100)->required()->suffix('%'),
                 Forms\Components\TextInput::make('CBC.tds')
-                    ->label('TDS %')
+                    ->label('Member plans: TDS %')
                     ->numeric()->minValue(0)->maxValue(30)->required()->suffix('%'),
                 Forms\Components\TextInput::make('CBC.service')
-                    ->label('Service charge %')
+                    ->label('Member plans: service charge %')
+                    ->numeric()->minValue(0)->maxValue(30)->required()->suffix('%'),
+                Forms\Components\TextInput::make('CBC.dealer_cash_pct')
+                    ->label('Dealership plans: cash %')
+                    ->numeric()->minValue(0)->maxValue(100)->required()->suffix('%'),
+                Forms\Components\TextInput::make('CBC.dealer_tds')
+                    ->label('Dealership plans: TDS %')
+                    ->numeric()->minValue(0)->maxValue(30)->required()->suffix('%'),
+                Forms\Components\TextInput::make('CBC.dealer_service')
+                    ->label('Dealership plans: service charge %')
                     ->numeric()->minValue(0)->maxValue(30)->required()->suffix('%'),
             ]);
 
@@ -178,6 +189,9 @@ class CommissionSetup extends Page implements HasForms
                 'cash_pct' => (float) ($d['CBC']['cash_pct'] ?? CommissionApprovalService::CBC_CASH_PCT),
                 'tds' => (float) ($d['CBC']['tds'] ?? CommissionApprovalService::TDS_PCT),
                 'service' => (float) ($d['CBC']['service'] ?? CommissionApprovalService::SERVICE_PCT),
+                'dealer_cash_pct' => (float) ($d['CBC']['dealer_cash_pct'] ?? CommissionApprovalService::CBC_DEALER_CASH_PCT),
+                'dealer_tds' => (float) ($d['CBC']['dealer_tds'] ?? CommissionApprovalService::CBC_DEALER_TDS_PCT),
+                'dealer_service' => (float) ($d['CBC']['dealer_service'] ?? CommissionApprovalService::CBC_DEALER_SERVICE_PCT),
             ]), 'type' => 'json'],
         );
 

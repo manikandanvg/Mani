@@ -21,6 +21,8 @@ class Plan extends Model
         'max_sales_value' => 'decimal:2',
         'allocation_bv' => 'decimal:3',
         'allocation_cont' => 'decimal:3',
+        'allocation' => 'decimal:3',
+        'cbc_dealer_rule' => 'boolean',
         'cbc_value' => 'decimal:3',
         'renewal_margin' => 'decimal:3',
         'is_redeem' => 'boolean',
@@ -92,10 +94,31 @@ class Plan extends Model
     }
 
     /**
+     * Legacy allocation (user 2026-11-04, "bill the legacy way"): the % of a bill that becomes
+     * the bond — legacy tbl_bond.bvalue = bill × allocation (80 % on a dealership, 50 % G5,
+     * 25 % Sub Dealer, 10 % Area, 100 % on the saving / purchase plans). Every commission is
+     * computed on the FULL bill, not on this share. Falls back to the contract share, then 100.
+     */
+    public function bondShare(): float
+    {
+        if ($this->allocation !== null && (float) $this->allocation > 0) {
+            return (float) $this->allocation;
+        }
+
+        return (float) $this->allocation_cont > 0 ? (float) $this->allocation_cont : 100.0;
+    }
+
+    /** Bond value (legacy bvalue) for a bill of $billValue. */
+    public function bondValueFor(float $billValue): float
+    {
+        return round($billValue * $this->bondShare() / 100, 2);
+    }
+
+    /**
      * Ranking (unpure) BV contributed by a bond. rank_factor % applies to the ORIGINAL
-     * billed value, but bonds store the allocation_bv-adjusted amount — so scale back up
-     * first. G5 example: ₹1,00,000 bill × 50% BV → bond 50,000; unpure = 1,00,000 × 50%
-     * = 50,000 (NOT 50% of 50,000).
+     * billed value, but bonds store the legacy allocation share — so scale back up first.
+     * G5 example: ₹1,00,000 bill × 50 % → bond 50,000; unpure = 1,00,000 × 50 % = 50,000
+     * (NOT 50 % of 50,000).
      */
     public function unpureFromBondValue(float $bondValue): float
     {
@@ -104,9 +127,14 @@ class Plan extends Model
             return 0.0;
         }
 
-        $alloc = (float) $this->allocation_bv;
-        $original = ($alloc > 0 && $alloc < 100) ? $bondValue * 100 / $alloc : $bondValue;
+        return round($this->billValueFromBond($bondValue) * $factor, 2);
+    }
 
-        return round($original * $factor, 2);
+    /** The bill a bond of $bondValue came from (bond ÷ legacy allocation share). */
+    public function billValueFromBond(float $bondValue): float
+    {
+        $alloc = $this->bondShare();
+
+        return round(($alloc > 0 && $alloc < 100) ? $bondValue * 100 / $alloc : $bondValue, 2);
     }
 }

@@ -26,6 +26,22 @@ class PayoutRun extends Model
 
     public function gapRows() { return $this->hasMany(CommissionLedger::class, 'payout_run_id'); }
     public function cbcRows() { return $this->hasMany(CbcEntry::class, 'payout_run_id'); }
+
+    /** @var array<string,float>|null */
+    protected ?array $cbcSplitCache = null;
+
+    /**
+     * Plan-aware split of this run's coupons (legacy month report: member plans 50 % cash,
+     * dealership plans 100 % cash TDS only) — see CommissionApprovalService::cbcSplitTotals().
+     *
+     * @return array{cash: float, tds: float, service: float, coupon: float, worth: float, dealer_worth: float, member_worth: float}
+     */
+    public function cbcSplit(): array
+    {
+        return $this->cbcSplitCache ??= \App\Services\CommissionApprovalService::cbcSplitTotals(
+            CbcEntry::query()->where('payout_run_id', $this->id)
+        );
+    }
     public function runBy() { return $this->belongsTo(User::class, 'run_by'); }
     public function approvedBy() { return $this->belongsTo(User::class, 'approved_by'); }
 

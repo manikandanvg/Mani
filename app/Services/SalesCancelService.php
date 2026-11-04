@@ -143,8 +143,10 @@ class SalesCancelService
         if (! $member) {
             return;
         }
-        $value = (float) $bond->value;
-        $unpure = $bond->plan ? $bond->plan->unpureFromBondValue($value) : 0.0;
+        // BV/GBV were credited with the FULL bill (legacy way, user 2026-11-04), the bond keeps
+        // only the allocation share — scale back up before taking it off again.
+        $value = $bond->plan ? $bond->plan->billValueFromBond((float) $bond->value) : (float) $bond->value;
+        $unpure = $bond->plan ? $bond->plan->unpureFromBondValue((float) $bond->value) : 0.0;
 
         // A member the bill enrolled (their very first invoice, created with it) also leaves
         // every ancestor's team count.

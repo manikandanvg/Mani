@@ -105,8 +105,8 @@ class EngineTest extends TestCase
 
     public function test_unpure_bv_uses_allocation_factor(): void
     {
-        // Bond 1,000 at 50% BV allocation = a ₹2,000 bill; rank 50% of the BILL → 1,000.
-        $plan = $this->plan(['allocation_bv' => 50, 'rank_factor' => 50]);
+        // Bond 1,000 at 50% legacy allocation (bond share) = a ₹2,000 bill; rank 50% of the BILL → 1,000.
+        $plan = $this->plan(['allocation' => 50, 'allocation_bv' => 50, 'rank_factor' => 50]);
         $m = $this->member('M1', null);
         $this->bond($m, $plan, ['value' => 1000]);
 

@@ -35,6 +35,11 @@ class CommissionApprovalService
      */
     public const CBC_CASH_PCT = 50.0;
 
+    /** Dealership plans (plans.cbc_dealer_rule): 100 % cash, 10 % TDS, no service — user 2026-11-04. */
+    public const CBC_DEALER_CASH_PCT = 100.0;
+    public const CBC_DEALER_TDS_PCT = 10.0;
+    public const CBC_DEALER_SERVICE_PCT = 0.0;
+
     /** Withheld on cash income (IC/GAP + the 4 margins) at approval; CBC withholds on the whole coupon. */
     public const TDS_PCT = 5.0;
 
@@ -174,7 +179,9 @@ class CommissionApprovalService
             $rows++;
             $gross += $amount;
             $id = (int) $row->{$key};
-            $perBeneficiary[$id] = ['n' => ($perBeneficiary[$id]['n'] ?? 0) + 1, 'sum' => ($perBeneficiary[$id]['sum'] ?? 0) + $amount];
+            // CBC: the cash that reached the wallet is on the row (plan-aware split) — sum it for the ack
+            $cash = $row instanceof CbcEntry ? (float) $row->cash_amount : 0.0;
+            $perBeneficiary[$id] = ['n' => ($perBeneficiary[$id]['n'] ?? 0) + 1, 'sum' => ($perBeneficiary[$id]['sum'] ?? 0) + $amount, 'cash' => ($perBeneficiary[$id]['cash'] ?? 0) + $cash];
         }
 
         // acknowledgement (board 2026-08-11: push + inbox) — one per beneficiary, after the money moved.
@@ -183,7 +190,7 @@ class CommissionApprovalService
         foreach ($perBeneficiary as $id => $t) {
             $member = $key === 'member_id' ? \App\Models\Member::find($id) : \App\Models\Branch::find($id)?->distributorUser?->memberAccount;
             $body = $type === 'CBC'
-                ? "{$t['n']} promotional incentive coupon" . ($t['n'] === 1 ? '' : 's') . ' approved — ₹' . \App\Support\Money::group(self::cbcSplit($t['sum'])['cash']) . ' credited to your cash wallet.'
+                ? "{$t['n']} promotional incentive coupon" . ($t['n'] === 1 ? '' : 's') . ' approved — ₹' . \App\Support\Money::group((float) ($t['cash'] ?? 0)) . ' credited to your cash wallet.'
                 : "{$t['n']} " . self::label($type) . ' entr' . ($t['n'] === 1 ? 'y' : 'ies') . ' approved — gross ₹' . \App\Support\Money::group($t['sum'])
                     . '; the net after TDS & service charge is now in your wallet.';
             \App\Services\Push\Notifier::to($member, 'commission', 'Commission credited to your wallet', $body, route: '/wallet');
@@ -286,7 +293,8 @@ class CommissionApprovalService
             $fx = (float) ($row->fx_rate ?: 1);
             $ccy = $row->currency_code ?: 'INR';
             $worth = round((float) $row->worth / $fx, 2);
-            $s = self::cbcSplit($worth);
+            // legacy bank report: a dealership plan's coupon is paid 100 % cash, TDS only
+            $s = self::cbcSplit($worth, (bool) ($row->bond?->plan?->cbc_dealer_rule ?? false));
             // cash share only; the remainder stays on the row (coupon_amount) as an HQ figure
             $this->creditWallet($row->member_id, cash: $s['cash'], earning: $worth, currency: $ccy);
             $row->update([
@@ -302,22 +310,70 @@ class CommissionApprovalService
 
     /**
      * How a CBC coupon of $worth is split: ['cash', 'tds', 'service', 'coupon'] — percentages
-     * of the WHOLE worth from Commission Setup (CBC: cash_pct / tds / service), defaults 50 / 5 / 5.
+     * of the WHOLE worth from Commission Setup (CBC: cash_pct / tds / service), defaults 50 / 5 / 5;
+     * the 40 % remainder is the HQ-only coupon wallet figure (legacy: the E-PIN/G12-savings share).
+     *
+     * $dealer = the legacy bank report's dealership exception (plans.cbc_dealer_rule — Taluka,
+     * District, Zonal, Regional; user 2026-11-04): 100 % cash, 10 % TDS, no service charge,
+     * nothing to the coupon wallet (CBC: dealer_cash_pct / dealer_tds / dealer_service).
      *
      * @return array{cash: float, tds: float, service: float, coupon: float, cash_pct: float, tds_pct: float, service_pct: float}
      */
-    public static function cbcSplit(float $worth): array
+    public static function cbcSplit(float $worth, bool $dealer = false): array
     {
         $cfg = self::chargeConfig('CBC');
-        $cashPct = isset($cfg['cash_pct']) ? (float) $cfg['cash_pct'] : self::CBC_CASH_PCT;
-        $tdsPct = isset($cfg['tds']) ? (float) $cfg['tds'] : self::TDS_PCT;
-        $svcPct = isset($cfg['service']) ? (float) $cfg['service'] : self::SERVICE_PCT;
+        if ($dealer) {
+            $cashPct = isset($cfg['dealer_cash_pct']) ? (float) $cfg['dealer_cash_pct'] : self::CBC_DEALER_CASH_PCT;
+            $tdsPct = isset($cfg['dealer_tds']) ? (float) $cfg['dealer_tds'] : self::CBC_DEALER_TDS_PCT;
+            $svcPct = isset($cfg['dealer_service']) ? (float) $cfg['dealer_service'] : self::CBC_DEALER_SERVICE_PCT;
+        } else {
+            $cashPct = isset($cfg['cash_pct']) ? (float) $cfg['cash_pct'] : self::CBC_CASH_PCT;
+            $tdsPct = isset($cfg['tds']) ? (float) $cfg['tds'] : self::TDS_PCT;
+            $svcPct = isset($cfg['service']) ? (float) $cfg['service'] : self::SERVICE_PCT;
+        }
         $cash = round($worth * $cashPct / 100, 2);
         $tds = round($worth * $tdsPct / 100, 2);
         $svc = round($worth * $svcPct / 100, 2);
         $coupon = round(max(0, $worth - $cash - $tds - $svc), 2);
 
         return ['cash' => $cash, 'tds' => $tds, 'service' => $svc, 'coupon' => $coupon, 'cash_pct' => $cashPct, 'tds_pct' => $tdsPct, 'service_pct' => $svcPct];
+    }
+
+    /**
+     * The split of a whole SET of coupons (a payout run, an approval window): dealership-plan
+     * coupons and member-plan coupons are summed separately and split by their own rule.
+     *
+     * @param  \Illuminate\Database\Eloquent\Builder<CbcEntry>  $coupons
+     * @return array{cash: float, tds: float, service: float, coupon: float, worth: float, dealer_worth: float, member_worth: float}
+     */
+    public static function cbcSplitTotals($coupons): array
+    {
+        // the caller's query carries unqualified where/order clauses — keep it as an id sub-select
+        $ids = (clone $coupons)->getQuery()->reorder()->select('cbc_entries.id');
+        $sums = \Illuminate\Support\Facades\DB::table('cbc_entries')
+            ->leftJoin('bonds', 'bonds.id', '=', 'cbc_entries.bond_id')
+            ->leftJoin('plans', 'plans.id', '=', 'bonds.plan_id')
+            ->whereIn('cbc_entries.id', $ids)
+            ->selectRaw('COALESCE(plans.cbc_dealer_rule, 0) AS dealer, SUM(cbc_entries.worth) AS worth')
+            ->groupBy('dealer')
+            ->get();
+        $dealerWorth = 0.0;
+        $memberWorth = 0.0;
+        foreach ($sums as $s) {
+            if ((int) $s->dealer === 1) {
+                $dealerWorth += (float) $s->worth;
+            } else {
+                $memberWorth += (float) $s->worth;
+            }
+        }
+        $d = self::cbcSplit($dealerWorth, true);
+        $m = self::cbcSplit($memberWorth, false);
+
+        return [
+            'cash' => round($d['cash'] + $m['cash'], 2), 'tds' => round($d['tds'] + $m['tds'], 2),
+            'service' => round($d['service'] + $m['service'], 2), 'coupon' => round($d['coupon'] + $m['coupon'], 2),
+            'worth' => round($dealerWorth + $memberWorth, 2), 'dealer_worth' => round($dealerWorth, 2), 'member_worth' => round($memberWorth, 2),
+        ];
     }
 
     /** Distributor margins → the branch's distributor member wallet (cash). */
