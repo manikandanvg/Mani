@@ -115,10 +115,22 @@ class RedemptionInvoiceResource extends BaseResource
             ->bulkActions([]);
     }
 
-    /** A restock (re-order) can be raised for any redemption that hasn't been re-ordered yet. */
+    /**
+     * A restock (re-order) can be raised for any redemption that hasn't been re-ordered yet —
+     * neither here nor in legacy (user 2026-11-04: imported legacy redemptions whose restock was
+     * already ORDERED / APPROVED there must not offer a second order).
+     */
     protected static function canRestock(RedemptionInvoice $record): bool
     {
-        return $record->restockOrder === null && ! static::isCustomized($record);
+        return $record->restockOrder === null
+            && ! static::restockedInLegacy($record)
+            && ! static::isCustomized($record);
+    }
+
+    /** Legacy tbl_qrsalesinvoice.paymenttype ORDERED / APPROVED = the dealer already bought the stock back. */
+    public static function restockedInLegacy(RedemptionInvoice $record): bool
+    {
+        return in_array((string) $record->legacy_restock, ['ordered', 'approved'], true);
     }
 
     /**
@@ -187,6 +199,9 @@ class RedemptionInvoiceResource extends BaseResource
     {
         if ($record->restockOrder === null && static::isCustomized($record)) {
             return 'Customized — no restock';
+        }
+        if ($record->restockOrder === null && static::restockedInLegacy($record)) {
+            return 'Re-Stocked';   // bought back from HQ in legacy (ORDERED / APPROVED there)
         }
 
         return match ($record->restockOrder?->status) {

@@ -82,7 +82,10 @@ class LegacyImportRedemptions extends Command
                 'branch_id' => $branchId,
                 'reference_no' => mb_substr((string) ($r->invno ?: ''), 0, 60),         // the sale invoice the QR came from
                 'referrer_name' => mb_substr((string) ($r->cusname ?: ''), 0, 200),
-                'payment_mode' => strtolower(mb_substr((string) ($r->paymenttype ?: 'pending'), 0, 20)),   // legacy restock state
+                // the goods were handed over in legacy; paymenttype there is the RESTOCK-order state
+                // (ORDERED / APPROVED = the dealer already bought the stock back from HQ; PENDING = never did)
+                'payment_mode' => 'passed',
+                'legacy_restock' => strtolower(mb_substr((string) ($r->paymenttype ?: 'pending'), 0, 12)),
                 'payment_reference' => mb_substr((string) ($r->paymentremarks ?: ''), 0, 120) ?: null,
                 'gold_rate' => (float) $r->goldrate,
                 'silver_rate' => (float) $r->silverrate,
