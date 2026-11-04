@@ -104,6 +104,8 @@ class LegacyRolloutImport extends LegacyImport
         $this->importResellerCommissions();
         $this->importSalesInvoices();
         $this->importSaleLines();
+        // legacy REDEMPTION (QR sale) invoices — missed until 2026-11-04 (GST report showed only cash bills)
+        $this->call('legacy:import-redemptions', ['--apply' => true]);
         $this->importDigiOpening();
         $this->importDigiQueue();
         $this->importDigiWithdrawals();
