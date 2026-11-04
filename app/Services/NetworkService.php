@@ -28,12 +28,51 @@ class NetworkService
     /** Run the full chain in the legacy order (bonds → bv → gbv → unpure bv → unpure gbv → ranks). */
     public function recomputeAll(?Carbon $asOf = null): void
     {
-        $this->deactivateExpiredBonds($asOf);   // legacy bondallocation
-        $this->recomputePersonalBv();
-        $this->recomputeGroupBv();              // gbv + downline_count
-        $this->recomputeUnpureBv();
-        $this->recomputeUnpureGbv();
-        $this->recomputeRanks();
+        $was = $this->trigger;
+        $this->trigger = 'recompute';
+        try {
+            $this->deactivateExpiredBonds($asOf);   // legacy bondallocation
+            $this->recomputePersonalBv();
+            $this->recomputeGroupBv();              // gbv + downline_count
+            $this->recomputeUnpureBv();
+            $this->recomputeUnpureGbv();
+            $this->recomputeRanks();
+        } finally {
+            $this->trigger = $was;
+        }
+    }
+
+    /** What caused the rank evaluation now running — stamped on every rank_changes row (user 2026-11-04). */
+    public string $trigger = 'billing';
+
+    /**
+     * Register a TBP-stage shift with the date (user 2026-11-04): one rank_changes row per
+     * member whose rank id actually changed, up or down, with the ranking BV at that moment.
+     *
+     * @param  array<int, array{from: ?int, to: int, bv: float, gbv: float}>  $changes  member id => change
+     */
+    protected function logRankChanges(array $changes): void
+    {
+        if ($changes === []) {
+            return;
+        }
+        $depth = Rank::pluck('depth', 'id')->all();
+        $now = Carbon::now();
+        $rows = [];
+        foreach ($changes as $memberId => $c) {
+            $fromDepth = (int) ($depth[$c['from']] ?? 0);
+            $toDepth = (int) ($depth[$c['to']] ?? 0);
+            $rows[] = [
+                'member_id' => $memberId, 'from_rank_id' => $c['from'], 'to_rank_id' => $c['to'],
+                'from_depth' => $fromDepth, 'to_depth' => $toDepth,
+                'direction' => $toDepth >= $fromDepth ? 'up' : 'down',
+                'unpure_bv' => round($c['bv'], 2), 'unpure_gbv' => round($c['gbv'], 2),
+                'source' => $this->trigger, 'changed_at' => $now, 'created_at' => $now, 'updated_at' => $now,
+            ];
+        }
+        foreach (array_chunk($rows, 500) as $chunk) {
+            DB::table('rank_changes')->insert($chunk);
+        }
     }
 
     /**
@@ -196,6 +235,9 @@ class NetworkService
         $tiers = $ranks->filter(fn ($r) => $r->depth >= 2 && ! empty($r->tier_template))
             ->sortBy('depth')->values();
 
+        // ranks BEFORE this run — so every shift (up or down) can be registered with the date
+        $before = DB::table('members')->pluck('rank_id', 'id')->all();
+
         Member::query()->update(['rank_id' => $memberRankId]);
 
         $all = DB::table('members')->select('id', 'upline_id', 'unpure_bv', 'unpure_gbv')->get();
@@ -228,11 +270,26 @@ class NetworkService
             }
         }
 
+        $after = [];   // member id => new rank id (everyone not assigned holds the member rank)
         foreach ($assign as $rankId => $ids) {
             foreach (array_chunk($ids, 500) as $chunk) {
                 DB::table('members')->whereIn('id', $chunk)->update(['rank_id' => $rankId]);
             }
+            foreach ($ids as $id) {
+                $after[$id] = (int) $rankId;
+            }
         }
+
+        // register every shift with the date (user 2026-11-04)
+        $changes = [];
+        foreach ($all as $m) {
+            $from = isset($before[$m->id]) ? (int) $before[$m->id] : null;
+            $to = $after[$m->id] ?? (int) $memberRankId;
+            if ($from !== $to) {
+                $changes[$m->id] = ['from' => $from, 'to' => $to, 'bv' => (float) $m->unpure_bv, 'gbv' => (float) $m->unpure_gbv];
+            }
+        }
+        $this->logRankChanges($changes);
 
         // Payroll mandate: anyone now holding a TBP stage becomes an employee.
         app(EmployeeService::class)->syncFromRanks();
@@ -269,6 +326,12 @@ class NetworkService
         $oldDepth = (int) (DB::table('ranks')->where('id', $oldRankId)->value('depth') ?? 0);
 
         DB::table('members')->where('id', $memberId)->update(['rank_id' => $rankId]);
+
+        // register the shift with the date (user 2026-11-04) — up or down, billing or cancel
+        if ((int) $rankId !== $oldRankId) {
+            $gbv = (float) (DB::table('members')->where('id', $memberId)->value('unpure_gbv') ?? 0);
+            $this->logRankChanges([$memberId => ['from' => $oldRankId ?: null, 'to' => (int) $rankId, 'bv' => (float) $m->unpure_bv, 'gbv' => $gbv]]);
+        }
 
         // Payroll mandate: promotion onto a TBP stage auto-enrols the member as an employee.
         if ($depth >= 1) {

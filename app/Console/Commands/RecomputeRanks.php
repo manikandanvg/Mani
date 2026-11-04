@@ -22,7 +22,14 @@ class RecomputeRanks extends Command
     {
         $this->info('Ranking pipeline starting (' . now()->format('Y-m-d H:i T') . ')…');
 
+        $startedAt = now();
         $network->recomputeAll();
+
+        // every shift this run made is registered in rank_changes with the date (user 2026-11-04)
+        $shifts = DB::table('rank_changes')->where('changed_at', '>=', $startedAt)
+            ->selectRaw("SUM(CASE WHEN direction = 'up' THEN 1 ELSE 0 END) AS up, SUM(CASE WHEN direction = 'down' THEN 1 ELSE 0 END) AS down")->first();
+        $this->info(sprintf('Rank shifts registered: %d up, %d down — System → Rank Changes / Ranked Distributor.',
+            (int) ($shifts->up ?? 0), (int) ($shifts->down ?? 0)));
 
         $dist = DB::table('members')
             ->leftJoin('ranks', 'ranks.id', '=', 'members.rank_id')

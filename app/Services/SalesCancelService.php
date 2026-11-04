@@ -174,10 +174,12 @@ class SalesCancelService
         }
 
         $network = app(NetworkService::class);
+        $network->trigger = 'cancel';   // rank_changes rows from this rollback are tagged as such
         $network->evaluateRank($member->id);
         foreach ($chain as $id) {
             $network->evaluateRank($id);
         }
+        $network->trigger = 'billing';
     }
 
     /**
