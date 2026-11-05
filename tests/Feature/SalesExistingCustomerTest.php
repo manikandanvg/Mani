@@ -56,17 +56,24 @@ class SalesExistingCustomerTest extends TestCase
 
         // the sponsor / placement IDs are fixed text for an existing distributor
         $t->assertFormFieldExists('referrer_code', 'form', fn (\Filament\Forms\Components\TextInput $f) => $f->isReadOnly())
-            ->assertFormFieldExists('upline_code', 'form', fn (\Filament\Forms\Components\TextInput $f) => $f->isReadOnly())
+            ->assertFormFieldExists('upline_code', 'form', fn ($f) => $f instanceof \Filament\Forms\Components\Hidden)
             ->assertFormFieldExists('customer.phone', 'form', fn (\Filament\Forms\Components\TextInput $f) => $f->isReadOnly());
 
         // the member's real details were not overwritten by the masked values
         $this->assertSame('9943046680', $root->fresh()->phone);
         $this->assertSame('EEZPR0798F', $root->fresh()->pan);
 
-        // a NEW distributor still needs both IDs and a proper phone
+        // a NEW distributor still needs the Referred ID and a proper phone
         Livewire::test(Sales::class)
             ->fillForm(['mode' => 'new', 'customer.name' => 'New One', 'customer.phone' => '98XXXXXX21', 'referrer_code' => null, 'upline_code' => null])
             ->call('generate')
-            ->assertHasFormErrors(['customer.phone', 'referrer_code', 'upline_code']);
+            ->assertHasFormErrors(['customer.phone', 'referrer_code']);
+
+        // user 2026-11-05: the Senior (placement) ID is hidden and always carries the Referred ID
+        $t = Livewire::test(Sales::class)->fillForm(['mode' => 'new'])->set('data.referrer_code', 'ljw01 ');
+        $this->assertSame('LJW01', $t->instance()->form->getRawState()['upline_code']);
+        $t->set('data.referrer_code', '');
+        $this->assertNull($t->instance()->form->getRawState()['upline_code']);
+        $t->assertDontSeeHtml('Senior Distributor User ID');
     }
 }

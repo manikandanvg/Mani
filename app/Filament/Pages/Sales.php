@@ -112,12 +112,16 @@ class Sales extends Page implements HasForms
                             ->required(fn (Get $get) => $get('mode') === 'new')
                             ->readOnly(self::lockedExisting())
                             ->live(onBlur: true)
+                            // Board: referrer and senior are the same person. The placement field is
+                            // hidden (user 2026-11-05) and always carries the Referred ID; generate()
+                            // enforces it again for a new distributor.
+                            ->afterStateUpdated(function ($state, Set $set, Get $get) {
+                                if ($get('mode') === 'new') {
+                                    $set('upline_code', filled($state) ? strtoupper(trim((string) $state)) : null);
+                                }
+                            })
                             ->helperText(fn (Get $get) => self::codeHint($get('referrer_code'))),
-                        TextInput::make('upline_code')->label('Senior Distributor User ID (Placement)')
-                            ->required(fn (Get $get) => $get('mode') === 'new')
-                            ->readOnly(self::lockedExisting())
-                            ->live(onBlur: true)
-                            ->helperText(fn (Get $get) => self::codeHint($get('upline_code'))),
+                        Hidden::make('upline_code'),
                         Select::make('payment_type')->label('Pay Mode')
                             ->options(['cash' => 'Cash', 'cheque' => 'Cheque', 'upi' => 'UPI', 'fx' => 'FX'])
                             ->default('cash')->required(),
@@ -454,6 +458,10 @@ class Sales extends Page implements HasForms
     public function generate(): void
     {
         $data = $this->form->getState();
+        // a new distributor is always placed under their referrer (hidden field, user 2026-11-05)
+        if (($data['mode'] ?? 'new') === 'new') {
+            $data['upline_code'] = filled($data['referrer_code'] ?? null) ? strtoupper(trim((string) $data['referrer_code'])) : null;
+        }
         // Bill date: today for everyone; HQ super admin may back-date within the window.
         $today = now()->toDateString();
         $billDate = self::canBackdate() && $this->billDateUnlocked && ! empty($data['bill_date'])
