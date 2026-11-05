@@ -114,7 +114,7 @@ class LegacyBillingBaseTest extends TestCase
         $totals = CommissionApprovalService::cbcSplitTotals(CbcEntry::query()->where('status', 'pending'));
         $this->assertEquals(10000.0, $totals['dealer_worth']);
         $this->assertEquals(6000.0, $totals['member_worth']);
-        $this->assertEquals(10000 + 3000, $totals['cash']);          // dealer 100 % + member 50 %
+        $this->assertEquals(9000 + 3000, $totals['cash']);           // dealer 100 % less its 10 % TDS + member 50 %
         $this->assertEquals(1000 + 300, $totals['tds']);             // dealer 10 % + member 5 %
         $this->assertEquals(0 + 300, $totals['service']);            // dealer none + member 5 %
         $this->assertEquals(0 + 2400, $totals['coupon']);            // HQ coupon wallet: member plans only
@@ -123,11 +123,11 @@ class LegacyBillingBaseTest extends TestCase
 
         $d = CbcEntry::where('bond_id', $db->id)->first();
         $this->assertEquals('paid', $d->status);
-        $this->assertEquals(10000.0, (float) $d->cash_amount, 'dealership plan: 100 % cash');
+        $this->assertEquals(9000.0, (float) $d->cash_amount, 'dealership plan: 100 % cash, the TDS withheld from it (legacy bank report net)');
         $this->assertEquals(1000.0, (float) $d->tds, 'dealership plan: 10 % TDS');
         $this->assertEquals(0.0, (float) $d->service_charge);
         $this->assertEquals(0.0, (float) $d->coupon_amount);
-        $this->assertEquals(10000.0, (float) MemberWallet::where('member_id', $dealer->id)->value('cash_balance'));
+        $this->assertEquals(9000.0, (float) MemberWallet::where('member_id', $dealer->id)->value('cash_balance'));
 
         $r = CbcEntry::where('bond_id', $rb->id)->first();
         $this->assertEquals(3000.0, (float) $r->cash_amount, 'member plan: 50 % cash');

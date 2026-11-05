@@ -99,8 +99,12 @@ class CommissionApprovalService
     /**
      * Un-paid records of one type within a date range, ordered oldest first.
      * Date is matched against each table's "earned" column.
+     *
+     * @param  int[]|null  $planIds  CBC only: just the coupons of bonds on these schemes (user
+     *                               2026-11-05 — the dealerships' and Sub Dealers' coupons are
+     *                               listed, exported and paid apart from the member schemes)
      */
-    public function query(string $type, ?string $from = null, ?string $to = null): Builder
+    public function query(string $type, ?string $from = null, ?string $to = null, ?array $planIds = null): Builder
     {
         if (in_array($type, ['IC', 'GAP'], true)) {
             return CommissionLedger::query()
@@ -121,6 +125,7 @@ class CommissionApprovalService
                 ->whereDate('cbc_date', '<=', now()->toDateString())
                 ->when($from, fn ($q) => $q->whereDate('cbc_date', '>=', $from))
                 ->when($to, fn ($q) => $q->whereDate('cbc_date', '<=', $to))
+                ->when($planIds, fn ($q) => $q->whereIn('bond_id', \App\Models\Bond::query()->select('id')->whereIn('plan_id', $planIds)))
                 ->orderBy('cbc_date');
         }
 
@@ -154,13 +159,14 @@ class CommissionApprovalService
      * 1 Nov (11,624 coupons, 8,843 members) was killed by the web-server timeout after 88 rows.
      *
      * @param  int[]|null  $beneficiaryIds  member ids (IC/GAP/CBC) or branch ids (margins); null = all
+     * @param  int[]|null  $planIds  CBC only: just the coupons of these schemes; null = every scheme
      * @return array{rows:int, gross:float, beneficiaries:int, done:bool}
      */
-    public function approveBatch(string $type, ?string $from, ?string $to, ?array $beneficiaryIds = null, ?float $budgetSeconds = null, ?int $by = null): array
+    public function approveBatch(string $type, ?string $from, ?string $to, ?array $beneficiaryIds = null, ?float $budgetSeconds = null, ?int $by = null, ?array $planIds = null): array
     {
         $key = self::groupColumn($type);
         $started = microtime(true);
-        $query = $this->query($type, $from, $to)->without(['member', 'fromMember', 'branch', 'referenceMember'])
+        $query = $this->query($type, $from, $to, $planIds)->without(['member', 'fromMember', 'branch', 'referenceMember'])
             ->when($beneficiaryIds !== null, fn ($q) => $q->whereIn($key, $beneficiaryIds));
         $perBeneficiary = [];
         $rows = 0;
@@ -198,7 +204,7 @@ class CommissionApprovalService
         if ($rows > 0) {
             \App\Services\Activity\ActivityLogger::log('commission', 'commissions_approved',
                 self::label($type) . ': ' . $rows . ' entries (gross ₹' . \App\Support\Money::group($gross) . ') approved for ' . count($perBeneficiary) . ' beneficiar' . (count($perBeneficiary) === 1 ? 'y' : 'ies') . ($done ? '' : ' — more to follow'),
-                ['details' => ['type' => $type, 'from' => $from, 'to' => $to, 'rows' => $rows, 'gross' => round($gross, 2), 'beneficiaries' => count($perBeneficiary), 'done' => $done, 'by' => $by]]);
+                ['details' => ['type' => $type, 'from' => $from, 'to' => $to, 'plans' => $planIds, 'rows' => $rows, 'gross' => round($gross, 2), 'beneficiaries' => count($perBeneficiary), 'done' => $done, 'by' => $by]]);
         }
 
         return ['rows' => $rows, 'gross' => round($gross, 2), 'beneficiaries' => count($perBeneficiary), 'done' => $done];
@@ -317,6 +323,13 @@ class CommissionApprovalService
      * District, Zonal, Regional; user 2026-11-04): 100 % cash, 10 % TDS, no service charge,
      * nothing to the coupon wallet (CBC: dealer_cash_pct / dealer_tds / dealer_service).
      *
+     * 'cash' is always what REACHES the wallet. On a member plan the TDS + service come out of
+     * the part that is not cash (50 + 5 + 5 + 40 = 100). On a dealership plan the cash share is
+     * the whole coupon, so the TDS has nowhere else to come from: it is withheld from the cash —
+     * ₹10,000 → ₹1,000 TDS, ₹9,000 to the wallet, exactly the legacy bank report
+     * (bmonthreportviewer: net = dealer CBC − 10 %). User 2026-11-05: the first build credited
+     * the full ₹10,000 and only recorded the TDS.
+     *
      * @return array{cash: float, tds: float, service: float, coupon: float, cash_pct: float, tds_pct: float, service_pct: float}
      */
     public static function cbcSplit(float $worth, bool $dealer = false): array
@@ -334,9 +347,65 @@ class CommissionApprovalService
         $cash = round($worth * $cashPct / 100, 2);
         $tds = round($worth * $tdsPct / 100, 2);
         $svc = round($worth * $svcPct / 100, 2);
+        // deductions that do not fit beside the cash share are withheld from it
+        $cash = round(max(0, $cash - max(0, $cash + $tds + $svc - $worth)), 2);
         $coupon = round(max(0, $worth - $cash - $tds - $svc), 2);
 
         return ['cash' => $cash, 'tds' => $tds, 'service' => $svc, 'coupon' => $coupon, 'cash_pct' => $cashPct, 'tds_pct' => $tdsPct, 'service_pct' => $svcPct];
+    }
+
+    /**
+     * A dealership coupon that was already APPROVED under the member split (user 2026-11-05: on
+     * live the dealers' coupons were paid 50 % before plans.cbc_dealer_rule existed): what it was
+     * paid, what the dealership rule gives, and the balance still owed to the cash wallet.
+     *
+     *   ₹10,000 paid as 5,000 cash + 500 TDS + 500 service + 4,000 retained
+     *   dealership rule  9,000 cash + 1,000 TDS            → balance ₹4,000 (the retained 40 %)
+     *
+     * Amounts are in the coupon's own currency (worth ÷ the rate frozen on the row). A negative
+     * balance = the coupon was credited above the rule (approved 100 % on 4–5 Nov) — reported,
+     * never taken back here.
+     *
+     * @return array{worth: float, paid: float, target: array, balance: float}
+     */
+    public static function dealerCbcBalance(CbcEntry $row): array
+    {
+        $worth = round((float) $row->worth / (float) ($row->fx_rate ?: 1), 2);
+        $target = self::cbcSplit($worth, true);
+        $paid = round((float) $row->cash_amount, 2);
+
+        return ['worth' => $worth, 'paid' => $paid, 'target' => $target, 'balance' => round($target['cash'] - $paid, 2)];
+    }
+
+    /**
+     * Pay that balance: credit the top-up to the dealer's cash wallet and re-stamp the coupon
+     * with the dealership split, under a row lock — a second run finds no balance left.
+     * Only coupons the NEW system approved (cash_amount stamped) on a dealership-rule plan
+     * qualify; coupons paid in legacy carry no split and are never touched.
+     *
+     * @return float the top-up credited (0 when nothing was owed)
+     */
+    public function settleDealerCbcBalance(CbcEntry $row): float
+    {
+        return (float) DB::transaction(function () use ($row) {
+            $fresh = CbcEntry::query()->lockForUpdate()->find($row->getKey());
+            if (! $fresh || $fresh->status !== 'paid' || (float) $fresh->cash_amount <= 0
+                || ! ($fresh->bond?->plan?->cbc_dealer_rule ?? false)) {
+                return 0.0;
+            }
+            $b = self::dealerCbcBalance($fresh);
+            if ($b['balance'] <= 0.005) {
+                return 0.0;
+            }
+            // earning_total already took the whole worth at approval — only the cash moves now
+            $this->creditWallet($fresh->member_id, cash: $b['balance'], currency: $fresh->currency_code ?: 'INR');
+            $fresh->update([
+                'cash_amount' => $b['target']['cash'], 'tds' => $b['target']['tds'],
+                'service_charge' => $b['target']['service'], 'coupon_amount' => $b['target']['coupon'],
+            ]);
+
+            return $b['balance'];
+        });
     }
 
     /**

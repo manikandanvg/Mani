@@ -5,7 +5,6 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\Branch;
 use App\Models\CatalogProduct;
-use App\Models\ChargeBracket;
 use App\Models\LiveRate;
 use App\Models\Plan;
 use App\Support\Translatable;
@@ -105,11 +104,9 @@ class UtilityController extends Controller
         // Strip 3% GST, then the weight-bracket making+wastage, to reach real metal.
         $net = $invoiceAlloc * 100 / 103;
         $approxGrams = $net / $goldRate;
-        $bracket = ChargeBracket::where('material', 'gold')
-            ->where('wt_from', '<=', $approxGrams)
-            ->where('wt_to', '>=', $approxGrams)
-            ->first();
-        $chargePct = $bracket ? (float) $bracket->making_pct + (float) $bracket->wastage_pct : 0.0;
+        // same slab rule as the QR conversion (a weight between two slabs takes the next one up)
+        $slab = app(\App\Services\Charges\ChargeResolver::class)->forWeight('gold', $approxGrams);
+        $chargePct = $slab['making_pct'] + $slab['wastage_pct'];
         $metalValue = $net * 100 / (100 + $chargePct);
         $grams = $metalValue / $goldRate;
 

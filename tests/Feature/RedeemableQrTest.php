@@ -57,7 +57,8 @@ class RedeemableQrTest extends TestCase
         $this->assertEquals($qr->id, $again->id);                       // one QR per bond
         $this->assertEquals(1, RedeemableQr::where('bond_id', $bond->id)->count());
         $this->assertEquals(103000, (float) $qr->cash_worth);            // = epin_value (grand total)
-        $this->assertEqualsWithDelta(103000 / 7000, (float) $qr->gram_worth, 0.0001);
+        // grams = the gold the worth buys: 3 % GST out (no charge slab in this test) — user 2026-11-05
+        $this->assertEqualsWithDelta(100000 / 7000, (float) $qr->gram_worth, 0.0001);
         $this->assertEquals('gold', $qr->qr_mode);
         $this->assertFalse((bool) $qr->qr_sent);
     }

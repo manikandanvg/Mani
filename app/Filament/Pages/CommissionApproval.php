@@ -78,6 +78,19 @@ class CommissionApproval extends Page implements HasForms, HasTable
                         ->afterStateUpdated(fn () => $this->deselectAllTableRecords()),
                     DatePicker::make('to')->label('Earned to')->live()
                         ->afterStateUpdated(fn () => $this->deselectAllTableRecords()),
+                    // User 2026-11-05: the dealerships' pending coupons and the Sub Dealers' are
+                    // listed, exported and paid on their own — pick the schemes, export with the
+                    // table toolbar, then approve what is listed.
+                    Select::make('plans')
+                        ->label('Scheme (CBC only)')
+                        ->multiple()
+                        ->options(fn () => self::cbcPlanOptions())
+                        ->placeholder('All schemes')
+                        ->helperText('Leave empty for every scheme. Pick e.g. the four dealerships + Sub Dealer to list, export and pay only theirs.')
+                        ->visible(fn (\Filament\Forms\Get $get) => $get('type') === 'CBC')
+                        ->columnSpanFull()
+                        ->live()
+                        ->afterStateUpdated(fn () => $this->deselectAllTableRecords()),
                 ]),
             ])
             ->statePath('data');
@@ -110,10 +123,34 @@ class CommissionApproval extends Page implements HasForms, HasTable
                         ? \Illuminate\Support\Carbon::parse($r->first_earned)->format('d M Y')
                         : \Illuminate\Support\Carbon::parse($r->first_earned)->format('d M Y')
                             . ' – ' . \Illuminate\Support\Carbon::parse($r->last_earned)->format('d M Y')),
+                TextColumn::make('schemes')
+                    ->label('Scheme')
+                    ->getStateUsing(fn (Model $r) => $this->schemeLabel((string) ($r->plan_codes ?? '')))
+                    ->visible(fn () => $this->isCbc())
+                    ->wrap(),
                 TextColumn::make('total_amount')
-                    ->label('Total amount')
+                    ->label(fn () => $this->isCbc() ? 'Coupon worth' : 'Total amount')
                     ->formatStateUsing(fn ($state) => '₹ ' . \App\Support\Money::group((float) $state))
                     ->sortable(),
+                // CBC: what approval will actually do with the worth — the dealership rule
+                // (100 % cash, 10 % TDS) or the member rule (50 % cash, 5 + 5 %, rest retained).
+                TextColumn::make('cbc_tds')
+                    ->label('TDS')
+                    ->getStateUsing(fn (Model $r) => '₹ ' . \App\Support\Money::group($this->cbcSplitOf($r)['tds']))
+                    ->visible(fn () => $this->isCbc()),
+                TextColumn::make('cbc_service')
+                    ->label('Service charge')
+                    ->getStateUsing(fn (Model $r) => '₹ ' . \App\Support\Money::group($this->cbcSplitOf($r)['service']))
+                    ->visible(fn () => $this->isCbc()),
+                TextColumn::make('cbc_retained')
+                    ->label('Retained by HQ')
+                    ->getStateUsing(fn (Model $r) => '₹ ' . \App\Support\Money::group($this->cbcSplitOf($r)['coupon']))
+                    ->visible(fn () => $this->isCbc()),
+                TextColumn::make('cbc_cash')
+                    ->label('To cash wallet')
+                    ->getStateUsing(fn (Model $r) => '₹ ' . \App\Support\Money::group($this->cbcSplitOf($r)['cash']))
+                    ->weight('bold')
+                    ->visible(fn () => $this->isCbc()),
             ])
             ->actions([
                 \Filament\Tables\Actions\Action::make('entries')
@@ -167,7 +204,56 @@ class CommissionApproval extends Page implements HasForms, HasTable
             $this->data['type'] ?? 'IC',
             $this->data['from'] ?? null,
             $this->data['to'] ?? null,
+            $this->planIds(),
         );
+    }
+
+    protected function isCbc(): bool
+    {
+        return ($this->data['type'] ?? 'IC') === 'CBC';
+    }
+
+    /** The Scheme filter as plan ids — CBC only; null = every scheme. */
+    protected function planIds(): ?array
+    {
+        $ids = $this->isCbc() ? array_values(array_filter(array_map('intval', (array) ($this->data['plans'] ?? [])))) : [];
+
+        return $ids ?: null;
+    }
+
+    /** Schemes that carry a CBC, dealerships first (ladder order), then the member schemes. */
+    public static function cbcPlanOptions(): array
+    {
+        return \App\Models\Plan::query()
+            ->where(fn ($q) => $q->where('cbc_count', '>', 0)->orWhere('cbc_dealer_rule', true))
+            ->orderByRaw('hid IS NULL')->orderBy('hid')->orderBy('code')
+            ->get()
+            ->mapWithKeys(fn ($p) => [$p->id => $p->code . ' — ' . (\App\Support\Translatable::pick($p->name) ?: $p->code)
+                . ($p->cbc_dealer_rule ? ' (dealership rule)' : '')])
+            ->all();
+    }
+
+    /** "P203,P213" → "Taluka Dealership, Sub Dealer". */
+    protected function schemeLabel(string $codes): string
+    {
+        static $names = null;
+        $names ??= \App\Models\Plan::all(['code', 'name'])
+            ->mapWithKeys(fn ($p) => [$p->code => \App\Support\Translatable::pick($p->name) ?: $p->code])->all();
+
+        return implode(', ', array_map(fn ($c) => $names[$c] ?? $c, array_filter(explode(',', $codes)))) ?: '—';
+    }
+
+    /** How approval will split an aggregated CBC row: its dealership-rule and member-rule worth apart. */
+    protected function cbcSplitOf(Model $r): array
+    {
+        $dealer = (float) ($r->dealer_worth ?? 0);
+        $d = CommissionApprovalService::cbcSplit($dealer, true);
+        $m = CommissionApprovalService::cbcSplit(max(0, (float) $r->total_amount - $dealer), false);
+
+        return [
+            'cash' => round($d['cash'] + $m['cash'], 2), 'tds' => round($d['tds'] + $m['tds'], 2),
+            'service' => round($d['service'] + $m['service'], 2), 'coupon' => round($d['coupon'] + $m['coupon'], 2),
+        ];
     }
 
     /** One row per beneficiary: entry count, summed value, earned window. */
@@ -177,9 +263,15 @@ class CommissionApproval extends Page implements HasForms, HasTable
         $amount = $this->amountColumn();
         $date = $this->dateColumn();
 
+        // CBC: the schemes behind the row and the part of its worth that is paid by the dealership rule
+        $cbc = $this->isCbc()
+            ? ', GROUP_CONCAT(DISTINCT (SELECT p.code FROM bonds b JOIN plans p ON p.id = b.plan_id WHERE b.id = cbc_entries.bond_id)) AS plan_codes'
+                . ', SUM(CASE WHEN bond_id IN (SELECT b.id FROM bonds b JOIN plans p ON p.id = b.plan_id WHERE p.cbc_dealer_rule = 1) THEN worth ELSE 0 END) AS dealer_worth'
+            : '';
+
         return $this->approvalQuery()
             ->reorder()
-            ->selectRaw("MIN(id) AS id, {$key}, COUNT(*) AS entries_count, SUM({$amount}) AS total_amount, MIN({$date}) AS first_earned, MAX({$date}) AS last_earned")
+            ->selectRaw("MIN(id) AS id, {$key}, COUNT(*) AS entries_count, SUM({$amount}) AS total_amount, MIN({$date}) AS first_earned, MAX({$date}) AS last_earned{$cbc}")
             ->groupBy($key);
     }
 
@@ -244,7 +336,7 @@ class CommissionApproval extends Page implements HasForms, HasTable
         $entries = (int) $this->approvalQuery()->whereIn($key, $ids)->count();
 
         if ($entries > self::INLINE_LIMIT) {
-            \App\Jobs\ApproveCommissionsJob::dispatch($type, $from, $to, $ids, auth()->id());
+            \App\Jobs\ApproveCommissionsJob::dispatch($type, $from, $to, $ids, auth()->id(), 1, $this->planIds());
             Notification::make()
                 ->info()
                 ->title("Approval of {$entries} entries for " . count($ids) . ' beneficiaries started in the background')
@@ -255,14 +347,18 @@ class CommissionApproval extends Page implements HasForms, HasTable
             return;
         }
 
-        $res = $svc->approveBatch($type, $from, $to, $ids, null, auth()->id());
+        $res = $svc->approveBatch($type, $from, $to, $ids, null, auth()->id(), $this->planIds());
         $count = $res['rows'];
         $beneficiaries = $res['beneficiaries'];
 
         Notification::make()
             ->success()
             ->title($count > 0 ? "Approved {$count} commission(s) for {$beneficiaries} beneficiar" . ($beneficiaries === 1 ? 'y' : 'ies') : 'Nothing to approve')
-            ->body($count > 0 ? \App\Support\Money::inr($res['gross']) . ' credited to wallets.' : 'Selected rows were already paid.')
+            ->body($count > 0
+                ? ($type === 'CBC'
+                    ? 'Coupons worth ' . \App\Support\Money::inr($res['gross']) . ' approved — the cash share of each is now in the wallet.'
+                    : \App\Support\Money::inr($res['gross']) . ' credited to wallets.')
+                : 'Selected rows were already paid.')
             ->send();
     }
 

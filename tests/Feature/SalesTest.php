@@ -121,7 +121,9 @@ class SalesTest extends TestCase
         // redeemable stock QR minted for the bond (worth = grand total; grams via gold rate)
         $qr = \App\Models\RedeemableQr::where('bond_id', $bond->id)->firstOrFail();
         $this->assertEquals(1030, (float) $qr->cash_worth);
-        $this->assertEqualsWithDelta(1030 / 7000, (float) $qr->gram_worth, 0.0001);
+        // legacy cash→gold: ₹1,030 less 3 % GST = ₹1,000 ≈ 0.143 g → slab 15 + 15 % → ₹769.23 of gold
+        // (user 2026-11-05; worth ÷ rate alone promised 0.1471 g)
+        $this->assertEqualsWithDelta(1000 / 1.3 / 7000, (float) $qr->gram_worth, 0.0001);
         $this->assertFalse((bool) $qr->qr_sent); // delivery is skipped under tests
 
         // contract created (plan is is_contract)

@@ -29,6 +29,7 @@ class ApproveCommissionsJob implements ShouldQueue
 
     /**
      * @param  int[]|null  $beneficiaryIds  member ids (IC/GAP/CBC) or branch ids (margins); null = everyone listed
+     * @param  int[]|null  $planIds  CBC only: just the coupons of these schemes (the page's Scheme filter)
      */
     public function __construct(
         public string $type,
@@ -37,14 +38,15 @@ class ApproveCommissionsJob implements ShouldQueue
         public ?array $beneficiaryIds = null,
         public ?int $by = null,
         public int $round = 1,
+        public ?array $planIds = null,
     ) {}
 
     public function handle(CommissionApprovalService $svc): void
     {
-        $res = $svc->approveBatch($this->type, $this->from, $this->to, $this->beneficiaryIds, self::$workSeconds, $this->by);
+        $res = $svc->approveBatch($this->type, $this->from, $this->to, $this->beneficiaryIds, self::$workSeconds, $this->by, $this->planIds);
 
         if (! $res['done']) {
-            self::dispatch($this->type, $this->from, $this->to, $this->beneficiaryIds, $this->by, $this->round + 1);
+            self::dispatch($this->type, $this->from, $this->to, $this->beneficiaryIds, $this->by, $this->round + 1, $this->planIds);
         }
     }
 }

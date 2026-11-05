@@ -75,6 +75,9 @@ class PlanResource extends BaseResource
                 Forms\Components\Section::make('Promotional Incentive (CBC)')->columns(2)->schema([
                     Forms\Components\TextInput::make('cbc_value')->label('Promotional Incentive (CBC) %')->numeric()->default(0),
                     Forms\Components\TextInput::make('cbc_count')->label('Promotional Incentive (CBC) months')->numeric()->default(0),
+                    Forms\Components\Toggle::make('cbc_dealer_rule')->label('Pay the coupon by the dealership rule')
+                        ->helperText('On: the whole coupon is cash, 10 % TDS withheld from it, no service charge — 10,000 → 9,000 to the wallet (Regional / Zonal / District / Taluka). Off: the member rule — 50 % cash, 5 % TDS, 5 % service, the rest retained by HQ. The percentages themselves are on Commission Setup.')
+                        ->columnSpanFull(),
                 ]),
                 Forms\Components\Section::make('Commissions')->columns(2)->schema([
                     Forms\Components\TagsInput::make('ic_schedule')

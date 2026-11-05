@@ -451,8 +451,11 @@ class SalesService
         return app(CommissionService::class)->earningPotential($member, $onDate);
     }
 
-    /** First installment prorated to the 1st of next month, then monthly. */
-    protected function scheduleCbc(Bond $bond, Member $member, float $monthly, int $count, string $billDate): void
+    /**
+     * First installment prorated to the 1st of next month, then monthly. Public so
+     * `cbc:schedule-missing` gives already-billed bonds the very same schedule.
+     */
+    public function scheduleCbc(Bond $bond, Member $member, float $monthly, int $count, string $billDate): void
     {
         if ($monthly <= 0 || $count <= 0) {
             return;

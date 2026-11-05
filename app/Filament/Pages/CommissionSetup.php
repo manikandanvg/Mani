@@ -106,7 +106,7 @@ class CommissionSetup extends Page implements HasForms
         $sections[] = Forms\Components\Section::make(CommissionApprovalService::TYPES['CBC'])
             ->compact()
             ->columns(3)
-            ->description(__('Legacy month report format. Member plans: sales profit % to the cash wallet, TDS and service withheld, the remainder to the coupon wallet, which only Head Office sees. Dealership plans (Taluka, District, Zonal, Regional): paid in full to the cash wallet, TDS only, nothing to the coupon wallet.'))
+            ->description(__('Legacy month report format. Member plans: sales profit % to the cash wallet, TDS and service withheld, the remainder to the coupon wallet, which only Head Office sees. Dealership plans (Taluka, District, Zonal, Regional — the switch is on each plan): the whole coupon is cash, the TDS is withheld from it (10,000 → 1,000 TDS, 9,000 to the wallet), nothing to the coupon wallet.'))
             ->schema([
                 Forms\Components\TextInput::make('CBC.cash_pct')
                     ->label('Member plans: sales profit % → cash wallet')

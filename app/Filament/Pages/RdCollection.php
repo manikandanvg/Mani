@@ -97,9 +97,25 @@ class RdCollection extends Page implements HasForms
                         ->required()
                         ->disabled(fn (Get $get) => (float) (Bond::with('plan')->find($get('bond_id'))?->plan?->rd_qr_grams ?? 0) > 0)
                         ->dehydrated()
-                        ->helperText(fn (Get $get) => (float) (Bond::with('plan')->find($get('bond_id'))?->plan?->rd_qr_grams ?? 0) > 0
-                            ? 'Fixed: current 100 mg gold price (incl. making/wastage/GST) — not editable.'
-                            : null),
+                        ->helperText(function (Get $get) {
+                            $plan = Bond::with('plan')->find($get('bond_id'))?->plan;
+                            if (! $plan || (float) $plan->rd_qr_grams <= 0) {
+                                return null;
+                            }
+                            // show how the fixed amount is built, so the counter can answer the saver
+                            try {
+                                $b = app(\App\Services\Qr\GoldQrPricing::class)->breakup($plan);
+                            } catch (\Throwable) {
+                                return 'Fixed: current gold price (incl. making/wastage/GST) — not editable.';
+                            }
+                            $pct = fn (float $v) => rtrim(rtrim(number_format($v, 2), '0'), '.') . ' %';
+
+                            return 'Fixed, not editable: ' . rtrim(rtrim(number_format($b['grams'] * 1000, 1), '0'), '.') . ' mg gold ₹' . \App\Support\Money::group($b['metal'])
+                                . ' + making ' . $pct($b['making_pct']) . ' ₹' . \App\Support\Money::group($b['making'])
+                                . ' + wastage ' . $pct($b['wastage_pct']) . ' ₹' . \App\Support\Money::group($b['wastage'])
+                                . ' + GST ' . $pct($b['gst_pct']) . ' ₹' . \App\Support\Money::group($b['gst'])
+                                . ' (Charge Brackets).';
+                        }),
                     Textarea::make('remarks')->label('Remarks')->rows(2)->columnSpanFull(),
                     Hidden::make('branch_id'),
                 ]),

@@ -84,6 +84,51 @@ class RdGoldQrTest extends TestCase
         $this->assertEquals(2, RedeemableQr::where('bond_id', $bond->id)->count());
     }
 
+    /**
+     * User 2026-11-05: the 100 mg price takes making + wastage from Charge Brackets (the plan
+     * has no "QR product") — it had carried the 3 % GST alone. Legacy 31 Oct 2026, gold ₹12,730:
+     * ₹1,273 + 20 % + 20 % = ₹1,782.20, + 3 % GST = ₹1,835.67.
+     */
+    public function test_fixed_amount_and_qr_worth_carry_the_charge_bracket_making_and_wastage(): void
+    {
+        LiveRate::create(['country' => 'IN', 'gold' => 12730, 'silver' => 200, 'diamond' => 0, 'source' => 'manual', 'effective_at' => now()->addMinute()]);
+        \App\Models\ChargeBracket::create(['material' => 'gold', 'wt_from' => 0.001, 'wt_to' => 0.1, 'making_pct' => 20, 'wastage_pct' => 20]);
+        \App\Models\ChargeBracket::create(['material' => 'gold', 'wt_from' => 0.101, 'wt_to' => 0.3, 'making_pct' => 15, 'wastage_pct' => 15]);
+        $plan = $this->rdPlan(['rd_qr_grams' => 0.100, 'rd_qr_on' => 'always']);
+
+        $b = app(\App\Services\Qr\GoldQrPricing::class)->breakup($plan);
+        $this->assertEquals([1273.0, 254.6, 254.6, 53.47, 1835.67], [$b['metal'], $b['making'], $b['wastage'], $b['gst'], $b['total']]);
+
+        $bond = $this->bond($plan, $this->member('RQ9'), 1836);
+        $entry = app(RdCollectionService::class)->collect(['bond_id' => $bond->id, 'branch_id' => $this->branch->id, 'amount' => 1311.19]);
+        $this->assertEquals(1835.67, (float) $entry->value);
+
+        $qr = RedeemableQr::where('bond_id', $bond->id)->firstOrFail();
+        $this->assertEquals(1835.67, (float) $qr->cash_worth);
+        $this->assertEquals(0.1, (float) $qr->gram_worth);
+    }
+
+    /** The gold a scheme's gold share buys = the legacy cash→gold conversion, not worth ÷ rate. */
+    public function test_sale_qr_grams_take_gst_and_bracket_charges_out(): void
+    {
+        \App\Models\ChargeBracket::create(['material' => 'gold', 'wt_from' => 1.001, 'wt_to' => 8, 'making_pct' => 2.5, 'wastage_pct' => 2.5]);
+        $plan = Plan::create([
+            'code' => 'SUBD', 'name' => ['en' => 'Sub Dealer'], 'plan_type' => 2, 'type' => 'digital',
+            'min_value' => 0, 'allocation_bv' => 75, 'allocation_cont' => 25, 'allocation' => 25,
+            'is_redeem' => true, 'is_contract' => false, 'is_active' => true,
+        ]);
+
+        app(SalesService::class)->generateInvoice([
+            'branch_id' => $this->branch->id, 'plan_id' => $plan->id, 'gold_rate' => 12730,
+            'customer' => ['name' => 'Sub D', 'phone' => '9000000098'],
+            'cart' => [['material' => 'cash', 'net_total' => 100000, 'grand_total' => 100000]],
+        ]);
+
+        $qr = RedeemableQr::where('bond_id', Bond::where('plan_id', $plan->id)->value('id'))->firstOrFail();
+        $this->assertEquals(25000.0, (float) $qr->cash_worth);
+        $this->assertEqualsWithDelta(1.8159, (float) $qr->gram_worth, 0.0001);   // legacy QR for the same bill; ÷ rate alone gave 1.9639
+    }
+
     /** PLUS2-style ('first_renewal'): no QR at bill; ONE QR at the first renewal only. */
     public function test_first_renewal_plan_mints_single_qr(): void
     {

@@ -51,11 +51,13 @@ class RedeemableQrService
             $plan && (float) $plan->allocation_cont > 0 => round($grand * (float) $plan->allocation_cont / 100, 2),
             default => $grand,
         };
-        // Plan-defined piece weight wins (100 mg plan ⇒ 0.1000 g exactly); the
-        // rate-division fallback is only for QRs with no predefined gold weight.
+        // Plan-defined piece weight wins (100 mg plan ⇒ 0.1000 g exactly). Otherwise the
+        // gold the cash worth really buys — the legacy cash→gold conversion: GST out, then
+        // making + wastage of the Charge Brackets slab out (₹25,000 → 1.8159 g @ ₹12,730).
+        // A bare worth ÷ rate (1.9639 g) promised gold the QR cannot redeem (user 2026-11-05).
         $gramWorth = match (true) {
             $plan && (float) $plan->rd_qr_grams > 0 => (float) $plan->rd_qr_grams,
-            $goldRate > 0 => round($cashWorth / $goldRate, 4),
+            $goldRate > 0 => app(\App\Services\Charges\ChargeResolver::class)->gramsForWorth($cashWorth, $goldRate),
             default => null,
         };
 
