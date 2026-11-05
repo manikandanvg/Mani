@@ -127,6 +127,20 @@ class FixPlacementTest extends TestCase
         $this->assertContains([1, 'RIGHT', 6000.0, 'pending'], $this->ic('INV-X2'));
     }
 
+    public function test_ic_is_regenerated_after_a_manual_phpmyadmin_edit(): void
+    {
+        $this->bill('X', 'INV-X3');
+        $this->bill('Y', 'INV-Y3');
+        // HQ fixed members + bonds by hand: the IC is still on WRONG
+        Member::whereKey($this->m['X']->id)->update(['upline_id' => $this->m['RIGHT']->id]);
+        Bond::where('invoice_no', 'INV-X3')->update(['upline_member_id' => $this->m['RIGHT']->id]);
+
+        $this->artisan('members:fix-placement', ['--member' => ['X'], '--apply' => true])->assertSuccessful();
+
+        $this->assertSame([[1, 'RIGHT', 6000.0, 'pending'], [2, 'ROOT', 1800.0, 'pending']], $this->ic('INV-X3'));
+        $this->assertSame([[1, 'X', 6000.0, 'pending'], [2, 'RIGHT', 1800.0, 'pending'], [3, 'ROOT', 600.0, 'pending']], $this->ic('INV-Y3'));
+    }
+
     public function test_refuses_a_loop(): void
     {
         $this->artisan('members:fix-placement', ['--member' => ['X'], '--to' => 'Y', '--apply' => true])
