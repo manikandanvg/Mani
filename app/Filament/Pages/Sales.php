@@ -1094,19 +1094,26 @@ class Sales extends Page implements HasForms
             return new HtmlString('<div style="color:#6b7280;padding:.5rem">Select a scheme to see benefits.</div>');
         }
 
+        // Same maths as SalesService::generateInvoice (legacy way to bill, 2026-11-04): every
+        // commission is a % of the FULL bill (pre-tax), the coupon is bill × CBC % EVERY month,
+        // the bond is bill × the plan's bond share. User 2026-11-05: this preview still used the
+        // old base (allocation_bv, 75 % on a Sub Dealer) and divided the coupon by the months —
+        // ₹1,00,000 showed IC ₹9,000 and CBC ₹312.50/month, while billing pays ₹12,000 and ₹10,000/month.
         $gross = (float) $totals['gross'];
-        $allocation = round($gross * (float) $p->allocation_bv / 100, 2);
+        $base = round($gross, 2);
+        $bond = $p->bondValueFor($base);
+        $allocation = $base;   // the % grids below are on the full bill
 
-        // CB coupon (cashback)
-        $cbTotal = round($allocation * (float) $p->cbc_value / 100, 2);
         $cbCount = (int) $p->cbc_count;
-        $cbMonthly = $cbCount > 0 ? round($cbTotal / $cbCount, 2) : 0.0;
+        $cbMonthly = $cbCount > 0 ? round($base * (float) $p->cbc_value / 100, 2) : 0.0;
+        $cbTotal = round($cbMonthly * $cbCount, 2);
 
         $ic = array_map('floatval', $p->ic_schedule ?? []);
         $lvl = array_map('floatval', $p->level_schedule ?? []);
-        $icTotal = round(array_sum(array_map(fn ($pct) => $allocation * $pct / 100, $ic)), 2);
-        $lvlTotal = round(array_sum(array_map(fn ($pct) => $allocation * $pct / 100, $lvl)), 2);
-        $lvlMonths = (int) ($p->level_com_duration ?: 0);
+        $icTotal = round(array_sum(array_map(fn ($pct) => $base * $pct / 100, $ic)), 2);
+        $lvlMonthly = round(array_sum(array_map(fn ($pct) => $base * $pct / 100, $lvl)), 2);
+        $lvlMonths = (int) ($p->level_com_duration ?: $p->validity_months ?: 0);
+        $lvlTotal = $lvlMonths > 0 ? round($lvlMonthly * $lvlMonths, 2) : $lvlMonthly;
 
         $pctTxt = fn ($pct) => rtrim(rtrim(number_format((float) $pct, 2), '0'), '.');
 
@@ -1139,14 +1146,16 @@ class Sales extends Page implements HasForms
 
         $sym = self::sym();
         $head = '<div style="display:flex;gap:1rem;flex-wrap:wrap;margin-bottom:.6rem">'
-            . '<div><div style="font-size:.65rem;color:#9ca3af">ALLOCATION (' . $pctTxt($p->allocation_bv) . '%)</div>'
-            . '<div style="font-weight:800;color:#ab222f;font-size:1.05rem">' . $sym . Number::format($allocation, 2) . '</div></div>'
+            . '<div><div style="font-size:.65rem;color:#9ca3af">BILL VALUE (commission base)</div>'
+            . '<div style="font-weight:800;color:#ab222f;font-size:1.05rem">' . $sym . Number::format($base, 2) . '</div></div>'
+            . '<div><div style="font-size:.65rem;color:#9ca3af">BOND (' . $pctTxt($p->bondShare()) . '%)</div>'
+            . '<div style="font-weight:800;color:#111827;font-size:1.05rem">' . $sym . Number::format($bond, 2) . '</div></div>'
             . '<div><div style="font-size:.65rem;color:#9ca3af">PAID + GST</div>'
             . '<div style="font-weight:800;color:#111827;font-size:1.05rem">' . $sym . Number::format((float) $totals['grand'], 2) . '</div></div></div>';
 
         $cb = $card('Promotional Incentive (CBC)', $sym . Number::format($cbTotal, 2),
             $cbCount > 0
-                ? 'Promotional Incentive ' . $pctTxt($p->cbc_value) . '% · ' . $sym . Number::format($cbMonthly, 2) . '/month × ' . $cbCount . ' months'
+                ? $pctTxt($p->cbc_value) . '% of the bill · ' . $sym . Number::format($cbMonthly, 2) . '/month × ' . $cbCount . ' months (first month prorated from the bill date)'
                 : 'No cashback coupon on this scheme',
             '', '#16a34a');
 
@@ -1154,7 +1163,7 @@ class Sales extends Page implements HasForms
             'Instant · paid one-time across up to ' . count(array_filter($ic)) . ' placement layers', $grid($ic), '#e6ad46');
 
         $lvlCard = $card('Turnover-based Salary (GAP)', $sym . Number::format($lvlTotal, 2),
-            $lvlMonths > 0 ? 'Monthly · over ' . $lvlMonths . ' months' : 'Monthly recurring', $grid($lvl), '#0ea5e9');
+            $lvlMonths > 0 ? $sym . Number::format($lvlMonthly, 2) . '/month × ' . $lvlMonths . ' months (per layer below, each month)' : 'Monthly recurring', $grid($lvl), '#0ea5e9');
 
         return new HtmlString('<div style="display:flex;flex-direction:column;gap:.6rem">' . $head . $cb . $icCard . $lvlCard . '</div>');
     }
