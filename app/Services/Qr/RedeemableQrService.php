@@ -80,13 +80,13 @@ class RedeemableQrService
      * the contract amount, or the RD paid-total + bonus). Unlike forBond this is never
      * idempotent: a bond can hold a sale QR and a settlement QR side by side.
      */
-    public function mintSettlementQr(Bond $bond, float $worth): RedeemableQr
+    public function mintSettlementQr(Bond $bond, float $worth, ?float $grams = null): RedeemableQr
     {
-        // Gram worth = the plan's PREDEFINED piece (100 mg ⇒ 0.1000) — the cash worth
-        // includes charges/GST, so dividing by the rate would overstate the gold
-        // (₹1,380.20 ÷ ₹13,400 = 0.103 g ≠ the 0.100 g coin the QR redeems).
+        // Gram worth = the plan's PREDEFINED piece (100 mg ⇒ 0.1000), or $grams when the
+        // caller bought several pieces — the cash worth includes charges/GST, so dividing
+        // by the rate would overstate the gold (₹1,380.20 ÷ ₹13,400 = 0.103 g ≠ 0.100 g).
         $plan = $bond->loadMissing('plan')->plan;
-        $planGrams = (float) ($plan->rd_qr_grams ?? 0);
+        $planGrams = $grams ?? (float) ($plan->rd_qr_grams ?? 0);
         $goldRate = (float) (\App\Models\LiveRate::latestFor('IN')?->gold ?? 0);
 
         return RedeemableQr::create([

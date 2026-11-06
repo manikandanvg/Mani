@@ -44,11 +44,10 @@ class RdCollectionService
             abort_unless($plan && $plan->type === 'rd', 422, 'Not a Gold Saving bond.');
             abort_unless($bond->status === 'active', 422, 'This bond is not active.');
 
-            // G11 gold-QR plans (rd_qr_grams): the renewal amount is FIXED at the current
-            // 100 mg gold price (+making/wastage/GST) — the branch user cannot edit it.
-            $fixedAmount = (float) $plan->rd_qr_grams > 0
-                ? app(\App\Services\Qr\GoldQrPricing::class)->price($plan)
-                : null;
+            // G11 gold-QR plans (rd_qr_grams): the renewal amount is FIXED server-side the
+            // legacy fetchrdsalesdetails way (see renewalQuote) — the branch cannot edit it.
+            $quote = $this->renewalQuote($bond);
+            $fixedAmount = $quote['total'] ?? null;
             if ($fixedAmount !== null) {
                 $amount = $fixedAmount;
             }
@@ -62,10 +61,11 @@ class RdCollectionService
             $fx = $branch?->fxRateToBase() ?? 1.0;
             $currency = $branch?->currency_code ?: 'INR';
 
-            // due sequence number = installments already COVERED + 1. Value-based, not
-            // row-based: one entry of 3 × monthly covers dues N..N+2, so the next entry
+            // Due number, legacy numbering (rdsales: rdcount + 2): due #1 is the joining /
+            // Gold Saving registration payment, so the first renewal is due #2. Value-based,
+            // not row-based: one entry of 3 × monthly covers dues N..N+2, so the next entry
             // starts at N+3 (a row count would wrongly restart at N+1).
-            $dueCount = self::duesCovered($bond) + 1;
+            $dueCount = self::nextDueNumber($bond);
 
             $entry = RdEntry::create([
                 'bond_id' => $bond->id,
@@ -88,7 +88,7 @@ class RdCollectionService
             app(CommissionService::class)->issueInstantCommissionOn(
                 $bond, (float) ($bond->epin_value ?: $bond->value), $paidOn, 'RD-' . $entry->id, $branchId
             );
-            $this->mintRenewalQr($bond, $plan, $dueCount, $fixedAmount);
+            $this->mintRenewalQr($bond, $plan, $dueCount, $quote);
             $this->refreshContract($bond);
 
             return $entry;
@@ -113,6 +113,56 @@ class RdCollectionService
         }
 
         return $entry;
+    }
+
+    /**
+     * Fixed renewal amount of a G11 gold-QR bond, exactly as legacy admin/trade/
+     * fetchrdsalesdetails prefilled it (read-only) — null for variable plans (PLUS3):
+     *
+     *   PLUS1 (legacy 210, rd_qr_on 'always'): intdiv(bond value, ₹1,500) units × today's
+     *          100 mg price incl. making/wastage/GST — a ₹1,00,000 saver renews 66 × 100 mg,
+     *          a ₹1,500 saver 1 × 100 mg (never fewer than one unit).
+     *   PLUS2 (legacy 209, 'first_renewal'): the bond's own monthly value (₹48,000 → ₹48,000).
+     *
+     * User 2026-11-06: both had renewed at ONE 100 mg price whatever the bond value.
+     *
+     * @return array{mode: string, units: int, unit_price: float|null, total: float, breakup: array|null}|null
+     */
+    public function renewalQuote(Bond $bond): ?array
+    {
+        $plan = $bond->plan ?? $bond->load('plan')->plan;
+        if (! $plan || (float) $plan->rd_qr_grams <= 0) {
+            return null;
+        }
+
+        if ($plan->rd_qr_on === 'first_renewal') {
+            return ['mode' => 'bond_value', 'units' => 1, 'unit_price' => null,
+                'total' => round((float) $bond->value, 2), 'breakup' => null];
+        }
+
+        $breakup = app(\App\Services\Qr\GoldQrPricing::class)->breakup($plan);
+        $units = max(1, intdiv((int) floor((float) $bond->value), self::LEGACY_RD_UNIT_VALUE));
+
+        return ['mode' => 'gold_units', 'units' => $units, 'unit_price' => $breakup['total'],
+            'total' => round($breakup['total'] * $units, 2), 'breakup' => $breakup];
+    }
+
+    /** Legacy fetchrdsalesdetails: one 100 mg unit per ₹1,500 of the PLUS1 bond value. */
+    public const LEGACY_RD_UNIT_VALUE = 1500;
+
+    /**
+     * Dues PAID on the bond, the registration payment included (user 2026-11-06:
+     * registration + 2 renewals = 3 paid, 8 pending of 11).
+     */
+    public static function duesPaid(Bond $bond): int
+    {
+        return 1 + self::duesCovered($bond);
+    }
+
+    /** Due number the next renewal takes — registration is due #1 (legacy rdcount + 2). */
+    public static function nextDueNumber(Bond $bond): int
+    {
+        return self::duesPaid($bond) + 1;
     }
 
     /**
@@ -180,19 +230,25 @@ class RdCollectionService
      * scheme's life including the billing QR; 'first_renewal' (PLUS2) mints its single
      * QR only on renewal #1 (none at billing, none later).
      */
-    protected function mintRenewalQr(Bond $bond, $plan, int $dueCount, ?float $worth): void
+    protected function mintRenewalQr(Bond $bond, $plan, int $dueCount, ?array $quote): void
     {
-        if (! $plan->is_redeem || $worth === null || $worth <= 0) {
+        if (! $plan->is_redeem || $quote === null || $quote['total'] <= 0) {
             return;
         }
         $shouldMint = $plan->rd_qr_on === 'always'
-            || ($plan->rd_qr_on === 'first_renewal' && $dueCount === 1);
+            || ($plan->rd_qr_on === 'first_renewal' && $dueCount === 2);   // first renewal = due #2
         if (! $shouldMint) {
             return;
         }
 
+        // PLUS1: the QR backs every 100 mg unit the renewal bought (66 units = 6.6 g).
+        // PLUS2: its one QR stays a single 100 mg piece at today's price.
+        [$worth, $grams] = $quote['mode'] === 'gold_units'
+            ? [$quote['total'], round((float) $plan->rd_qr_grams * $quote['units'], 4)]
+            : [app(\App\Services\Qr\GoldQrPricing::class)->price($plan), (float) $plan->rd_qr_grams];
+
         $this->pendingQrId = app(\App\Services\Qr\RedeemableQrService::class)
-            ->mintSettlementQr($bond, $worth)->id;
+            ->mintSettlementQr($bond, $worth, $grams)->id;
     }
 
     /**

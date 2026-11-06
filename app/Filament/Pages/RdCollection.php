@@ -71,11 +71,16 @@ class RdCollection extends Page implements HasForms
                         ->live()
                         ->afterStateUpdated(function ($state, Set $set) {
                             $bond = $state ? Bond::with('plan')->find($state) : null;
-                            // Gold-QR RD plans (PLUS1/PLUS2): the renewal amount is fixed
-                            // at the current 100 mg gold price — prefill it, non-editable.
-                            $fixed = $bond && (float) ($bond->plan?->rd_qr_grams ?? 0) > 0
-                                ? app(\App\Services\Qr\GoldQrPricing::class)->price($bond->plan)
-                                : null;
+                            // Gold-QR RD plans (PLUS1/PLUS2): the renewal amount is fixed the
+                            // legacy fetchrdsalesdetails way — prefill it, non-editable.
+                            $fixed = null;
+                            if ($bond) {
+                                try {
+                                    $fixed = app(RdCollectionService::class)->renewalQuote($bond)['total'] ?? null;
+                                } catch (\Throwable) {
+                                    // no live gold rate — the helper text explains, save will refuse
+                                }
+                            }
                             $set('amount', $fixed ?? ($bond ? (float) $bond->value : null));
                         })
                         ->columnSpanFull(),
@@ -98,19 +103,27 @@ class RdCollection extends Page implements HasForms
                         ->disabled(fn (Get $get) => (float) (Bond::with('plan')->find($get('bond_id'))?->plan?->rd_qr_grams ?? 0) > 0)
                         ->dehydrated()
                         ->helperText(function (Get $get) {
-                            $plan = Bond::with('plan')->find($get('bond_id'))?->plan;
+                            $bond = Bond::with('plan')->find($get('bond_id'));
+                            $plan = $bond?->plan;
                             if (! $plan || (float) $plan->rd_qr_grams <= 0) {
                                 return null;
                             }
                             // show how the fixed amount is built, so the counter can answer the saver
                             try {
-                                $b = app(\App\Services\Qr\GoldQrPricing::class)->breakup($plan);
+                                $q = app(RdCollectionService::class)->renewalQuote($bond);
                             } catch (\Throwable) {
-                                return 'Fixed: current gold price (incl. making/wastage/GST) — not editable.';
+                                return 'Fixed: current gold price (incl. making/wastage/GST) — not editable. No live gold rate set.';
                             }
+                            if ($q['mode'] === 'bond_value') {
+                                return 'Fixed, not editable: the saving value of this contract (₹' . \App\Support\Money::group($q['total']) . ' every month).';
+                            }
+                            $b = $q['breakup'];
                             $pct = fn (float $v) => rtrim(rtrim(number_format($v, 2), '0'), '.') . ' %';
+                            $mg = rtrim(rtrim(number_format($b['grams'] * 1000, 1), '0'), '.');
 
-                            return 'Fixed, not editable: ' . rtrim(rtrim(number_format($b['grams'] * 1000, 1), '0'), '.') . ' mg gold ₹' . \App\Support\Money::group($b['metal'])
+                            return 'Fixed, not editable: ' . $q['units'] . ' × ' . $mg . ' mg (₹' . \App\Support\Money::group((float) $bond->value)
+                                . ' ÷ ₹' . \App\Support\Money::group(RdCollectionService::LEGACY_RD_UNIT_VALUE) . ') at ₹' . \App\Support\Money::group($b['total']) . ' each = '
+                                . $mg . ' mg gold ₹' . \App\Support\Money::group($b['metal'])
                                 . ' + making ' . $pct($b['making_pct']) . ' ₹' . \App\Support\Money::group($b['making'])
                                 . ' + wastage ' . $pct($b['wastage_pct']) . ' ₹' . \App\Support\Money::group($b['wastage'])
                                 . ' + GST ' . $pct($b['gst_pct']) . ' ₹' . \App\Support\Money::group($b['gst'])
@@ -173,14 +186,16 @@ class RdCollection extends Page implements HasForms
             return new HtmlString('<span class="text-sm text-gray-500">Select a saver to see their schedule.</span>');
         }
         // Value-based: a single 3×monthly collection counts as 3 dues (board fix 2026-08-09).
-        $paid = RdCollectionService::duesCovered($bond);
-        $total = (int) ($bond->lvlcom_count ?: 0);
+        // The Gold Saving registration payment is due #1 (user 2026-11-06: registration +
+        // 2 renewals = 3 paid, 8 pending of 11 — it had shown 2 / 11 and 9 pending).
+        $paid = RdCollectionService::duesPaid($bond);
+        $total = (int) ($bond->lvlcom_count ?: $bond->plan?->validity_months ?: 0);
         $pending = $total > 0 ? max(0, $total - $paid) : null;
         $next = $paid + 1;
 
         $rows = [
             ['Installment value', \App\Support\Money::inr((float) $bond->value)],
-            ['Collected so far', $paid . ($total ? " / {$total}" : '')],
+            ['Collected so far', $paid . ($total ? " / {$total}" : '') . ' (incl. registration)'],
             ['This collection is due #', (string) $next],
             ['Pending', $pending === null ? '—' : (string) $pending],
         ];
@@ -208,7 +223,9 @@ class RdCollection extends Page implements HasForms
         // A multi-month payment covers a run of dues — say so ("Due #2–4"), not just the first.
         $bond = Bond::find($data['bond_id']);
         $monthly = (float) ($bond?->value ?: 0);
-        $units = $monthly > 0 ? max(1, (int) round((float) $entry->value / $monthly)) : 1;
+        // fixed-amount G11 entries are always exactly one due (the gold price moves)
+        $units = $monthly > 0 && (float) ($bond->plan?->rd_qr_grams ?? 0) <= 0
+            ? max(1, (int) round((float) $entry->value / $monthly)) : 1;
         $label = $units > 1
             ? 'Dues #' . $entry->due_count . '–' . ($entry->due_count + $units - 1)
             : 'Due #' . $entry->due_count;

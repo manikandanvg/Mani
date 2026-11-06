@@ -108,6 +108,38 @@ class RdGoldQrTest extends TestCase
         $this->assertEquals(0.1, (float) $qr->gram_worth);
     }
 
+    /**
+     * User 2026-11-06 (legacy admin/trade/fetchrdsalesdetails, plan 210): a PLUS1 renewal is
+     * intdiv(bond value, ₹1,500) × the 100 mg price — a ₹1,00,000 saver renews 66 units, not one.
+     */
+    public function test_plus1_renewal_scales_with_the_bond_value_like_legacy(): void
+    {
+        $plan = $this->rdPlan(['rd_qr_grams' => 0.100, 'rd_qr_on' => 'always']);
+        $bond = $this->bond($plan, $this->member('RQ6'), 100000);
+
+        $entry = app(RdCollectionService::class)->collect(['bond_id' => $bond->id, 'branch_id' => $this->branch->id, 'amount' => 721]);
+        $this->assertEquals(66 * 721.0, (float) $entry->value);           // 47,586
+
+        $qr = RedeemableQr::where('bond_id', $bond->id)->firstOrFail();   // the QR backs all 66 pieces
+        $this->assertEquals(47586.0, (float) $qr->cash_worth);
+        $this->assertEquals(6.6, (float) $qr->gram_worth);
+        $this->assertEquals(1, RdCollectionService::duesCovered($bond));
+    }
+
+    /** Legacy plan 209: a PLUS2 renewal is the bond's own monthly value; its one QR stays 100 mg. */
+    public function test_plus2_renewal_is_the_bond_value_like_legacy(): void
+    {
+        $plan = $this->rdPlan(['rd_qr_grams' => 0.100, 'rd_qr_on' => 'first_renewal']);
+        $bond = $this->bond($plan, $this->member('RQ7'), 48000);
+
+        $entry = app(RdCollectionService::class)->collect(['bond_id' => $bond->id, 'branch_id' => $this->branch->id, 'amount' => 721]);
+        $this->assertEquals(48000.0, (float) $entry->value);
+
+        $qr = RedeemableQr::where('bond_id', $bond->id)->firstOrFail();
+        $this->assertEquals(721.0, (float) $qr->cash_worth);
+        $this->assertEquals(0.1, (float) $qr->gram_worth);
+    }
+
     /** The gold a scheme's gold share buys = the legacy cash→gold conversion, not worth ÷ rate. */
     public function test_sale_qr_grams_take_gst_and_bracket_charges_out(): void
     {

@@ -90,7 +90,7 @@ class CronTick extends Command
                     if (now()->addDays(10)->isSameDay($dueDate)) {
                         \App\Services\Push\Notifier::to($bond->member, 'rd',
                             'Gold Saving renewal due on ' . $dueDate->format('d M Y'),
-                            'Your ' . ($bond->plan->code ?? 'savings') . ' instalment (due #' . ($nextMonthNo - 1)
+                            'Your ' . ($bond->plan->code ?? 'savings') . ' instalment (due #' . $nextMonthNo
                                 . ') is due in 10 days. Pay at your branch or via auto-debit to keep your gold growing.',
                             route: '/contracts/' . $bond->id,
                         );

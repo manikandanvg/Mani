@@ -80,8 +80,8 @@ class RazorpayWebhookController extends Controller
         DB::transaction(function () use ($mandate, $sub, $payment, $paymentId, $processed) {
             $bond = \App\Models\Bond::with('plan')->find($mandate->bond_id);
             $dueCount = $bond
-                ? \App\Services\RdCollectionService::duesCovered($bond) + 1
-                : RdEntry::where('bond_id', $mandate->bond_id)->count() + 1;
+                ? \App\Services\RdCollectionService::nextDueNumber($bond)
+                : RdEntry::where('bond_id', $mandate->bond_id)->count() + 2;   // registration = due #1
 
             RdEntry::create([
                 'bond_id' => $mandate->bond_id,

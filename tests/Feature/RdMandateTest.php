@@ -76,7 +76,7 @@ class RdMandateTest extends TestCase
 
         // installment recorded against the RD's own branch — no bill-margin, no cash movement
         $this->assertDatabaseHas('rd_entries', [
-            'bond_id' => $bond->id, 'value' => 5000, 'due_count' => 1, 'branch_id' => $bond->branch_id,
+            'bond_id' => $bond->id, 'value' => 5000, 'due_count' => 2, 'branch_id' => $bond->branch_id,   // registration = due #1
         ]);
         $this->assertEquals(1, $mandate->fresh()->paid_count);
         $this->assertEquals(0, \App\Models\ResellerCommission::count());

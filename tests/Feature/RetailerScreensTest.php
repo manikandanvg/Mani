@@ -266,7 +266,7 @@ class RetailerScreensTest extends TestCase
             'bond_id' => $bond->id, 'branch_id' => $branch->id, 'amount' => 1000, 'cash_stock_id' => $stock->id,
         ]);
 
-        $this->assertEquals(1, $entry->due_count);
+        $this->assertEquals(2, $entry->due_count);   // registration = due #1 (legacy rdcount + 2)
         $this->assertEquals(1000.00, (float) $entry->value);
         $this->assertEquals($member->id, $entry->member_id);
 
@@ -285,9 +285,12 @@ class RetailerScreensTest extends TestCase
         $first = $svc->collect(['bond_id' => $bond->id, 'branch_id' => $branch->id, 'amount' => 1000, 'cash_stock_id' => $stock->id]);
         $second = $svc->collect(['bond_id' => $bond->id, 'branch_id' => $branch->id, 'amount' => 1000, 'cash_stock_id' => $stock->id]);
 
-        $this->assertEquals(1, $first->due_count);
-        $this->assertEquals(2, $second->due_count);
+        $this->assertEquals(2, $first->due_count);
+        $this->assertEquals(3, $second->due_count);
         $this->assertEquals(2, RdEntry::where('bond_id', $bond->id)->count());
+        // user 2026-11-06: registration + 2 renewals = 3 paid, next is due #4
+        $this->assertEquals(3, RdCollectionService::duesPaid($bond));
+        $this->assertEquals(4, RdCollectionService::nextDueNumber($bond));
     }
 
     public function test_rd_collection_rejects_non_rd_bond(): void
@@ -396,7 +399,7 @@ class RetailerScreensTest extends TestCase
             ->assertHasNoErrors();
 
         $this->assertDatabaseHas('rd_entries', [
-            'bond_id' => $bond->id, 'member_id' => $member->id, 'value' => 1000, 'due_count' => 1, 'branch_id' => $dist->branch_id,
+            'bond_id' => $bond->id, 'member_id' => $member->id, 'value' => 1000, 'due_count' => 2, 'branch_id' => $dist->branch_id,
         ]);
     }
 }
