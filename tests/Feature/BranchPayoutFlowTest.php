@@ -185,6 +185,56 @@ class BranchPayoutFlowTest extends TestCase
         $this->assertEquals(3000.0, (float) $req->amount);
     }
 
+    public function test_the_payout_request_search_box_reaches_every_field_and_every_status(): void
+    {
+        $other = Branch::create(['name' => 'Madurai', 'city' => 'Madurai', 'phone' => '9100000009', 'country' => 'IN', 'level' => 'wholesaler', 'is_active' => true]);
+        $payer = User::create(['name' => 'Kavitha Accounts', 'email' => 'payer@test.local', 'password' => bcrypt('secret123'), 'status' => 'active']);
+        $payer->assignRole('super_admin');
+
+        $hit = BranchPayoutRequest::create(['branch_id' => $this->branch->id, 'requested_by' => $this->dealer->id, 'rows_count' => 17, 'amount' => 123456.00,
+            'status' => 'paid', 'payment_ref' => 'UTR778899', 'note' => 'festival rush', 'paid_by' => $payer->id, 'paid_at' => '2026-03-09 11:15:00']);
+        $hit->forceFill(['created_at' => '2026-02-08 10:30:00'])->save();
+        $miss = BranchPayoutRequest::create(['branch_id' => $other->id, 'rows_count' => 4, 'amount' => 900.00, 'status' => 'requested']);
+        $miss->forceFill(['created_at' => '2026-06-20 09:00:00'])->save();
+
+        $this->actingAs($payer);
+        $page = Livewire::test(ListBranchPayoutRequests::class)
+            ->assertCanSeeTableRecords([$miss])->assertCanNotSeeTableRecords([$hit]);   // default = Requested queue
+
+        foreach ([
+            'branch name' => 'Rajapalayam',
+            'dealer ID' => 'LJWD1',
+            'branch level' => 'Retailer',
+            'phone' => '9100000001',
+            'bank account' => '30012345678',
+            'bank name' => 'SBI',
+            'IFSC' => 'SBIN0000123',
+            'rows count' => '17',
+            'amount' => '123456',
+            'grouped amount' => '₹1,23,456',
+            'status' => 'Paid',
+            'requested on' => 'Feb',
+            'requested dd-mm-yyyy' => '08-02-2026',
+            'requested by' => 'Dealer',
+            'paid on' => 'Mar',
+            'paid by' => 'Kavitha',
+            'reference' => 'UTR778899',
+            'note' => 'festival',
+            'two words across fields' => 'Rajapalayam UTR778899',
+        ] as $term) {
+            $page->searchTable($term)
+                ->assertCanSeeTableRecords([$hit])
+                ->assertCanNotSeeTableRecords([$miss]);
+        }
+
+        // an unknown word finds nothing, and clearing the search brings the Requested queue back
+        $page->searchTable('zzznothing')->assertCanNotSeeTableRecords([$hit, $miss]);
+        $page->searchTable('')->assertCanSeeTableRecords([$miss])->assertCanNotSeeTableRecords([$hit]);
+
+        // a status the user picked on purpose still narrows the search
+        $page->filterTable('status', ['cancelled'])->searchTable('Rajapalayam')->assertCanNotSeeTableRecords([$hit, $miss]);
+    }
+
     public function test_withdraw_my_wallet_lists_the_dealers_requests_in_a_searchable_table(): void
     {
         $svc = app(WalletWithdrawalService::class);
