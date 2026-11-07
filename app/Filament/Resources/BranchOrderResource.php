@@ -130,6 +130,7 @@ class BranchOrderResource extends BaseResource
                     ->placeholder('—')->searchable()->toggleable(),
                 Tables\Columns\TextColumn::make('created_at')->label('Date')->dateTime()->sortable(),
                 Tables\Columns\TextColumn::make('branch.name')->label('Branch')->searchable()->toggleable(),
+                Tables\Columns\TextColumn::make('branch.phone')->label('Contact No')->placeholder('—')->searchable()->toggleable(),
                 Tables\Columns\TextColumn::make('currentBranch.name')->label('Now at')->placeholder('—')->toggleable()
                     ->description(fn (BranchOrderRequest $r) => $r->isCustomize() && $r->current_branch_id ? match ($r->status) {
                         'pending' => 'awaiting forward / accept', 'approved', 'in_transit' => 'holding the pieces', 'delivered' => 'ready to bill', default => null,
