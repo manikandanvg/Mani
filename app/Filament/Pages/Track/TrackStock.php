@@ -31,7 +31,15 @@ class TrackStock extends TrackPage
             Forms\Components\Section::make()->columns(2)->schema([
                 Forms\Components\Select::make('branch_id')
                     ->label('Branch')
-                    ->options(Branch::orderBy('name')->pluck('name', 'id'))
+                    // full list, searchable; "NAME (city / in-charge / contact no)" tells same-named branches apart
+                    ->options(fn () => Branch::orderBy('name')->orderBy('city')->get(['id', 'name', 'city', 'incharge', 'phone'])
+                        ->mapWithKeys(function (Branch $b) {
+                            $parts = array_filter([trim((string) $b->city), trim((string) $b->incharge), trim((string) $b->phone)]);
+
+                            return [$b->id => trim((string) $b->name).($parts ? ' ('.implode(' / ', $parts).')' : '')];
+                        })->all())
+                    ->searchable()
+                    ->optionsLimit(5000)
                     ->default($dealerBranch ?? 1)
                     ->disabled($dealerBranch !== null)
                     ->required()
