@@ -21,6 +21,9 @@ use Illuminate\Support\Facades\DB;
  *    order, buyer = the dealer branch with its own GSTIN. Orders whose buyer carries the
  *    filing GSTIN itself (legacy merged "LORD JEWELLER" records) are not a B2B supply and
  *    are left out — they are counted in notes() so HQ can fix the branch record.
+ *    B2B amounts are tax-reversed from the billed order total (BILLING VALUE = taxable + GST
+ *    exactly, as the auditor files them); redemption restocks carry the customer's original
+ *    redeemed value, not the restock-day cart price.
  *
  * Both registers get a running INV NO that continues the auditor's own sequence
  * (B2C …2216 → 2217, B2B …5270 → 5271 after the September 2026 filing) and carry the
@@ -43,6 +46,9 @@ class GstAuditorReport
     public const HSN = '71181000';
 
     public const GST_PCT = 3.0;
+
+    /** Making + wastage share assumed when an order has no priced cart lines (2.5 % + 2.5 %). */
+    public const B2B_DEFAULT_CHARGE_PCT = 5.0;
 
     public const B2C_ITEM = 'BIS 916 HUID GOLD';
 
@@ -237,8 +243,9 @@ class GstAuditorReport
             'SELECT c.pono, MAX(c.cartaddeddate) AS invdate, MIN(r.doorder) AS doorder, c.branchid, MAX(b.storename) AS storename,
                     MAX(b.address) AS branch_address, MAX(b.city) AS branch_city, MAX(b.phoneno) AS branch_phoneno,
                     MAX(b.gstno) AS branch_gstno, MAX(c.route) AS route, MAX(r.paymode) AS paymode, COUNT(*) AS item_count,
-                    SUM(c.weight) AS total_weight, SUM(c.weight * c.purprice) AS total_value, AVG(c.purprice) AS avg_rate,
+                    SUM(c.weight) AS total_weight, SUM(c.weight * c.purprice) AS total_value,
                     MAX(r.nettotal) AS billing_value,
+                    MAX((SELECT COALESCE(SUM(x.aftercharges), 0) FROM tbl_br_purchase_cart x WHERE x.pono = c.pono AND x.cateid = ?)) AS cash_value,
                     SUM(c.weight * c.purprice * ((c.mcharge + c.wcharge) / 100)) AS total_charges
              FROM tbl_br_purchase_cart c
              INNER JOIN tbl_brorderrequest r ON r.transid = c.pono
@@ -246,7 +253,7 @@ class GstAuditorReport
              WHERE r.status = ? AND c.cateid <> ? AND r.doorder BETWEEN ? AND ?'.$filter.'
              GROUP BY c.pono, c.branchid
              ORDER BY MIN(r.doorder) ASC, c.pono ASC',
-            ['APPROVED', '3', $this->from, $this->to]);
+            ['3', 'APPROVED', '3', $this->from, $this->to]);
 
         $out = [];
         $self = 0;
@@ -258,9 +265,13 @@ class GstAuditorReport
                 continue;
             }
             $mode = strtoupper(trim((string) $r->route)) ?: (strtoupper((string) $r->paymode) === 'REDEEM' ? 'RO' : 'BO');
+            $billing = (float) $r->billing_value - (float) $r->cash_value;
+            if ($billing <= 0) {
+                continue;
+            }
             $out[] = $this->b2bRow(substr((string) ($r->invdate ?: $r->doorder), 0, 10), (string) $r->pono, (string) $r->branchid,
                 $r->storename, $r->branch_address, $r->branch_city, $r->branch_phoneno, $mode, $gst, (int) $r->item_count,
-                (float) $r->billing_value, (float) $r->total_weight, (float) $r->avg_rate, (float) $r->total_value, (float) $r->total_charges);
+                $billing, (float) $r->total_weight, (float) $r->total_value, (float) $r->total_charges);
         }
         $this->noteSelf($self);
 
@@ -318,9 +329,9 @@ class GstAuditorReport
         if ($requests->isEmpty()) {
             return [];
         }
-        $lines = DB::table('branch_order_lines')->whereIn('order_request_id', $requests->pluck('id'))
-            ->where(fn ($w) => $w->whereNull('material')->orWhere('material', '<>', 'cash'))
-            ->get()->groupBy('order_request_id');
+        $allLines = DB::table('branch_order_lines')->whereIn('order_request_id', $requests->pluck('id'))->get();
+        $lines = $allLines->filter(fn ($l) => $l->material !== 'cash')->groupBy('order_request_id');
+        $cash = $allLines->filter(fn ($l) => $l->material === 'cash')->groupBy('order_request_id')->map(fn ($g) => (float) $g->sum('line_total'));
 
         $out = [];
         $self = 0;
@@ -335,19 +346,21 @@ class GstAuditorReport
             if ($ls->isEmpty()) {
                 continue;   // cash-only top-up: no goods supplied
             }
-            [$weight, $value, $charges, $rateSum] = [0.0, 0.0, 0.0, 0.0];
+            [$weight, $value, $charges] = [0.0, 0.0, 0.0];
             foreach ($ls as $l) {
                 $rate = (float) ($l->unit_price ?: $l->rate);
                 $cross = (float) $l->weight * $rate;
                 $weight += (float) $l->weight;
                 $value += $cross;
                 $charges += $cross * (((float) $l->making_charge_pct + (float) $l->wastage_charge_pct) / 100) + (float) $l->hallmark_charge;
-                $rateSum += $rate;
+            }
+            $billing = (float) $r->grand_total - (float) ($cash[$r->id] ?? 0);
+            if ($billing <= 0) {
+                continue;
             }
             $date = substr((string) ($r->approved_at ?: $r->created_at), 0, 10);
             $out[] = $this->b2bRow($date, (string) $r->request_no, (string) $r->buyer_id, $r->name, $r->address, $r->city, $r->phone,
-                $r->source === 'redemption' ? 'RO' : 'BO', $gst, $ls->count(), (float) $r->grand_total, $weight,
-                $ls->count() ? $rateSum / $ls->count() : 0.0, $value, $charges);
+                $r->source === 'redemption' ? 'RO' : 'BO', $gst, $ls->count(), $billing, $weight, $value, $charges);
         }
         $this->noteSelf($self);
 
@@ -371,16 +384,29 @@ class GstAuditorReport
         ]);
     }
 
+    /**
+     * B2B rows are tax-reversed from the billed amount: the order header is what the dealer was
+     * billed (for redemption restocks it is the customer's original redeemed value, which differs
+     * from the cart priced at the restock-day rate), so TAXABLE = billing ÷ 1.03 and GST = the
+     * remainder, then NET / CHARGES split the taxable amount by the cart's charge percentage.
+     * The auditor imports taxable + GST, and those must add back to BILLING VALUE.
+     */
     protected function b2bRow($date, string $ref, string $cusId, $name, $address, $city, $phone, string $mode, string $gstin,
-        int $qty, float $billing, float $weight, float $avgRate, float $value, float $charges): array
+        int $qty, float $billing, float $weight, float $value, float $charges): array
     {
-        $taxable = $value + $charges;
-        $gst = $taxable * self::GST_PCT / 100;
+        $billing = round($billing, 2);
+        $taxable = round($billing / (1 + self::GST_PCT / 100), 2);
+        $gst = round($billing - $taxable, 2);
+        $sgst = round($gst / 2, 2);
+        $cgst = round($gst - $sgst, 2);
+        $chargePct = $value > 0 ? $charges / $value : self::B2B_DEFAULT_CHARGE_PCT / 100;
+        $net = round($taxable / (1 + $chargePct), 2);
+        $rate = $weight > 0 ? round($net / $weight, 2) : 0.0;
 
         return array_combine(self::B2B_COLUMNS, [
             null, $this->date($date), $ref, $cusId, $this->text($name), $this->text($address), $this->text($city), $this->text($phone), $mode, $gstin,
-            self::B2B_ITEM, self::HSN, $qty, round($billing, 2), round($weight, 2), round($avgRate, 2), round($value, 2),
-            round($charges, 2), round($taxable, 2), round($gst, 2), round($gst / 2, 2), round($gst / 2, 2),
+            self::B2B_ITEM, self::HSN, $qty, $billing, round($weight, 2), $rate, $net,
+            round($taxable - $net, 2), $taxable, $gst, $sgst, $cgst,
         ]);
     }
 

@@ -8,6 +8,7 @@ use App\Models\Branch;
 use App\Models\BranchOrderRequest;
 use App\Models\Member;
 use App\Models\Plan;
+use App\Models\Rank;
 use App\Models\SaleLine;
 use App\Models\SalesInvoice;
 use App\Models\User;
@@ -63,7 +64,7 @@ class GstAuditorReportTest extends TestCase
     {
         $m = Member::create(['member_code' => 'M'.$no, 'name' => 'Buyer '.$no, 'phone' => '98'.str_pad((string) crc32($no), 8, '0'),
             'joined_on' => now(), 'placement' => 'level', 'status' => 'active', 'address' => "2/112, West St\nAttur", 'city' => 'Attur',
-            'rank_id' => \App\Models\Rank::query()->orderBy('id')->value('id'),
+            'rank_id' => Rank::query()->orderBy('id')->value('id'),
             'pan' => 'FUPPS2885R', 'aadhaar' => '457296910990']);
         $inv = SalesInvoice::create(['invoice_no' => $no, 'date' => $date, 'branch_id' => $branch->id, 'customer_member_id' => $m->id,
             'customer_name' => $m->name, 'cross_total' => $taxable, 'net_total' => $taxable, 'cgst' => $taxable * 0.015, 'sgst' => $taxable * 0.015,
@@ -79,7 +80,7 @@ class GstAuditorReportTest extends TestCase
     private function order(string $no, string $date, Branch $buyer, string $status = 'approved', string $source = 'order_form'): BranchOrderRequest
     {
         $r = BranchOrderRequest::create(['request_no' => $no, 'branch_id' => $buyer->id, 'current_branch_id' => $this->hq->id, 'no_of_items' => 2,
-            'cross_total' => 20000, 'gst_total' => 600, 'grand_total' => 20600, 'payment_type' => 'cash', 'status' => $status, 'source' => $source]);
+            'cross_total' => 19700, 'gst_total' => 441, 'grand_total' => 20141, 'payment_type' => 'cash', 'status' => $status, 'source' => $source]);
         BranchOrderRequest::whereKey($r->id)->update(['approved_at' => $date.' 11:00:00', 'created_at' => $date.' 10:00:00']);
         foreach ([['gold', 2, 7000, 2.5, 2.5], ['cash', 1, 5000, 0, 0]] as [$mat, $w, $rate, $mc, $wc]) {
             DB::table('branch_order_lines')->insert(['order_request_id' => $r->id, 'material' => $mat, 'description' => $mat, 'weight' => $w,
@@ -140,7 +141,8 @@ class GstAuditorReportTest extends TestCase
         $this->assertSame(14700.0, $r['TAXABLE AMOUNT']);
         $this->assertSame(441.0, $r['GST (3%)']);
         $this->assertSame(220.5, $r['CGST']);
-        $this->assertSame(20600.0, $r['BILLING VALUE']);
+        $this->assertSame(15141.0, $r['BILLING VALUE'], 'order total minus the cash line = taxable + GST exactly');
+        $this->assertSame(7000.0, $r['ITEM RATE/G']);
         $this->assertCount(1, $report->notes);
         $this->assertStringContainsString('1 approved order(s) were left out', $report->notes[0]);
     }
