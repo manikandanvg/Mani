@@ -70,6 +70,21 @@ class GstAuditorReport
         'GST NUMBER', 'ITEM DESCRIPTION', 'HSN CODE', 'QTY', 'BILLING VALUE', 'GOLD WEIGHT(GM)', 'ITEM RATE/G', 'NET VALUE',
         'CHARGES  (MC(2.5%)+WC(2.5%))', 'TAXABLE AMOUNT', 'GST (3%)', 'SGST', 'CGST'];
 
+    /** Distributor's purchase register (legacy "GSTR PURCHASE"): what HQ billed the dealer for its redemptions. */
+    public const PURCHASE_COLUMNS = ['SELLER', 'GSTN', 'PO NO', 'REF NO', 'PO DATE', 'ITEM DESCRIPTION', 'HSN CODE', 'QTY',
+        'BILLING VALUE', 'GOLD WEIGHT(GM)', 'GOLD RATE/G', 'NET VALUE', 'CHARGES  (MC(2.5%)+WC(2.5%))', 'TAXABLE AMOUNT',
+        'GST (3%)', 'SGST', 'CGST'];
+
+    /** @return array<int, string> the column list of a register name (b2c | b2b | sales | purchase) */
+    public static function columns(string $register): array
+    {
+        return match ($register) {
+            'b2b' => self::B2B_COLUMNS,
+            'purchase' => self::PURCHASE_COLUMNS,
+            default => self::B2C_COLUMNS,
+        };
+    }
+
     /** @var array<int, string> */
     public array $notes = [];
 
@@ -89,6 +104,14 @@ class GstAuditorReport
     public static function filingGstin(): ?string
     {
         return Branch::query()->orderBy('id')->whereNotNull('gst_no')->where('gst_no', '<>', '')->value('gst_no');
+    }
+
+    /** The HQ branch (first branch carrying the filing GSTIN) — the seller on a distributor's purchase register. */
+    public static function filingBranchName(?string $gstin = null): string
+    {
+        $gstin = $gstin ?: self::filingGstin();
+
+        return (string) (Branch::query()->orderBy('id')->where('gst_no', $gstin)->value('name') ?: 'LORD JEWELLER');
     }
 
     public static function legacyAvailable(): bool
@@ -170,6 +193,44 @@ class GstAuditorReport
         return array_map(fn ($r) => $this->row('b2b', $r), $this->redemptions(false));
     }
 
+    /**
+     * Distributor's own sales register (legacy dealer "GSTR SALES B TO C"): every redemption at the
+     * dealer's branch, consumer as buyer, INV NO = the dealer's redemption invoice no (no auditor
+     * sequence), REF NO = the sale invoice the QR came from. Needs $branchId.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function dealerSalesRows(): array
+    {
+        if (! $this->branchId) {
+            return [];
+        }
+
+        return array_map(function ($r) {
+            $row = $this->row('b2c', $r);
+            $row['INV NO'] = $r['ref'];
+            $row['REF NO'] = $r['source_ref'];
+
+            return $row;
+        }, $this->redemptions(null));
+    }
+
+    /**
+     * Distributor's purchase register (legacy dealer "GSTR PURCHASE"): the same redemptions as
+     * HQ billed them to the dealer — seller = the filing branch. Needs $branchId.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function dealerPurchaseRows(): array
+    {
+        if (! $this->branchId) {
+            return [];
+        }
+        $seller = self::filingBranchName($this->gstin);
+
+        return array_map(fn ($r) => $this->row('purchase', $r, $seller), $this->redemptions(null));
+    }
+
     /** Totals of a register (billing, taxable, gst). */
     public static function totals(array $rows): array
     {
@@ -183,16 +244,23 @@ class GstAuditorReport
 
     /**
      * Redemption invoices of the period, normalised across both sources.
-     * $own = true → branches carrying the filing GSTIN (B2C); false → every other branch (B2B).
+     * $own = true → branches carrying the filing GSTIN (B2C); false → every other branch (B2B);
+     * null → no GSTIN test (a distributor's own branch, with $branchId).
      *
-     * @return array<int, array{ref:string,date:string,gold_rate:float,taxable:float,cgst:float,sgst:float,
+     * @return array<int, array{ref:string,source_ref:string,date:string,gold_rate:float,taxable:float,cgst:float,sgst:float,
      *     branch:array{id:string,name:?string,address:?string,city:?string,phone:?string,gstin:string},
      *     customer:array{id:string,name:?string,address:?string,city:?string,phone:?string,pan:?string,aadhaar:?string},
      *     lines:array<int, array{material:string,pieces:float,grams:float,net:float,taxable:float}>}>
      */
-    protected function redemptions(bool $own): array
+    protected function redemptions(?bool $own): array
     {
         return $this->source === self::SOURCE_LEGACY ? $this->legacyRedemptions($own) : $this->newRedemptions($own);
+    }
+
+    /** SQL fragment for the GSTIN test (empty when $own is null). */
+    protected function gstinClause(?bool $own, string $expr): string
+    {
+        return $own === null ? '' : ' AND UPPER(TRIM(COALESCE('.$expr.", ''))) ".($own ? '=' : '<>').' ?';
     }
 
     // ------------------------------------------------------------------ legacy source (Lord DB)
@@ -215,23 +283,23 @@ class GstAuditorReport
         return $brid ? (int) $brid : 0;
     }
 
-    protected function legacyRedemptions(bool $own): array
+    protected function legacyRedemptions(?bool $own): array
     {
         $brid = $this->legacyBrid();
         if ($brid === 0) {
             return [];
         }
         $rows = $this->legacy()->select(
-            "SELECT q.estid, q.estdate, q.invno, q.cusid, q.cusname, q.cusaddress, q.cucity, q.cucontact, q.cupan, q.cuaadhar,
+            'SELECT q.estid, q.estdate, q.invno, q.cusid, q.cusname, q.cusaddress, q.cucity, q.cucontact, q.cupan, q.cuaadhar,
                     q.netttotal, q.cgst, q.sgst, q.goldrate, q.branchid,
                     b.storename, b.address AS br_address, b.city AS br_city, b.phoneno AS br_phone, b.gstno
              FROM tbl_qrsalesinvoice q
              LEFT JOIN tbl_branches b ON b.brid = q.branchid
-             WHERE q.estdate BETWEEN ? AND ?
-               AND UPPER(TRIM(COALESCE(b.gstno, ''))) ".($own ? '=' : '<>').' ?'
+             WHERE q.estdate BETWEEN ? AND ?'
+            .$this->gstinClause($own, 'b.gstno')
             .($brid ? ' AND q.branchid = ?' : '').'
              ORDER BY q.estdate ASC, q.estid ASC',
-            array_merge([$this->from, $this->to, $this->gstin], $brid ? [$brid] : []));
+            array_merge([$this->from, $this->to], $own === null ? [] : [$this->gstin], $brid ? [$brid] : []));
         if (! $rows) {
             return [];
         }
@@ -259,6 +327,7 @@ class GstAuditorReport
             }
             $out[] = [
                 'ref' => (string) $r->estid,
+                'source_ref' => (string) $r->invno,
                 'date' => (string) $r->estdate,
                 'gold_rate' => (float) $r->goldrate,
                 'taxable' => (float) $r->netttotal,
@@ -288,16 +357,16 @@ class GstAuditorReport
 
     // ------------------------------------------------------------------ new system
 
-    protected function newRedemptions(bool $own): array
+    protected function newRedemptions(?bool $own): array
     {
         $invoices = DB::table('redemption_invoices as i')
             ->join('branches as br', 'br.id', '=', 'i.branch_id')
             ->leftJoin('members as m', 'm.id', '=', 'i.member_id')
             ->whereBetween('i.invoice_date', [$this->from, $this->to])
-            ->whereRaw("UPPER(TRIM(COALESCE(br.gst_no, ''))) ".($own ? '=' : '<>').' ?', [$this->gstin])
+            ->when($own !== null, fn ($w) => $w->whereRaw(substr($this->gstinClause($own, 'br.gst_no'), 5), [$this->gstin]))
             ->when($this->branchId, fn ($w) => $w->where('i.branch_id', $this->branchId))
             ->orderBy('i.invoice_date')->orderBy('i.id')
-            ->select('i.id', 'i.invoice_no', 'i.invoice_date', 'i.referrer_name', 'i.legacy_restock', 'i.taxable_total', 'i.cgst', 'i.sgst', 'i.gold_rate',
+            ->select('i.id', 'i.invoice_no', 'i.invoice_date', 'i.reference_no', 'i.referrer_name', 'i.legacy_restock', 'i.taxable_total', 'i.cgst', 'i.sgst', 'i.gold_rate',
                 'br.id as br_id', 'br.legacy_brid', 'br.name as br_name', 'br.address as br_address', 'br.city as br_city', 'br.phone as br_phone', 'br.gst_no',
                 'm.member_code', 'm.name as m_name', 'm.address', 'm.city', 'm.phone', 'm.pan', 'm.aadhaar')
             ->get();
@@ -341,6 +410,7 @@ class GstAuditorReport
             }
             $out[] = [
                 'ref' => (string) $r->invoice_no,
+                'source_ref' => (string) ($r->reference_no ?? ''),
                 'date' => substr((string) $r->invoice_date, 0, 10),
                 'gold_rate' => (float) $r->gold_rate,
                 'taxable' => (float) $r->taxable_total,
@@ -360,8 +430,11 @@ class GstAuditorReport
 
     // ------------------------------------------------------------------ row shape
 
-    /** One register row from a normalised redemption invoice. BILLING VALUE = TAXABLE + GST exactly. */
-    protected function row(string $register, array $r): array
+    /**
+     * One register row from a normalised redemption invoice. BILLING VALUE = TAXABLE + GST exactly.
+     * $register: b2c (consumer columns) | b2b (dealer as buyer) | purchase (distributor's input side, $seller = HQ).
+     */
+    protected function row(string $register, array $r, string $seller = ''): array
     {
         $taxable = round($r['taxable'], 2);
         $gst = round($r['cgst'] + $r['sgst'], 2);
@@ -406,11 +479,14 @@ class GstAuditorReport
         $c = $r['customer'];
         $head = [null, $this->date($r['date']), $r['ref']];
         $money = [$billing, round($goldGrams, 3), round($r['gold_rate'], 2), $net, $charges, $taxable, $gst, $sgst, $cgst];
-        $row = $register === 'b2b'
-            ? array_combine(self::B2B_COLUMNS, [...$head, $b['id'], $this->text($b['name']), $this->text($b['address']), $this->text($b['city']),
-                $this->text($b['phone']), 'RO', $b['gstin'], $item, $hsn, $qty, ...$money])
-            : array_combine(self::B2C_COLUMNS, [...$head, $c['id'], $this->text($c['name']), $this->text($c['address']), $this->text($c['city']),
-                $this->text($c['phone']), $this->text($c['pan']), $this->text($c['aadhaar']), 'BTOC', 'NA', $item, $hsn, $qty, ...$money]);
+        $row = match ($register) {
+            'b2b' => array_combine(self::B2B_COLUMNS, [...$head, $b['id'], $this->text($b['name']), $this->text($b['address']), $this->text($b['city']),
+                $this->text($b['phone']), 'RO', $b['gstin'], $item, $hsn, $qty, ...$money]),
+            'purchase' => array_combine(self::PURCHASE_COLUMNS, [$seller, $this->gstin, $r['ref'], $r['source_ref'], $this->date($r['date']),
+                $item, $hsn, $qty, ...$money]),
+            default => array_combine(self::B2C_COLUMNS, [...$head, $c['id'], $this->text($c['name']), $this->text($c['address']), $this->text($c['city']),
+                $this->text($c['phone']), $this->text($c['pan']), $this->text($c['aadhaar']), 'BTOC', 'NA', $item, $hsn, $qty, ...$money]),
+        };
         $row[self::HSN_KEY] = $split;
 
         return $row;

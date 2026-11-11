@@ -17,10 +17,10 @@ use OpenSpout\Writer\XLSX\Writer;
  */
 class GstAuditorWorkbook
 {
-    /** Write one register (rows already numbered) to $path. */
+    /** Write one register (rows already numbered) to $path. $register: b2c | b2b | sales | purchase. */
     public static function register(string $register, array $rows, string $path): void
     {
-        $columns = $register === 'b2b' ? GstAuditorReport::B2B_COLUMNS : GstAuditorReport::B2C_COLUMNS;
+        $columns = GstAuditorReport::columns($register);
         $options = new Options;
         foreach ([4 => 36, 5 => 48, 6 => 28, 12 => 24] as $col => $w) {
             $options->setColumnWidth($w, $col + 1);
@@ -80,16 +80,15 @@ class GstAuditorWorkbook
         $writer->addRow($row(['HSN', 'Description', 'UQC', 'Total Quantity', 'Total Value', 'Taxable Value', 'Integrated Tax Amount',
             'Central Tax Amount', 'State/UT Tax Amount', 'Cess Amount'], $bold));
         // per material, from the hidden split each row carries (gold and silver pieces file under different HSNs)
-        $split = ['gold' => null, 'silver' => null];
+        $split = [];
         foreach (array_merge($b2c, $b2b) as $r) {
             foreach ($r[GstAuditorReport::HSN_KEY] ?? [] as $m => $s) {
-                $split[$m] ??= ['grams' => 0.0, 'taxable' => 0.0, 'gst' => 0.0];
-                $split[$m]['grams'] += $s['grams'];
-                $split[$m]['taxable'] += $s['taxable'];
-                $split[$m]['gst'] += $s['gst'];
+                $t = $split[$m] ?? ['grams' => 0.0, 'taxable' => 0.0, 'gst' => 0.0];
+                $split[$m] = ['grams' => $t['grams'] + $s['grams'], 'taxable' => $t['taxable'] + $s['taxable'], 'gst' => $t['gst'] + $s['gst']];
             }
         }
-        foreach (array_filter($split) as $m => $s) {
+        uksort($split, fn ($a, $b) => ($a === 'gold' ? 0 : 1) <=> ($b === 'gold' ? 0 : 1));
+        foreach ($split as $m => $s) {
             $taxable = round($s['taxable'], 2);
             $gst = round($s['gst'], 2);
             $half = round($gst / 2, 2);

@@ -229,4 +229,43 @@ class GstAuditorReportTest extends TestCase
         $this->assertSame(2218, GstAuditorReport::nextNumber('b2c', '2026-12-01', '2026-12-31'), 'export records the range used');
         $this->assertSame(5272, GstAuditorReport::nextNumber('b2b', '2026-12-01', '2026-12-31'));
     }
+
+    public function test_distributor_login_gets_its_own_sales_and_purchase_registers_without_the_auditor_sequence(): void
+    {
+        $this->redeem('4470', '2026-11-04', $this->dealer, [['2 g Gold', 1, 2.0, 27360, 5]]);
+        $this->redeem('4471', '2026-11-06', $this->dealer, [['1 g Silver', 2, 1.0, 120, 20]]);
+        $this->redeem('4463', '2026-11-03', $this->hq, [['1 g Gold', 1, 1.0, 13390, 5]]);                // HQ's own, not the dealer's
+        $other = Branch::create(['name' => 'Other Dealer', 'country' => 'IN', 'is_active' => true, 'gst_no' => '33AAAAA0000A1Z5', 'kind' => 'dealer', 'level' => 'retailer']);
+        $this->redeem('4480', '2026-11-05', $other, [['1 g Gold', 1, 1.0, 13390, 5]]);                   // another dealer
+
+        $user = User::factory()->create(['status' => 'active', 'branch_id' => $this->dealer->id]);
+        $user->assignRole('distributor');
+        $this->actingAs($user);
+
+        $report = new GstAuditorReport('new', '2026-11-01', '2026-11-30', $this->dealer->id);
+        $sales = $report->dealerSalesRows();
+        $this->assertSame(['4470', '4471'], array_column($sales, 'INV NO'), 'the dealer\'s own redemption invoice numbers');
+        $this->assertSame(['28224', '28224'], array_column($sales, 'REF NO'), 'the sale invoice the QR came from');
+        $this->assertSame(['BTOC', 'NA', 'M4470', 28728.0, 29589.84], [$sales[0]['BILL MODE'], $sales[0]['GST NUMBER'], $sales[0]['CUSID'], $sales[0]['TAXABLE AMOUNT'], $sales[0]['BILLING VALUE']]);
+        $purchases = $report->dealerPurchaseRows();
+        $this->assertSame(GstAuditorReport::PURCHASE_COLUMNS, array_keys(array_diff_key($purchases[0], [GstAuditorReport::HSN_KEY => 1])));
+        $this->assertSame([$this->hq->name, '33AREPB3962B3ZD', '4470', '28224', 28728.0, 861.84, 29589.84],
+            [$purchases[0]['SELLER'], $purchases[0]['GSTN'], $purchases[0]['PO NO'], $purchases[0]['REF NO'], $purchases[0]['TAXABLE AMOUNT'], $purchases[0]['GST (3%)'], $purchases[0]['BILLING VALUE']]);
+        $this->assertSame([], (new GstAuditorReport('new', '2026-11-01', '2026-11-30'))->dealerSalesRows(), 'needs a branch');
+
+        $page = Livewire::test(GstReport::class)
+            ->fillForm(['from' => '2026-11-01', 'to' => '2026-11-30'])
+            ->call('run')->assertHasNoFormErrors();
+        $sections = $page->get('sections');
+        $this->assertStringContainsString('Sales to customers', $sections[0]['heading']);
+        $this->assertSame('2', $sections[0]['kv']['Rows']);
+        $this->assertStringContainsString('Purchases from', $sections[1]['heading']);
+        $this->assertSame(GstAuditorReport::PURCHASE_COLUMNS, $sections[1]['columns']);
+        $this->assertSame(['exportSales', 'exportPurchases'], array_column($page->instance()->gstExportButtons(), 0));
+
+        $page->call('exportSales')->assertFileDownloaded('GSTR SALES B2C Nov 2026.xlsx');
+        $page->call('exportPurchases')->assertFileDownloaded('GSTR PURCHASE Nov 2026.xlsx');
+        $this->assertSame(2217, GstAuditorReport::nextNumber('b2c', '2026-12-01', '2026-12-31'), 'a dealer export never touches the auditor sequence');
+        $page->call('exportB2c')->assertForbidden();
+    }
 }

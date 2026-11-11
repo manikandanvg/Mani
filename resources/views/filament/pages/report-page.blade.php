@@ -13,18 +13,12 @@
                     <x-filament::button color="gray" size="sm" icon="heroicon-m-document-chart-bar" wire:click="exportXlsx" wire:loading.attr="disabled">Excel</x-filament::button>
                     <x-filament::button color="gray" size="sm" icon="heroicon-m-document-arrow-down" wire:click="exportPdf" wire:loading.attr="disabled">PDF</x-filament::button>
                     <x-filament::button color="gray" size="sm" icon="heroicon-m-printer" wire:click="exportPrint" wire:loading.attr="disabled">{{ __('Print') }}</x-filament::button>
-                    @if (method_exists($this, 'exportB2c'))
-                        <x-filament::button color="success" size="sm" icon="heroicon-m-user" wire:click="exportB2c" wire:loading.attr="disabled">
-                            {{ __('GSTR B2C Excel') }}
-                        </x-filament::button>
-                        <x-filament::button color="success" size="sm" icon="heroicon-m-building-storefront" wire:click="exportB2b" wire:loading.attr="disabled">
-                            {{ __('GSTR B2B Excel') }}
-                        </x-filament::button>
-                    @endif
-                    @if (method_exists($this, 'exportGstr1'))
-                        <x-filament::button color="warning" size="sm" icon="heroicon-m-document-check" wire:click="exportGstr1" wire:loading.attr="disabled">
-                            {{ __('GSTR-1 Excel') }}
-                        </x-filament::button>
+                    @if (method_exists($this, 'gstExportButtons'))
+                        @foreach ($this->gstExportButtons() as [$method, $label, $icon, $color])
+                            <x-filament::button :color="$color" size="sm" :icon="$icon" wire:click="{{ $method }}" wire:loading.attr="disabled">
+                                {{ $label }}
+                            </x-filament::button>
+                        @endforeach
                     @endif
                 @endif
             </div>
