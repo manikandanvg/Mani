@@ -181,6 +181,7 @@ class OrderForm extends Page implements HasForms
                     Select::make('payment_type')
                         ->options(['cash' => 'Cash', 'cheque' => 'Cheque', 'online' => 'Online', 'digi_cash' => 'Digi Cash (wallet)', 'others' => 'Others'])
                         ->default('cash')->required()
+                        ->live()   // the URN field below is not asked for a Digi Cash (wallet) payment
                         ->helperText(fn () => 'Digi cash available: ₹'
                             . \App\Support\Money::group((float) (auth()->user()?->branch?->digi_cash_balance ?? 0))),
                     Textarea::make('payment_remarks')->label('Payment remarks')->rows(2),
@@ -209,6 +210,32 @@ class OrderForm extends Page implements HasForms
                             ->storeFileNamesIn('attachment_names')
                             ->columnSpanFull(),
                     ]),
+                // User 2026-11-11: the payment's URN is mandatory and can pay for ONE order
+                // only — the same number cannot be requested again.
+                Section::make('URN number')
+                    ->icon('heroicon-o-hashtag')
+                    ->description('The URN / UTR / transaction reference number printed on the payment proof above, and the amount paid on it. If your order limit made you split one payment over two orders, enter the SAME URN and the SAME amount on each — together they cannot exceed the amount paid. A URN can never be used by another branch.')
+                    ->columns(2)
+                    ->visible(fn (Get $get) => $get('payment_type') !== 'digi_cash')
+                    ->schema([
+                        TextInput::make('urn_no')
+                            ->label('URN number')
+                            ->required()
+                            ->minLength(4)->maxLength(60)
+                            ->regex('/^[A-Za-z0-9][A-Za-z0-9\\-\\/ ]*$/')
+                            ->validationMessages(['regex' => 'Use only letters, numbers, hyphen or slash.'])
+                            ->dehydrateStateUsing(fn ($state) => BranchOrderService::normalizeUrn($state))
+                            ->rule(fn (Get $get) => function (string $attribute, $value, \Closure $fail) use ($get) {
+                                $paid = is_numeric($get('urn_amount')) ? round((float) $get('urn_amount'), 2) : null;
+                                if ($why = BranchOrderService::urnProblem($value, (int) $get('branch_id'), $paid)) {
+                                    $fail($why);
+                                }
+                            }),
+                        TextInput::make('urn_amount')
+                            ->label('Amount paid on this URN (₹)')
+                            ->numeric()->minValue(1)->required()->prefix('₹')
+                            ->helperText('The full amount of that bank transaction — not just this order\'s share.'),
+                    ]),
             ])
             ->statePath('data');
     }
@@ -217,10 +244,11 @@ class OrderForm extends Page implements HasForms
     protected function supplierBanner(): HtmlString
     {
         $branch = auth()->user()?->branch;
-        $source = $branch?->sourceBranch;
+        $source = $branch?->orderSupplier();   // only a supplier the board matrix allows
         $name = $source?->name ?? 'Head Office';
 
-        $html = '<div class="text-sm">Your stock orders go to <span class="font-semibold">' . e($name) . '</span>.';
+        $html = '<div class="text-sm">Your stock orders go to <span class="font-semibold">' . e($name) . '</span>.'
+            . ($source ? ' <span class="text-gray-500">Cash-stock orders always go to Head Office.</span>' : '');
         if (auth()->user()?->isDistributor()) {
             $html .= ' <span class="text-gray-500">To change your supplier, raise a request under Settings → Order Source Request.</span>';
         }
@@ -332,6 +360,9 @@ class OrderForm extends Page implements HasForms
                 'requested_by' => auth()->id(),
                 'payment_type' => $data['payment_type'] ?? 'cash',
                 'payment_remarks' => $data['payment_remarks'] ?? null,
+                'urn_no' => $data['urn_no'] ?? null,
+                'urn_amount' => $data['urn_amount'] ?? null,
+                'urn_required' => true,
                 'lines' => $data['lines'] ?? [],
                 'attachments' => $data['attachments'] ?? [],
                 'attachment_names' => $data['attachment_names'] ?? [],
@@ -367,6 +398,8 @@ class OrderForm extends Page implements HasForms
             'payment_type' => 'cash',
             'lines' => [],
             'attachments' => [],
+            'urn_no' => null,
+            'urn_amount' => null,
         ]);
     }
 }

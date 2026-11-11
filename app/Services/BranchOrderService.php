@@ -160,12 +160,86 @@ class BranchOrderService
         });
     }
 
+    /** URN as stored and compared: trimmed, inner spaces collapsed, upper case (null when blank). */
+    public static function normalizeUrn(?string $urn): ?string
+    {
+        $urn = strtoupper(trim((string) preg_replace('/\s+/', ' ', (string) $urn)));
+
+        return $urn === '' ? null : mb_substr($urn, 0, 60);
+    }
+
+    /** Rounding slack (₹) when orders are measured against the amount paid on a URN. */
+    public const URN_TOLERANCE = 1.0;
+
+    /** Standing (not rejected / cancelled) orders that carry this URN. A rejected order frees its share. */
+    public static function urnOrders(?string $urn, bool $lock = false)
+    {
+        $urn = static::normalizeUrn($urn);
+        if ($urn === null) {
+            return collect();
+        }
+        $q = BranchOrderRequest::where('urn_no', $urn)->whereNotIn('status', ['rejected', 'cancelled'])->orderBy('id');
+
+        return $lock ? $q->lockForUpdate()->get() : $q->get();
+    }
+
+    /**
+     * Why this URN cannot pay for a (further) order, or null when it can (user 2026-11-11).
+     * One URN = one payment: it belongs to ONE branch, carries ONE paid amount, and the orders
+     * placed on it — a branch may split a payment over several orders because of its order
+     * limit — can never add up to more than that amount. $orderTotal null = check only the
+     * ownership / amount (the form, before the order is priced).
+     */
+    public static function urnProblem(?string $urn, int $branchId, ?float $paid, ?float $orderTotal = null, bool $lock = false): ?string
+    {
+        $urn = static::normalizeUrn($urn);
+        if ($urn === null) {
+            return null;
+        }
+        $orders = static::urnOrders($urn, $lock);
+        $first = $orders->first();
+        if ($first && (int) $first->branch_id !== $branchId) {
+            return 'URN number ' . $urn . ' was already used by another branch (order ' . $first->request_no . ') — it cannot be requested again.';
+        }
+        if ($first && $first->urn_amount === null) {
+            return 'URN number ' . $urn . ' was already used for order ' . $first->request_no . ' — it cannot be requested again.';
+        }
+        if ($first && $paid !== null && abs((float) $first->urn_amount - $paid) > 0.004) {
+            return 'URN number ' . $urn . ' was entered on order ' . $first->request_no . ' as a payment of ₹'
+                . \App\Support\Money::group((float) $first->urn_amount) . ' — enter the same amount paid.';
+        }
+        if ($paid !== null && $orderTotal !== null) {
+            $used = (float) $orders->sum('grand_total');
+            if ($used + $orderTotal > $paid + self::URN_TOLERANCE) {
+                return $first
+                    ? sprintf('URN number %s: ₹%s was paid and ₹%s is already ordered on it (%s) — only ₹%s is left, this order is ₹%s.',
+                        $urn, \App\Support\Money::group($paid), \App\Support\Money::group($used), $orders->pluck('request_no')->implode(', '),
+                        \App\Support\Money::group(max(0, $paid - $used)), \App\Support\Money::group($orderTotal))
+                    : sprintf('The amount paid on URN %s (₹%s) does not cover this order of ₹%s.',
+                        $urn, \App\Support\Money::group($paid), \App\Support\Money::group($orderTotal));
+            }
+        }
+
+        return null;
+    }
+
     /** Submit a distributor's order to HQ as a PENDING request. */
     public function submit(array $data): BranchOrderRequest
     {
         $request = DB::transaction(function () use ($data) {
             $branchId = (int) $data['branch_id'];
             $userId = $data['requested_by'] ?? auth()->id();
+
+            // URN of the payment — mandatory from the Order Form (not for a Digi Cash wallet
+            // payment, which has no bank reference) and never reusable.
+            $urn = static::normalizeUrn($data['urn_no'] ?? null);
+            $urnPaid = isset($data['urn_amount']) && $data['urn_amount'] !== '' ? round((float) $data['urn_amount'], 2) : null;
+            if (($data['payment_type'] ?? null) === 'digi_cash') {
+                $urn = $urnPaid = null;
+            } elseif (! empty($data['urn_required'])) {
+                abort_if($urn === null, 422, 'Enter the URN number of the payment.');
+                abort_if($urnPaid === null || $urnPaid <= 0, 422, 'Enter the amount paid on URN ' . $urn . '.');
+            }
             $rate = LiveRate::latestFor('IN') ?? LiveRate::query()->latest('id')->first();
 
             $lines = collect($data['lines'] ?? [])
@@ -194,6 +268,12 @@ class BranchOrderService
 
             $this->assertWithinOrderLimit($userId ? User::find($userId) : null, $branchId, $grand);
 
+            // One payment can be split over several orders of the SAME branch (order limit),
+            // but the orders on a URN never exceed the amount paid on it.
+            if ($urn !== null && ($why = static::urnProblem($urn, $branchId, $urnPaid, $urnPaid !== null ? $grand : null, lock: true))) {
+                abort(422, $why);
+            }
+
             // Digi cash payment: the wallet (credited by approved stock returns) is
             // charged at submission; a later rejection refunds it.
             if (($data['payment_type'] ?? null) === 'digi_cash') {
@@ -214,6 +294,8 @@ class BranchOrderService
                 'grand_total' => $grand,
                 'payment_type' => $data['payment_type'] ?? 'cash',
                 'payment_remarks' => $data['payment_remarks'] ?? null,
+                'urn_no' => $urn,
+                'urn_amount' => $urn !== null ? $urnPaid : null,
                 'status' => 'pending',
             ]);
 
@@ -577,9 +659,12 @@ class BranchOrderService
             abort_if($request->source === self::SOURCE_CUSTOMIZE, 422,
                 'Customized orders are forwarded up the chain and accepted by Head Office — use Forward / Accept.');
             $approverId = $approverId ?? auth()->id();
+            $this->assertMayDecide($request, $approverId);
 
             $buyerId = $request->branch_id;
-            $seller = $request->branch?->sourceBranch;   // the fulfilling branch (one hop up)
+            // The fulfilling branch (one hop up) — only a supplier the board matrix allows.
+            // A sponsor the legacy import recorded as "supplier" ships nothing (2026-11-11).
+            $seller = $request->branch?->orderSupplier();
             $today = Carbon::now()->toDateString();
 
             foreach ($request->lines as $line) {
@@ -645,6 +730,17 @@ class BranchOrderService
         );
     }
 
+    /** Hard gate behind the Approve / Reject buttons (complaint 2026-11-11). */
+    protected function assertMayDecide(BranchOrderRequest $request, ?int $approverId): void
+    {
+        $user = $approverId ? User::find($approverId) : null;
+        if (! $user || ! $user->isDistributor()) {
+            return;   // Head Office staff / system
+        }
+        abort_if($request->hasCashLine(), 422, 'A cash-stock order is approved by Head Office only.');
+        abort_unless($request->decidableBy($user), 422, 'This order is decided by Head Office — your branch is not its supplier.');
+    }
+
     /** Deduct the line from the seller's stock, log the move, and book the transfer + commission. */
     protected function shipFromSeller($seller, int $buyerId, BranchOrderLine $line, float $weight, float $pieces, int $orderId, string $today, ?int $approverId): void
     {
@@ -682,6 +778,9 @@ class BranchOrderService
     public function reject(BranchOrderRequest $request, ?int $approverId = null): void
     {
         abort_unless($request->status === 'pending', 422, 'Only pending requests can be rejected.');
+        if (! $request->isCustomize()) {
+            $this->assertMayDecide($request, $approverId ?? auth()->id());
+        }
         $request->update([
             'status' => 'rejected',
             'approved_by' => $approverId ?? auth()->id(),

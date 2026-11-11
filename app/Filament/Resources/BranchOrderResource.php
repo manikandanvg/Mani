@@ -54,15 +54,12 @@ class BranchOrderResource extends BaseResource
     /**
      * Who may decide an order: HQ / admins always; a distributor when the order was
      * placed WITH their branch (board 2026-08-26 — the supplier may itself be a dealer).
+     * Complaint 2026-11-11: only a supplier the board matrix allows counts, and a
+     * cash-stock order is Head Office's alone (BranchOrderRequest::decidableBy).
      */
     protected static function canDecide(BranchOrderRequest $r): bool
     {
-        if (static::hqApprover()) {
-            return true;
-        }
-        $u = auth()->user();
-
-        return $u && $u->branch_id && (int) ($r->branch?->source_branch_id) === (int) $u->branch_id;
+        return $r->decidableBy(auth()->user());
     }
 
     /** May the current user act on a customized order sitting at $branchId? */
@@ -93,7 +90,7 @@ class BranchOrderResource extends BaseResource
     /** Own-branch orders plus orders from branches this branch supplies (distributors); everything for HQ. */
     public static function getEloquentQuery(): Builder
     {
-        $query = parent::getEloquentQuery()->with(['branch', 'salesReturn', 'member', 'currentBranch']);
+        $query = parent::getEloquentQuery()->with(['branch', 'salesReturn', 'member', 'currentBranch', 'lines', 'approver.branch', 'urnSiblings']);
         $user = auth()->user();
 
         if ($user && $user->isDistributor() && $user->branch_id) {
@@ -141,6 +138,12 @@ class BranchOrderResource extends BaseResource
                     ->placeholder('—')->toggleable(),
                 Tables\Columns\TextColumn::make('payment_type')->label('Payment')->badge()
                     ->formatStateUsing(fn ($state) => BranchOrderRequest::paymentLabel($state)),
+                // User 2026-11-11: the payment's URN, to match against the bank statement.
+                Tables\Columns\TextColumn::make('urn_no')->label('URN No')->placeholder('—')
+                    ->searchable()->copyable()->toggleable()
+                    // amount paid on it; a URN split over several orders is called out
+                    ->description(fn (BranchOrderRequest $r) => $r->urnNote())
+                    ->color(fn (BranchOrderRequest $r) => str_contains((string) $r->urnNote(), 'SHARED') ? 'warning' : null),
                 Tables\Columns\TextColumn::make('status')->badge()
                     ->formatStateUsing(fn ($state, BranchOrderRequest $r) => match ($state) {
                         'approved' => $r->isCustomize() ? 'Accepted' : 'Approved',
@@ -151,6 +154,13 @@ class BranchOrderResource extends BaseResource
                         'rejected', 'cancelled' => 'danger', default => 'warning',
                     }),
                 Tables\Columns\TextColumn::make('requester.name')->label('By')->toggleable(),
+                // User 2026-11-11: who approved / rejected — a dealer login is flagged.
+                Tables\Columns\TextColumn::make('approver.name')->label('Decided by')->placeholder('—')->toggleable()
+                    ->description(fn (BranchOrderRequest $r) => $r->approved_by ? ($r->decidedByDealer()
+                        ? 'NON-HQ dealer · ' . ($r->approver?->branch?->name ?? 'branch ?')
+                        : 'Head Office') . ($r->approved_at ? ' · ' . $r->approved_at->format('d M Y H:i') : '') : null)
+                    ->badge(fn (BranchOrderRequest $r) => $r->decidedByDealer())
+                    ->color(fn (BranchOrderRequest $r) => $r->decidedByDealer() ? 'danger' : null),
                 Tables\Columns\TextColumn::make('approved_at')->dateTime()->label('Decided')->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
@@ -178,6 +188,18 @@ class BranchOrderResource extends BaseResource
                     }),
                 Tables\Filters\SelectFilter::make('status')
                     ->options(['pending' => 'Pending', 'approved' => 'Approved / Accepted', 'in_transit' => 'In transit', 'delivered' => 'Delivered', 'billed' => 'Billed', 'rejected' => 'Rejected', 'cancelled' => 'Cancelled']),
+                // "Did anyone other than Head Office approve?" (user 2026-11-11)
+                Tables\Filters\SelectFilter::make('decided_by')->label('Decided by')
+                    ->options(['dealer' => 'Non-HQ dealer login', 'hq' => 'Head Office'])
+                    ->query(function (Builder $query, array $data) {
+                        $dealers = fn ($u) => $u->whereHas('roles', fn ($r) => $r->where('name', 'distributor'));
+
+                        return match ($data['value'] ?? null) {
+                            'dealer' => $query->whereNotNull('approved_by')->whereHas('approver', $dealers),
+                            'hq' => $query->whereNotNull('approved_by')->whereDoesntHave('approver', $dealers),
+                            default => $query,
+                        };
+                    }),
                 Tables\Filters\SelectFilter::make('source')->label('Type')
                     ->options([
                         BranchOrderService::SOURCE_ORDER_FORM => 'Order form',
@@ -325,7 +347,8 @@ class BranchOrderResource extends BaseResource
                 Infolists\Components\TextEntry::make('redemptionInvoice.invoice_no')->label('Redeem invoice')->placeholder('—')
                     ->visible(fn (BranchOrderRequest $r) => $r->source === BranchOrderService::SOURCE_REDEMPTION),
                 Infolists\Components\TextEntry::make('branch.name')->label('Branch (buyer)'),
-                Infolists\Components\TextEntry::make('branch.sourceBranch.name')->label('Supplier')->placeholder('Head Office'),
+                Infolists\Components\TextEntry::make('supplier')->label('Supplier')
+                    ->state(fn (BranchOrderRequest $r) => $r->hasCashLine() ? 'Head Office' : ($r->branch?->orderSupplier()?->name ?? 'Head Office')),
                 Infolists\Components\TextEntry::make('requester.name')->label('Placed by')->placeholder('—'),
                 Infolists\Components\TextEntry::make('cross_total')->label('Sub total')->baseMoney(),
                 Infolists\Components\TextEntry::make('gst_total')->baseMoney(),
@@ -352,6 +375,11 @@ class BranchOrderResource extends BaseResource
                     ->visible(fn (BranchOrderRequest $r) => $r->isCustomize()),
                 Infolists\Components\TextEntry::make('payment_type')->label('Payment')->badge()
                     ->formatStateUsing(fn ($state) => BranchOrderRequest::paymentLabel($state)),
+                Infolists\Components\TextEntry::make('urn_no')->label('URN number')->placeholder('—')->copyable()->weight('bold')
+                    ->helperText(fn (BranchOrderRequest $r) => $r->urnNote()),
+                Infolists\Components\TextEntry::make('approver.name')->label('Decided by')->placeholder('—')
+                    ->formatStateUsing(fn ($state, BranchOrderRequest $r) => $state . ($r->decidedByDealer() ? ' (NON-HQ dealer)' : ' (Head Office)'))
+                    ->color(fn (BranchOrderRequest $r) => $r->decidedByDealer() ? 'danger' : null),
                 Infolists\Components\TextEntry::make('payment_remarks')->columnSpan(2)->placeholder('—'),
                 Infolists\Components\TextEntry::make('currentBranch.name')->label('Now at')->placeholder('—')
                     ->visible(fn (BranchOrderRequest $r) => $r->isCustomize()),

@@ -63,9 +63,14 @@ class BranchResource extends BaseResource
                         ->native(false)->live(),
                     Forms\Components\Select::make('source_branch_id')
                         ->label('Orders stock from (source)')
-                        ->helperText(fn (\Filament\Forms\Get $get) => $get('level') && $get('level') !== 'hq'
+                        // user 2026-11-11: every branch orders from Head Office until the wiring is confirmed
+                        ->disabled(fn () => Branch::hqOnlySourcing())
+                        ->placeholder(fn () => Branch::hqOnlySourcing() ? 'Head Office' : null)
+                        ->helperText(fn (\Filament\Forms\Get $get) => Branch::hqOnlySourcing()
+                            ? 'Locked: all branches order from Head Office only (until the branch wiring is confirmed).'
+                            : ($get('level') && $get('level') !== 'hq'
                             ? 'Allowed for this level: ' . implode(', ', array_map(fn ($l) => Branch::levelLabel($l), Branch::allowedSourceLevels($get('level'))))
-                            : 'HQ has no source.')
+                            : 'HQ has no source.'))
                         ->options(function (?Branch $record, \Filament\Forms\Get $get) {
                             $probe = $record ? clone $record : new Branch;
                             $probe->level = $get('level');

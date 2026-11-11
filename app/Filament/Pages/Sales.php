@@ -529,7 +529,8 @@ class Sales extends Page implements HasForms
         $data['customer']['aadhaar_verified'] = (bool) ($this->aadhaarResult['valid'] ?? false);
 
         try {
-            $invoice = app(SalesService::class)->generateInvoice($data);
+            $sales = app(SalesService::class);
+            $invoice = $sales->generateInvoice($data);
         } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
             Notification::make()->title('Bill not generated')->body($e->getMessage())->danger()->persistent()->send();
 
@@ -540,6 +541,23 @@ class Sales extends Page implements HasForms
             ->title('Sales saved successfully')
             ->body("Invoice {$invoice->invoice_no} generated. Contract will follow shortly.")
             ->success()->send();
+
+        // Area Distributor scheme (complaint 2026-11-11, legacy parity): the branch + login are
+        // opened with the bill — hand the login to the biller right here, once.
+        if (($opened = $sales->openedDealer) && $opened['created']) {
+            $lines = array_map('e', app(\App\Services\AreaDistributorService::class)->loginLines($opened));
+            $lines[] = '';
+            $lines[] = 'Also sent to the distributor\'s app (push + inbox). Note it now — the password is not shown again (Master → Staff → Send login details issues a new one).';
+            Notification::make()
+                ->title('Area Distributor login created — ' . $opened['member_code'])
+                ->body(new HtmlString(implode('<br>', $lines)))
+                ->success()->persistent()->send();
+        } elseif ($opened) {
+            Notification::make()
+                ->title('Stock added to the Area Distributor branch')
+                ->body($opened['member_code'] . ' already has the login ' . $opened['email'] . ' — the billed items were added to ' . $opened['branch'] . '.')
+                ->info()->persistent()->send();
+        }
 
         $this->form->fill([
             'mode' => 'new', 'branch_id' => $data['branch_id'],

@@ -91,6 +91,64 @@ class BranchOrderRequest extends Model
     }
 
     /** Bespoke gold/silver order built on the Customize Order Form. */
+    /**
+     * A cash-stock order: the dealer paid MONEY to Head Office for a cash-stock top-up. No
+     * dealer supplies cash, so only Head Office may decide it (complaint 2026-11-11).
+     */
+    public function hasCashLine(): bool
+    {
+        return $this->relationLoaded('lines')
+            ? $this->lines->contains('material', 'cash')
+            : $this->lines()->where('material', 'cash')->exists();
+    }
+
+    /**
+     * May this login approve / reject the order? Head Office staff always; a dealer only as
+     * the buyer's VALID supplier (board matrix) and never for a cash-stock order.
+     */
+    public function decidableBy(?\App\Models\User $user): bool
+    {
+        if (! $user) {
+            return false;
+        }
+        if (! $user->isDistributor()) {
+            return true;
+        }
+        $mine = $user->branch_id ? Branch::find($user->branch_id) : null;
+
+        return $mine !== null && $mine->maySupply($this->branch) && ! $this->hasCashLine();
+    }
+
+    /** Other standing orders paid by the same URN (a payment split over several orders). */
+    public function urnSiblings()
+    {
+        return $this->hasMany(self::class, 'urn_no', 'urn_no')
+            ->whereNotIn('status', ['rejected', 'cancelled']);
+    }
+
+    /** "Paid ₹X · shared with ORD-…, ordered ₹Y of ₹X" — what the approver checks against the bank. */
+    public function urnNote(): ?string
+    {
+        if (blank($this->urn_no)) {
+            return null;
+        }
+        $paid = $this->urn_amount !== null ? 'Paid ₹' . \App\Support\Money::group((float) $this->urn_amount) : null;
+        $all = $this->urnSiblings;
+        $others = $all->where('id', '!=', $this->id);
+        if ($others->isEmpty()) {
+            return $paid;
+        }
+
+        return trim(($paid ? $paid . ' · ' : '') . 'SHARED with ' . $others->pluck('request_no')->implode(', ')
+            . ' — ₹' . \App\Support\Money::group((float) $all->sum('grand_total')) . ' ordered on this URN');
+    }
+
+    /** Was this order approved / rejected by a dealer login instead of Head Office? */
+    public function decidedByDealer(): bool
+    {
+        return $this->approved_by !== null && (bool) $this->approver?->isDistributor();
+    }
+
     public function isCustomize(): bool
     {
         return $this->source === \App\Services\BranchOrderService::SOURCE_CUSTOMIZE;

@@ -40,6 +40,11 @@ class BranchesAutoMap extends Command
 
             return self::SUCCESS;
         }
+        if (\App\Models\Branch::hqOnlySourcing()) {
+            $this->error('Not written: all branches order from Head Office only (HQ_ONLY_SOURCING, user 2026-11-11).');
+
+            return self::FAILURE;
+        }
         foreach ($changes as $r) {
             $b = $r['branch'];
             $from = $r['current']?->name ?? '—';

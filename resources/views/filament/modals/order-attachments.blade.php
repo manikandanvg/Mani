@@ -5,6 +5,13 @@
     $atts = $rec?->attachments ?? collect();
 @endphp
 
+@if (filled($rec?->urn_no))
+    <div style="font-size:.9rem;margin-bottom:.5rem">{{ __('URN number') }}: <strong>{{ $rec->urn_no }}</strong>
+        @if ($note = $rec->urnNote())
+            <span style="color:{{ str_contains($note, 'SHARED') ? '#b45309' : '#6b7280' }}"> — {{ $note }}</span>
+        @endif
+    </div>
+@endif
 @if ($atts->isEmpty())
     <div style="color:#9ca3af;font-size:.85rem">{{ __('No payment receipt attached.') }}</div>
 @else

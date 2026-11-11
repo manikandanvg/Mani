@@ -42,12 +42,21 @@ class SalesService
     protected ?int $pendingQr = null;
 
     /**
+     * Area Distributor branch + login opened by the last bill (complaint 2026-11-11), for the
+     * Sales screen to show the login to the biller. Null when the bill opened nothing.
+     *
+     * @var array{branch_id:int,branch:string,user_id:int,email:string,password:?string,created:bool,member_code:string}|null
+     */
+    public ?array $openedDealer = null;
+
+    /**
      * @param  array  $data  keys: branch_id, bill_date?, created_by?, plan_id,
      *   payment_type?, payment_reference?, gold_rate?, silver_rate?, diamond_rate?,
      *   referrer_code?, upline_code?, customer{member_id|...kyc}, cart[]
      */
     public function generateInvoice(array $data): SalesInvoice
     {
+        $this->openedDealer = null;
         $invoice = DB::transaction(function () use ($data) {
             $branchId = $data['branch_id'];
             $billDate = $data['bill_date'] ?? Carbon::now()->toDateString();
@@ -194,6 +203,10 @@ class SalesService
             $this->payBillMargin($plan, $invoice, $branchId, $userId, $crossTotal, $member);
             $this->payGmMargin($cart, $invoice, $branchId, $userId, $member);
             $this->deductStock($cart, $branchId, $billDate, $userId, $invoice->id);
+            // Legacy parity (complaint 2026-11-11): the Area Distributor scheme opens the
+            // dealer's branch + login on the spot and the billed items become its stock.
+            $this->openedDealer = app(AreaDistributorService::class)
+                ->open($member, $plan, $invoice, $this->cartPieces($cart), $userId);
             if ($custom) {
                 app(\App\Services\CustomizeOrderService::class)->onBilled($custom, $customLineIds, $invoice, $userId);
             }
@@ -215,6 +228,9 @@ class SalesService
 
         $this->deliverPendingQr();
         $this->notifyBillingDocs($invoice);
+        if ($this->openedDealer && $invoice->customer) {
+            app(AreaDistributorService::class)->sendLogin($invoice->customer, $this->openedDealer);
+        }
         \App\Services\Activity\ActivityLogger::log('sales', 'billed',
             'Invoice ' . $invoice->invoice_no . ' billed to ' . ($invoice->customer?->member_code ?? $invoice->customer_name) . ' for ₹' . \App\Support\Money::group((float) $invoice->grand_total), [
                 'subject' => $invoice, 'details' => ['plan' => $invoice->plan?->code, 'grand_total' => (float) $invoice->grand_total, 'lines' => $invoice->lines->count(), 'payment' => $invoice->payment_type],
@@ -657,16 +673,37 @@ class SalesService
      * Deduct sold PIECES from branch stock and log -movements. stock.quantity is a
      * piece count (cash = ₹), so a sale of 2 × 100 mg coins deducts 2 — never 0.2.
      */
+    /** Pieces a cart line sells (cash = ₹): the bill's own piece count, else weight → pieces. */
+    protected function linePieces(array $line): float
+    {
+        $cp = CatalogProduct::find($line['catalog_product_id']);
+
+        return isset($line['qty']) && $line['qty'] !== null && ($line['material'] ?? $cp?->material) !== 'cash'
+            ? (float) $line['qty']                                             // pieces straight from the bill
+            : (float) ($cp?->piecesFromWeight((float) ($line['weight'] ?? 0)) ?? ($line['weight'] ?? 0));
+    }
+
+    /** catalog_product_id => pieces billed (ordinary lines only — custom-order pieces are excluded). */
+    protected function cartPieces(array $cart): array
+    {
+        $out = [];
+        foreach ($cart as $line) {
+            if (empty($line['catalog_product_id']) || ! empty($line['order_line_id'])) {
+                continue;
+            }
+            $out[$line['catalog_product_id']] = ($out[$line['catalog_product_id']] ?? 0) + $this->linePieces($line);
+        }
+
+        return $out;
+    }
+
     protected function deductStock(array $cart, int $branchId, string $billDate, ?int $userId, ?int $invoiceId = null): void
     {
         foreach ($cart as $line) {
             if (empty($line['catalog_product_id'])) {
                 continue;
             }
-            $cp = CatalogProduct::find($line['catalog_product_id']);
-            $qty = isset($line['qty']) && $line['qty'] !== null && ($line['material'] ?? $cp?->material) !== 'cash'
-                ? (float) $line['qty']                                             // pieces straight from the bill
-                : (float) ($cp?->piecesFromWeight((float) ($line['weight'] ?? 0)) ?? ($line['weight'] ?? 0));
+            $qty = $this->linePieces($line);
             // Custom pieces are keyed by their order line (board 2026-08-27); ordinary rows = 0.
             $stock = Stock::where('branch_id', $branchId)
                 ->where('catalog_product_id', $line['catalog_product_id'])
@@ -715,9 +752,14 @@ class SalesService
 
     protected function nextMemberCode(): string
     {
-        $n = (int) Member::max('id') + 1;
+        // withTrashed: a member deleted with a cancelled bill keeps its code (2026-11-11) —
+        // the next enrolment must not be handed the same number.
+        $n = (int) Member::withTrashed()->max('id') + 1;
+        do {
+            $code = 'LJW' . str_pad((string) $n++, 7, '0', STR_PAD_LEFT);
+        } while (Member::withTrashed()->where('member_code', $code)->exists());
 
-        return 'LJW' . str_pad((string) $n, 7, '0', STR_PAD_LEFT);
+        return $code;
     }
 
     protected function cbcCode(): string

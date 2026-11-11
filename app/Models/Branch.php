@@ -297,6 +297,38 @@ class Branch extends Model
     /** Branches that source their stock from this branch (one hop down). */
     public function childBranches() { return $this->hasMany(Branch::class, 'source_branch_id'); }
 
+    /**
+     * Is this branch a VALID supplier of $buyer — its recorded source AND at a level the
+     * board's buys-from matrix allows for the buyer's level? (Complaint 2026-11-11: the
+     * legacy import wrote each dealer's SPONSOR as its "supplier", so 250 of the 326 links
+     * break the matrix — an Area Distributor "supplying" another, etc. Those links confer
+     * nothing: no approval right, no stock shipped from the sponsor.)
+     */
+    public function maySupply(?Branch $buyer): bool
+    {
+        if (static::hqOnlySourcing()) {
+            return false;   // user 2026-11-11: every branch orders from Head Office until confirmed
+        }
+
+        return $buyer !== null
+            && (int) $buyer->source_branch_id === (int) $this->getKey()
+            && in_array((string) $this->level, static::allowedSourceLevels($buyer->level), true);
+    }
+
+    /** User 2026-11-11: all branches source from Head Office only (config features.hq_only_sourcing). */
+    public static function hqOnlySourcing(): bool
+    {
+        return (bool) config('features.hq_only_sourcing', true);
+    }
+
+    /** The branch that fulfils this branch's stock orders: its valid supplier, else null (= Head Office adds the stock). */
+    public function orderSupplier(): ?Branch
+    {
+        $source = $this->sourceBranch;
+
+        return $source && $source->maySupply($this) ? $source : null;
+    }
+
     /** Position of a level in the top→bottom chain; unknown/null sorts to the bottom. */
     public static function levelIndex(?string $level): int
     {
@@ -338,6 +370,15 @@ class Branch extends Model
 
     protected static function booted(): void
     {
+        // HQ-only sourcing (user 2026-11-11): a branch can never be saved pointing at another
+        // dealer — whatever screen or command tried, the supplier stays Head Office.
+        static::saving(function (Branch $branch) {
+            if ($branch->source_branch_id && static::hqOnlySourcing()
+                && static::whereKey($branch->source_branch_id)->value('level') !== 'hq') {
+                $branch->source_branch_id = null;
+            }
+        });
+
         // When a branch is saved without coordinates, geocode from its address so it
         // appears on the store map. Best-effort: silent on failure, skipped in tests.
         static::saved(function (Branch $branch) {

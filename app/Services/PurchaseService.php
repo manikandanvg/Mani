@@ -113,8 +113,12 @@ class PurchaseService
 
     protected function nextMemberCode(): string
     {
-        $n = (int) Member::max('id') + 1;
+        // withTrashed: a deleted member keeps its code — never hand it out again (2026-11-11)
+        $n = (int) Member::withTrashed()->max('id') + 1;
+        do {
+            $code = 'LJW' . str_pad((string) $n++, 5, '0', STR_PAD_LEFT);
+        } while (Member::withTrashed()->where('member_code', $code)->exists());
 
-        return 'LJW' . str_pad((string) $n, 5, '0', STR_PAD_LEFT);
+        return $code;
     }
 }

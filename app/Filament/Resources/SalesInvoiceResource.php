@@ -238,11 +238,20 @@ class SalesInvoiceResource extends BaseResource
                         : 'The sold stock returns to the branch; the contract, promotional coupons, sales incentive lines, dealer margins, network volumes and the stock QR of this bill are reversed. The bill stays on record as CANCELLED. This cannot be undone.')
                     ->form(fn (SalesInvoice $r) => app(\App\Services\SalesCancelService::class)->blocker($r) ? [] : [
                         Forms\Components\Textarea::make('reason')->label('Reason for cancellation')->required()->rows(2)->maxLength(255),
+                        // Legacy "delete entire member data" (user 2026-11-11): the admin decides
+                        // whether the member profile is still needed.
+                        Forms\Components\Checkbox::make('delete_member')
+                            ->label(fn () => 'Also delete the member profile' . ($r->customer ? ' — ' . $r->customer->member_code . ' ' . $r->customer->name : ''))
+                            ->disabled(fn () => app(\App\Services\SalesCancelService::class)->memberDeleteBlocker($r) !== null)
+                            ->helperText(fn () => ($why = app(\App\Services\SalesCancelService::class)->memberDeleteBlocker($r))
+                                ? 'Not possible: ' . $why
+                                : 'Tick only when this member was enrolled by mistake. The profile and its app / dealer login are removed; leave unticked to keep the member.'),
                     ])
                     ->modalSubmitAction(fn ($action, SalesInvoice $r) => app(\App\Services\SalesCancelService::class)->blocker($r) ? $action->hidden() : $action)
                     ->action(function (SalesInvoice $r, array $data) {
                         try {
-                            app(\App\Services\SalesCancelService::class)->cancel($r, auth()->id(), $data['reason'] ?? null);
+                            $deleteMember = (bool) ($data['delete_member'] ?? false);
+                            app(\App\Services\SalesCancelService::class)->cancel($r, auth()->id(), $data['reason'] ?? null, $deleteMember);
                         } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
                             \Filament\Notifications\Notification::make()->danger()
                                 ->title('Invoice not cancelled')->body($e->getMessage())->persistent()->send();
@@ -251,7 +260,8 @@ class SalesInvoiceResource extends BaseResource
                         }
                         \Filament\Notifications\Notification::make()->success()
                             ->title('Invoice ' . $r->invoice_no . ' cancelled')
-                            ->body('Stock restored; contract, coupons, incentive, margins and QR reversed.')->send();
+                            ->body('Stock restored; contract, coupons, incentive, margins and QR reversed.'
+                                . ($deleteMember ? ' Member profile deleted.' : ''))->send();
                     }),
             ])
             ->bulkActions([]);

@@ -323,6 +323,8 @@ class RetailerScreensTest extends TestCase
 
         Livewire::test(\App\Filament\Pages\OrderForm::class)
             ->set('data.lines', [['catalog_product_id' => $gold->id, 'weight' => 10]])
+            ->set('data.urn_no', 'utr-1001')   // mandatory since 2026-11-11
+            ->set('data.urn_amount', 5000000)
             ->call('save')
             ->assertHasNoErrors();
 
@@ -377,9 +379,20 @@ class RetailerScreensTest extends TestCase
             ->set('data.lines', [['catalog_product_id' => $gold->id, 'weight' => 2, 'description' => null]])
             ->set('data.payment_type', 'cash')
             ->call('save')
-            ->assertHasNoErrors();
+            ->assertHasErrors(['data.urn_no'])   // URN is mandatory (user 2026-11-11)
+            ->set('data.urn_no', 'utr-2002')
+            ->set('data.urn_amount', 5000000)
+            ->call('save')
+            ->assertHasNoErrors()
+            // the same URN with a different paid amount is refused
+            ->set('data.lines', [['catalog_product_id' => $gold->id, 'weight' => 2, 'description' => null]])
+            ->set('data.urn_no', 'UTR-2002')
+            ->set('data.urn_amount', 999)
+            ->call('save')
+            ->assertHasErrors(['data.urn_no']);
 
         $this->assertEquals(1, BranchOrderRequest::where('status', 'pending')->count());
+        $this->assertSame('UTR-2002', BranchOrderRequest::where('status', 'pending')->value('urn_no'));
     }
 
     public function test_rd_collection_page_submits_with_session_branch(): void

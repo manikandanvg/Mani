@@ -42,6 +42,12 @@ class BranchSourceChangeRequestResource extends BaseResource
         return $count > 0 ? (string) $count : null;
     }
 
+    /** User 2026-11-11: while every branch orders from Head Office only, no new request can be raised. */
+    public static function canCreate(): bool
+    {
+        return ! \App\Models\Branch::hqOnlySourcing() && parent::canCreate();
+    }
+
     /** Only Head Office (non-distributor staff) may approve/reject. */
     protected static function isApprover(): bool
     {
@@ -110,7 +116,8 @@ class BranchSourceChangeRequestResource extends BaseResource
                     ->icon('heroicon-o-check')
                     ->color('success')
                     ->requiresConfirmation()
-                    ->visible(fn (BranchSourceChangeRequest $r) => $r->status === 'pending' && static::isApprover())
+                    ->visible(fn (BranchSourceChangeRequest $r) => $r->status === 'pending' && static::isApprover()
+                        && ! \App\Models\Branch::hqOnlySourcing())
                     ->action(fn (BranchSourceChangeRequest $r) => static::decide($r, 'approved')),
                 Tables\Actions\Action::make('reject')
                     ->icon('heroicon-o-x-mark')
