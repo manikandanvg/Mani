@@ -10,12 +10,12 @@ use Filament\Forms\Form;
 use Illuminate\Support\Carbon;
 
 /**
- * GST Report — the auditor's two registers (B2C consumer redemptions under the filing
- * GSTIN, B2B dealer supplies), each with a running INV NO that continues the auditor's
- * sequence and the original invoice / order no as REF NO, plus the GSTR-1 offline-tool
- * workbook derived from the same rows and the input-side purchase GST.
- * Source "legacy" reads the Lord DB for pre-go-live months (approved legacy orders were
- * never imported); "new" reads the new system's tables.
+ * GST Report — the auditor's two registers built from REDEEMED INVOICES only (board,
+ * 2026-11-11): B2C = redemptions at branches under the filing GSTIN, B2B = redemptions at
+ * dealer branches billed to the dealer's GSTIN. Each carries a running INV NO that
+ * continues the auditor's sequence and the redemption invoice no as REF NO, plus the
+ * GSTR-1 offline-tool workbook derived from the same rows and the input-side purchase GST.
+ * Source "legacy" reads the Lord DB for pre-go-live months; "new" reads redemption_invoices.
  */
 class GstReport extends ReportPage
 {
@@ -91,8 +91,8 @@ class GstReport extends ReportPage
         $b2c = GstAuditorReport::number($report->b2cRows(), (int) $d['b2c_start']);
         $b2b = GstAuditorReport::number($report->b2bRows(), (int) $d['b2b_start']);
 
-        foreach (['b2c' => [$b2c, __('B2C — consumer redemptions under GSTIN :g', ['g' => $report->gstin]), GstAuditorReport::B2C_COLUMNS],
-            'b2b' => [$b2b, __('B2B — dealer supplies (stock requests + redemption restock)'), GstAuditorReport::B2B_COLUMNS]] as $key => [$rows, $heading, $columns]) {
+        foreach ([[$b2c, __('B2C — redemptions under GSTIN :g (consumer invoices)', ['g' => $report->gstin]), GstAuditorReport::B2C_COLUMNS],
+            [$b2b, __('B2B — redemptions at dealer branches (billed to the dealer GSTIN)'), GstAuditorReport::B2B_COLUMNS]] as [$rows, $heading, $columns]) {
             $t = GstAuditorReport::totals($rows);
             $kv = [
                 __('Rows') => (string) $t['rows'],
@@ -105,7 +105,7 @@ class GstReport extends ReportPage
                 $kv[__('On screen')] = __('first :n rows — the Excel exports carry every row', ['n' => self::SCREEN_ROWS]);
             }
             $this->sections[] = ['heading' => $heading, 'kv' => $kv, 'columns' => $columns,
-                'rows' => array_map(fn ($r) => array_map(fn ($v) => $v instanceof \DateTimeInterface ? $this->dmy($v) : $v, array_values($r)),
+                'rows' => array_map(fn ($r) => array_map(fn ($c) => $r[$c] instanceof \DateTimeInterface ? $this->dmy($r[$c]) : $r[$c], $columns),
                     array_slice($rows, 0, self::SCREEN_ROWS))];
         }
         if ($report->notes) {

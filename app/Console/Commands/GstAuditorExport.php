@@ -31,7 +31,7 @@ class GstAuditorExport extends Command
         {--out= : Folder for the workbooks (default: storage/app/gst-auditor)}
         {--record : Remember the number ranges used so the next month continues}';
 
-    protected $description = 'Write the auditor GSTR B2C / B2B registers (+ GSTR-1 workbook) for a period';
+    protected $description = 'Write the auditor GSTR B2C / B2B registers from redeemed invoices (+ GSTR-1 workbook) for a period';
 
     public function handle(): int
     {

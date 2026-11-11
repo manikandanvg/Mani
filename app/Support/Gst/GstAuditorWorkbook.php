@@ -79,26 +79,25 @@ class GstAuditorWorkbook
         $writer->addNewSheetAndMakeItCurrent()->setName('HSN');
         $writer->addRow($row(['HSN', 'Description', 'UQC', 'Total Quantity', 'Total Value', 'Taxable Value', 'Integrated Tax Amount',
             'Central Tax Amount', 'State/UT Tax Amount', 'Cess Amount'], $bold));
-        $all = array_merge($b2c, $b2b);
-        if ($all) {
-            $taxable = round(array_sum(array_column($all, 'TAXABLE AMOUNT')), 2);
-            $gst = round(array_sum(array_column($all, 'GST (3%)')), 2);
-            // Value-denominated rows (legacy digital-gold bills carry ₹ value as "weight" at ₹1/g) have no gram figure.
-            $grams = 0.0;
-            $valueRows = 0;
-            foreach ($all as $r) {
-                $rate = (float) ($r['GOLD RATE/G'] ?? $r['ITEM RATE/G'] ?? 0);
-                if ($rate > 1) {
-                    $grams += (float) $r['GOLD WEIGHT(GM)'];
-                } else {
-                    $valueRows++;
-                }
+        // per material, from the hidden split each row carries (gold and silver pieces file under different HSNs)
+        $split = ['gold' => null, 'silver' => null];
+        foreach (array_merge($b2c, $b2b) as $r) {
+            foreach ($r[GstAuditorReport::HSN_KEY] ?? [] as $m => $s) {
+                $split[$m] ??= ['grams' => 0.0, 'taxable' => 0.0, 'gst' => 0.0];
+                $split[$m]['grams'] += $s['grams'];
+                $split[$m]['taxable'] += $s['taxable'];
+                $split[$m]['gst'] += $s['gst'];
             }
-            $writer->addRow($row([GstAuditorReport::HSN, 'Articles of jewellery of gold (BIS 916 HUID)', 'GMS',
-                round($grams, 3), round($taxable + $gst, 2), $taxable, 0, round($gst / 2, 2), round($gst / 2, 2), 0]));
-            if ($valueRows) {
-                $writer->addRow($row(['', 'Quantity covers rows priced per gram; '.$valueRows.' value-denominated row(s) (rate ₹1/g) carry no gram figure.']));
-            }
+        }
+        foreach (array_filter($split) as $m => $s) {
+            $taxable = round($s['taxable'], 2);
+            $gst = round($s['gst'], 2);
+            $half = round($gst / 2, 2);
+            $writer->addRow($row([
+                $m === 'silver' ? GstAuditorReport::HSN_SILVER : GstAuditorReport::HSN,
+                $m === 'silver' ? 'Silver pieces (999)' : 'Gold pieces (BIS 916 HUID)', 'GMS',
+                round($s['grams'], 3), round($taxable + $gst, 2), $taxable, 0, $half, round($gst - $half, 2), 0,
+            ]));
         }
         $writer->close();
     }

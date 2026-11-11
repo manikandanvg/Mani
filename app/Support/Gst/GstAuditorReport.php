@@ -3,37 +3,38 @@
 namespace App\Support\Gst;
 
 use App\Models\Branch;
-use App\Models\Plan;
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Auditor-format GST registers — parity with the legacy admin/generate/retailerreport
- * (AGSTRSBTC / AGSTRSBTB) that the auditor has been filing from (Nov 2026):
+ * Auditor-format GST registers — REDEEMED INVOICES ONLY (board, 2026-11-11).
  *
- *  - B2C  = consumers' gold redeemed under the filing GSTIN (LORD JEWELLER
- *    33AREPB3962B3ZD): one row per sales-cart line of a bonded sales invoice,
- *    Gold Saving / forward-contract plans excluded (no gold changes hands at billing),
- *    "BIS 916 HUID GOLD", HSN 71181000, GST 3 % split CGST/SGST.
- *  - B2B  = stock supplied to dealers (sub dealer / retailer / area / wholesaler …):
- *    every approved stock request + redemption restock, consolidated to one row per
- *    order, buyer = the dealer branch with its own GSTIN. Orders whose buyer carries the
- *    filing GSTIN itself (legacy merged "LORD JEWELLER" records) are not a B2B supply and
- *    are left out — they are counted in notes() so HQ can fix the branch record.
- *    B2B amounts are tax-reversed from the billed order total (BILLING VALUE = taxable + GST
- *    exactly, as the auditor files them); redemption restocks carry the customer's original
- *    redeemed value, not the restock-day cart price.
+ * GST on gold / silver is raised when the metal is handed over, i.e. on the redemption
+ * invoice (legacy tbl_qrsalesinvoice + tbl_salesqr_cart, new redemption_invoices + lines),
+ * never on the scheme purchase bill. One row per redemption invoice:
+ *
+ *  - B2C  = redemptions at a branch that carries the filing GSTIN (LORD JEWELLER
+ *    33AREPB3962B3ZD — HQ and the merged "LORD JEWELLER" records): the consumer is the
+ *    buyer, BILL MODE BTOC, no GST number.
+ *  - B2B  = redemptions at a dealer branch (sub dealer / retailer / area / wholesaler …):
+ *    the dealer requested the stock and redeemed it for the customer, so the supply is
+ *    billed to the dealer — buyer = the dealer branch with its own GSTIN, BILL MODE RO.
+ *
+ * Amounts come from the redemption invoice itself (taxable, CGST, SGST) so BILLING VALUE
+ * = TAXABLE + GST exactly, as the auditor files them; NET / CHARGES split the taxable
+ * amount by the cart lines (piece price × pieces vs making + wastage). GOLD WEIGHT is the
+ * grams redeemed (pieces × the piece's gram size); silver pieces are flagged in the item
+ * description and carried separately into the GSTR-1 HSN sheet.
  *
  * Both registers get a running INV NO that continues the auditor's own sequence
  * (B2C …2216 → 2217, B2B …5270 → 5271 after the September 2026 filing) and carry the
- * original sales invoice / order number as REF NO. The sequence is remembered per
- * register in settings (group gst_auditor) so the next month continues automatically
- * and re-exporting a month reuses its own start number.
+ * redemption invoice number as REF NO. The sequence is remembered per register in
+ * settings (group gst_auditor) so the next month continues automatically and
+ * re-exporting a month reuses its own start number.
  *
- * Source: "legacy" reads the Lord DB (lordicl) with the legacy report's exact SQL —
- * the only place approved pre-go-live orders exist; "new" reads the new system's
- * sales_invoices / sale_lines / bonds and branch_order_requests / lines.
+ * Source: "legacy" reads the Lord DB (lordicl) for pre-go-live months; "new" reads the
+ * new system's redemption_invoices / redemption_lines (imported + native).
  */
 class GstAuditorReport
 {
@@ -43,25 +44,23 @@ class GstAuditorReport
 
     public const SETTINGS_GROUP = 'gst_auditor';
 
+    /** Gold pieces — the HSN the auditor has been filing under. */
     public const HSN = '71181000';
+
+    /** Silver pieces — the catalog's HSN for silver products. */
+    public const HSN_SILVER = '71189000';
 
     public const GST_PCT = 3.0;
 
-    /** Making + wastage share assumed when an order has no priced cart lines (2.5 % + 2.5 %). */
-    public const B2B_DEFAULT_CHARGE_PCT = 5.0;
+    public const ITEM_GOLD = 'BIS 916 HUID GOLD';
 
-    public const B2C_ITEM = 'BIS 916 HUID GOLD';
+    public const ITEM_SILVER = 'SILVER 999';
 
-    public const B2B_ITEM = 'CONSOLIDATED CART ITEMS';
+    /** Hidden per-material split (grams / taxable / gst) carried on each row for the GSTR-1 HSN sheet. */
+    public const HSN_KEY = '_hsn';
 
     /** Where the auditor's numbering stood after the September 2026 filing. */
     public const FIRST_NUMBER = ['b2c' => 2217, 'b2b' => 5271];
-
-    /** Legacy planids excluded from B2C (Gold Saving PLUS2 / PLUS3, forward contracts). */
-    public const LEGACY_EXCLUDED_PLANS = [200, 209, 202];
-
-    /** The same plans in the new scheme sheet (codes were reshuffled on import). */
-    public const EXCLUDED_PLAN_CODES = ['P200', 'P208', 'P202'];
 
     public const B2C_COLUMNS = ['INV NO', 'INV DATE', 'REF NO', 'CUSID', 'CUSNAME', 'ADDRESS', 'CITY', 'PHONE', 'PAN', 'AADHAR',
         'BILL MODE', 'GST NUMBER', 'ITEM DESCRIPTION', 'HSN CODE', 'QTY', 'BILLING VALUE', 'GOLD WEIGHT(GM)', 'GOLD RATE/G',
@@ -162,13 +161,13 @@ class GstAuditorReport
     /** @return array<int, array<string, mixed>> keyed by the B2C column names (INV NO left null) */
     public function b2cRows(): array
     {
-        return $this->source === self::SOURCE_LEGACY ? $this->legacyB2c() : $this->newB2c();
+        return array_map(fn ($r) => $this->row('b2c', $r), $this->redemptions(true));
     }
 
     /** @return array<int, array<string, mixed>> keyed by the B2B column names (INV NO left null) */
     public function b2bRows(): array
     {
-        return $this->source === self::SOURCE_LEGACY ? $this->legacyB2b() : $this->newB2b();
+        return array_map(fn ($r) => $this->row('b2b', $r), $this->redemptions(false));
     }
 
     /** Totals of a register (billing, taxable, gst). */
@@ -180,6 +179,20 @@ class GstAuditorReport
             'taxable' => round(array_sum(array_column($rows, 'TAXABLE AMOUNT')), 2),
             'gst' => round(array_sum(array_column($rows, 'GST (3%)')), 2),
         ];
+    }
+
+    /**
+     * Redemption invoices of the period, normalised across both sources.
+     * $own = true → branches carrying the filing GSTIN (B2C); false → every other branch (B2B).
+     *
+     * @return array<int, array{ref:string,date:string,gold_rate:float,taxable:float,cgst:float,sgst:float,
+     *     branch:array{id:string,name:?string,address:?string,city:?string,phone:?string,gstin:string},
+     *     customer:array{id:string,name:?string,address:?string,city:?string,phone:?string,pan:?string,aadhaar:?string},
+     *     lines:array<int, array{material:string,pieces:float,grams:float,net:float,taxable:float}>}>
+     */
+    protected function redemptions(bool $own): array
+    {
+        return $this->source === self::SOURCE_LEGACY ? $this->legacyRedemptions($own) : $this->newRedemptions($own);
     }
 
     // ------------------------------------------------------------------ legacy source (Lord DB)
@@ -202,212 +215,215 @@ class GstAuditorReport
         return $brid ? (int) $brid : 0;
     }
 
-    protected function legacyB2c(): array
+    protected function legacyRedemptions(bool $own): array
     {
         $brid = $this->legacyBrid();
-        $filter = $brid === null
-            ? 'c.branchid IN (SELECT brid FROM tbl_branches WHERE gstno = ?)'
-            : 'c.branchid = ?';
+        if ($brid === 0) {
+            return [];
+        }
         $rows = $this->legacy()->select(
-            'SELECT s.estid, s.rollno, s.estdate, s.cusid, s.cusname, s.cusaddress, s.cucity, s.cucontact, s.cupan, s.cuaadhar,
-                    b.planid, b.epinvalue, c.weight AS cg_gw, c.purprice AS matprice, c.mcharge AS cg_mc, c.wcharge AS cg_wc,
-                    c.aftercharges AS cg_aftercharge
-             FROM tbl_salesinvoice s
-             LEFT JOIN tbl_bond b ON b.invoiceno = s.estid
-             LEFT JOIN tbl_sales_cart c ON c.invno = s.estid
-             WHERE s.estdate BETWEEN ? AND ? AND '.$filter.'
-             ORDER BY s.estdate ASC, s.estid ASC',
-            [$this->from, $this->to, $brid === null ? $this->gstin : $brid]);
-
-        $out = [];
-        foreach ($rows as $r) {
-            if (in_array((int) $r->planid, self::LEGACY_EXCLUDED_PLANS, true)) {
-                continue;
-            }
-            $taxable = (float) $r->cg_aftercharge;
-            if (! ((float) $r->epinvalue > 0 && $taxable * (1 + self::GST_PCT / 100) > 0) || trim((string) $r->cusid) === 'LORD JEWELLER') {
-                continue;
-            }
-            $out[] = $this->b2cRow($r->estdate, (string) $r->estid, (string) $r->cusid, $r->cusname, $r->cusaddress, $r->cucity,
-                $r->cucontact, $r->cupan, $r->cuaadhar, (float) $r->cg_gw, (float) $r->matprice, (float) $r->cg_mc + (float) $r->cg_wc, $taxable);
+            "SELECT q.estid, q.estdate, q.invno, q.cusid, q.cusname, q.cusaddress, q.cucity, q.cucontact, q.cupan, q.cuaadhar,
+                    q.netttotal, q.cgst, q.sgst, q.goldrate, q.branchid,
+                    b.storename, b.address AS br_address, b.city AS br_city, b.phoneno AS br_phone, b.gstno
+             FROM tbl_qrsalesinvoice q
+             LEFT JOIN tbl_branches b ON b.brid = q.branchid
+             WHERE q.estdate BETWEEN ? AND ?
+               AND UPPER(TRIM(COALESCE(b.gstno, ''))) ".($own ? '=' : '<>').' ?'
+            .($brid ? ' AND q.branchid = ?' : '').'
+             ORDER BY q.estdate ASC, q.estid ASC',
+            array_merge([$this->from, $this->to, $this->gstin], $brid ? [$brid] : []));
+        if (! $rows) {
+            return [];
         }
 
-        return $out;
-    }
-
-    protected function legacyB2b(): array
-    {
-        $brid = $this->legacyBrid();
-        $filter = $brid === null ? '' : ' AND c.branchid = '.(int) $brid;
-        $rows = $this->legacy()->select(
-            'SELECT c.pono, MAX(c.cartaddeddate) AS invdate, MIN(r.doorder) AS doorder, c.branchid, MAX(b.storename) AS storename,
-                    MAX(b.address) AS branch_address, MAX(b.city) AS branch_city, MAX(b.phoneno) AS branch_phoneno,
-                    MAX(b.gstno) AS branch_gstno, MAX(c.route) AS route, MAX(r.paymode) AS paymode, COUNT(*) AS item_count,
-                    SUM(c.weight) AS total_weight, SUM(c.weight * c.purprice) AS total_value,
-                    MAX(r.nettotal) AS billing_value,
-                    MAX((SELECT COALESCE(SUM(x.aftercharges), 0) FROM tbl_br_purchase_cart x WHERE x.pono = c.pono AND x.cateid = ?)) AS cash_value,
-                    SUM(c.weight * c.purprice * ((c.mcharge + c.wcharge) / 100)) AS total_charges
-             FROM tbl_br_purchase_cart c
-             INNER JOIN tbl_brorderrequest r ON r.transid = c.pono
-             LEFT JOIN tbl_branches b ON b.brid = c.branchid
-             WHERE r.status = ? AND c.cateid <> ? AND r.doorder BETWEEN ? AND ?'.$filter.'
-             GROUP BY c.pono, c.branchid
-             ORDER BY MIN(r.doorder) ASC, c.pono ASC',
-            ['3', 'APPROVED', '3', $this->from, $this->to]);
+        $carts = $this->legacy()->table('tbl_salesqr_cart')
+            ->whereIn('invno', array_values(array_unique(array_map(fn ($r) => (string) $r->invno, $rows))))
+            ->get(['invno', 'cartaddeddate', 'catename', 'prname', 'weight', 'purprice', 'aftercharges'])
+            ->groupBy('invno');
 
         $out = [];
-        $self = 0;
+        $noLines = 0;
         foreach ($rows as $r) {
-            $gst = strtoupper(trim((string) $r->branch_gstno));
-            if ($gst === $this->gstin) {
-                $self++;
+            if (trim((string) $r->cusid) === 'LORD JEWELLER') {
+                continue;
+            }
+            $cart = $carts->get((string) $r->invno) ?? collect();
+            // several redemptions can hang off one sale: take the lines dated the redemption day,
+            // else the whole cart when it adds up to this invoice, else nothing (header amounts only)
+            $lines = $cart->filter(fn ($c) => (string) $c->cartaddeddate === (string) $r->estdate);
+            if ($lines->isEmpty() && $cart->isNotEmpty() && abs((float) $cart->sum('aftercharges') - (float) $r->netttotal) < 0.05) {
+                $lines = $cart;
+            }
+            if ($lines->isEmpty()) {
+                $noLines++;
+            }
+            $out[] = [
+                'ref' => (string) $r->estid,
+                'date' => (string) $r->estdate,
+                'gold_rate' => (float) $r->goldrate,
+                'taxable' => (float) $r->netttotal,
+                'cgst' => (float) $r->cgst,
+                'sgst' => (float) $r->sgst,
+                'branch' => ['id' => (string) $r->branchid, 'name' => $r->storename, 'address' => $r->br_address, 'city' => $r->br_city,
+                    'phone' => $r->br_phone, 'gstin' => strtoupper(trim((string) $r->gstno))],
+                'customer' => ['id' => (string) $r->cusid, 'name' => $r->cusname, 'address' => $r->cusaddress, 'city' => $r->cucity,
+                    'phone' => $r->cucontact, 'pan' => $r->cupan, 'aadhaar' => $r->cuaadhar],
+                'lines' => $lines->map(function ($c) {
+                    $pieces = (float) $c->weight;
 
-                continue;
-            }
-            $mode = strtoupper(trim((string) $r->route)) ?: (strtoupper((string) $r->paymode) === 'REDEEM' ? 'RO' : 'BO');
-            $billing = (float) $r->billing_value - (float) $r->cash_value;
-            if ($billing <= 0) {
-                continue;
-            }
-            $out[] = $this->b2bRow(substr((string) ($r->invdate ?: $r->doorder), 0, 10), (string) $r->pono, (string) $r->branchid,
-                $r->storename, $r->branch_address, $r->branch_city, $r->branch_phoneno, $mode, $gst, (int) $r->item_count,
-                $billing, (float) $r->total_weight, (float) $r->total_value, (float) $r->total_charges);
+                    return [
+                        'material' => strtolower(trim((string) $c->catename)) === 'silver' ? 'silver' : 'gold',
+                        'pieces' => $pieces,
+                        'grams' => $pieces * self::gramsPerPiece((string) $c->prname),
+                        'net' => $pieces * (float) $c->purprice,
+                        'taxable' => (float) $c->aftercharges,
+                    ];
+                })->values()->all(),
+            ];
         }
-        $this->noteSelf($self);
+        $this->noteNoLines($noLines);
 
         return $out;
     }
 
     // ------------------------------------------------------------------ new system
 
-    protected function newB2c(): array
+    protected function newRedemptions(bool $own): array
     {
-        $excluded = Plan::whereIn('code', self::EXCLUDED_PLAN_CODES)->pluck('id')->all();
-        $q = DB::table('sales_invoices as s')
-            ->leftJoin('bonds as b', 'b.invoice_no', '=', 's.invoice_no')
-            ->leftJoin('sale_lines as l', 'l.invoice_id', '=', 's.id')
-            ->leftJoin('members as m', 'm.id', '=', 's.customer_member_id')
-            ->whereBetween('s.date', [$this->from, $this->to])
-            ->where(fn ($w) => $w->whereNull('s.status')->orWhere('s.status', '<>', 'cancelled'))
-            ->when($this->branchId, fn ($w) => $w->where('s.branch_id', $this->branchId),
-                fn ($w) => $w->whereIn('s.branch_id', Branch::where('gst_no', $this->gstin)->pluck('id')))
-            ->orderBy('s.date')->orderBy('s.id')
-            ->select('s.id', 's.invoice_no', 's.date', 's.customer_name', 'b.plan_id', 'b.epin_value',
-                'm.member_code', 'm.address', 'm.city', 'm.phone', 'm.pan', 'm.aadhaar',
-                'l.qty', 'l.rate', 'l.making', 'l.wastage', 'l.line_total');
-
-        $out = [];
-        foreach ($q->get() as $r) {
-            if ($r->plan_id && in_array((int) $r->plan_id, $excluded, true)) {
-                continue;
-            }
-            $taxable = (float) $r->line_total;
-            if (! ((float) $r->epin_value > 0 && $taxable > 0)) {
-                continue;
-            }
-            $out[] = $this->b2cRow($r->date, (string) $r->invoice_no, (string) ($r->member_code ?? ''), $r->customer_name, $r->address,
-                $r->city, $r->phone, $r->pan, $r->aadhaar, (float) $r->qty, (float) $r->rate, (float) $r->making + (float) $r->wastage, $taxable);
-        }
-
-        return $out;
-    }
-
-    protected function newB2b(): array
-    {
-        $supplied = ['approved', 'in_transit', 'delivered', 'billed'];
-        $hq = Branch::where('gst_no', $this->gstin)->pluck('id')->all();
-        $requests = DB::table('branch_order_requests as r')
-            ->join('branches as br', 'br.id', '=', 'r.branch_id')
-            ->whereIn('r.status', $supplied)
-            ->whereBetween(DB::raw('DATE(COALESCE(r.approved_at, r.created_at))'), [$this->from, $this->to])
-            ->when($this->branchId, fn ($w) => $w->where('r.branch_id', $this->branchId),
-                fn ($w) => $w->where(fn ($ww) => $ww->whereIn('r.current_branch_id', $hq)->orWhereNull('r.current_branch_id')))
-            ->orderByRaw('COALESCE(r.approved_at, r.created_at)')->orderBy('r.id')
-            ->select('r.id', 'r.request_no', 'r.source', 'r.approved_at', 'r.created_at', 'r.grand_total',
-                'br.id as buyer_id', 'br.name', 'br.address', 'br.city', 'br.phone', 'br.gst_no')
+        $invoices = DB::table('redemption_invoices as i')
+            ->join('branches as br', 'br.id', '=', 'i.branch_id')
+            ->leftJoin('members as m', 'm.id', '=', 'i.member_id')
+            ->whereBetween('i.invoice_date', [$this->from, $this->to])
+            ->whereRaw("UPPER(TRIM(COALESCE(br.gst_no, ''))) ".($own ? '=' : '<>').' ?', [$this->gstin])
+            ->when($this->branchId, fn ($w) => $w->where('i.branch_id', $this->branchId))
+            ->orderBy('i.invoice_date')->orderBy('i.id')
+            ->select('i.id', 'i.invoice_no', 'i.invoice_date', 'i.referrer_name', 'i.legacy_restock', 'i.taxable_total', 'i.cgst', 'i.sgst', 'i.gold_rate',
+                'br.id as br_id', 'br.legacy_brid', 'br.name as br_name', 'br.address as br_address', 'br.city as br_city', 'br.phone as br_phone', 'br.gst_no',
+                'm.member_code', 'm.name as m_name', 'm.address', 'm.city', 'm.phone', 'm.pan', 'm.aadhaar')
             ->get();
-        if ($requests->isEmpty()) {
+        if ($invoices->isEmpty()) {
             return [];
         }
-        $allLines = DB::table('branch_order_lines')->whereIn('order_request_id', $requests->pluck('id'))->get();
-        $lines = $allLines->filter(fn ($l) => $l->material !== 'cash')->groupBy('order_request_id');
-        $cash = $allLines->filter(fn ($l) => $l->material === 'cash')->groupBy('order_request_id')->map(fn ($g) => (float) $g->sum('line_total'));
+        $lines = DB::table('redemption_lines as l')
+            ->leftJoin('catalog_products as p', 'p.id', '=', 'l.catalog_product_id')
+            ->whereIn('l.redemption_invoice_id', $invoices->pluck('id'))
+            ->select('l.*', 'p.default_weight', 'p.making_charge_pct', 'p.wastage_charge_pct', 'p.material as p_material')
+            ->get()->groupBy('redemption_invoice_id');
 
         $out = [];
-        $self = 0;
-        foreach ($requests as $r) {
-            $gst = strtoupper(trim((string) $r->gst_no));
-            if ($gst === $this->gstin) {
-                $self++;
-
-                continue;
+        $noLines = 0;
+        foreach ($invoices as $r) {
+            $ls = [];
+            foreach ($lines[$r->id] ?? [] as $l) {
+                $material = strtolower((string) ($l->material ?: $l->p_material));
+                if ($material === 'cash') {
+                    continue;
+                }
+                if ($r->legacy_restock !== null) {
+                    // imported from the Lord DB: unit_weight = pieces, amount = taxable incl. charges, no piece price
+                    $pieces = (float) $l->unit_weight;
+                    $perPiece = self::gramsPerPiece((string) $l->description) ?: (float) $l->default_weight;
+                    $taxable = (float) $l->amount;
+                    $pct = ((float) $l->making_charge_pct + (float) $l->wastage_charge_pct) / 100;
+                    $net = round($taxable / (1 + $pct), 2);
+                } else {
+                    // native: quantity pieces × unit_weight g, amount = pieces × piece price, making / wastage in ₹
+                    $pieces = (float) $l->quantity;
+                    $perPiece = (float) $l->unit_weight ?: self::gramsPerPiece((string) $l->description);
+                    $net = (float) $l->amount;
+                    $taxable = $net + (float) $l->making + (float) $l->wastage;
+                }
+                $ls[] = ['material' => $material === 'silver' ? 'silver' : 'gold', 'pieces' => $pieces, 'grams' => $pieces * $perPiece,
+                    'net' => $net, 'taxable' => $taxable];
             }
-            $ls = $lines[$r->id] ?? collect();
-            if ($ls->isEmpty()) {
-                continue;   // cash-only top-up: no goods supplied
+            if (! $ls) {
+                $noLines++;
             }
-            [$weight, $value, $charges] = [0.0, 0.0, 0.0];
-            foreach ($ls as $l) {
-                $rate = (float) ($l->unit_price ?: $l->rate);
-                $cross = (float) $l->weight * $rate;
-                $weight += (float) $l->weight;
-                $value += $cross;
-                $charges += $cross * (((float) $l->making_charge_pct + (float) $l->wastage_charge_pct) / 100) + (float) $l->hallmark_charge;
-            }
-            $billing = (float) $r->grand_total - (float) ($cash[$r->id] ?? 0);
-            if ($billing <= 0) {
-                continue;
-            }
-            $date = substr((string) ($r->approved_at ?: $r->created_at), 0, 10);
-            $out[] = $this->b2bRow($date, (string) $r->request_no, (string) $r->buyer_id, $r->name, $r->address, $r->city, $r->phone,
-                $r->source === 'redemption' ? 'RO' : 'BO', $gst, $ls->count(), $billing, $weight, $value, $charges);
+            $out[] = [
+                'ref' => (string) $r->invoice_no,
+                'date' => substr((string) $r->invoice_date, 0, 10),
+                'gold_rate' => (float) $r->gold_rate,
+                'taxable' => (float) $r->taxable_total,
+                'cgst' => (float) $r->cgst,
+                'sgst' => (float) $r->sgst,
+                'branch' => ['id' => (string) ($r->legacy_brid ?: $r->br_id), 'name' => $r->br_name, 'address' => $r->br_address, 'city' => $r->br_city,
+                    'phone' => $r->br_phone, 'gstin' => strtoupper(trim((string) $r->gst_no))],
+                'customer' => ['id' => (string) ($r->member_code ?? ''), 'name' => $r->m_name ?? $r->referrer_name, 'address' => $r->address,
+                    'city' => $r->city, 'phone' => $r->phone, 'pan' => $r->pan, 'aadhaar' => $r->aadhaar],
+                'lines' => $ls,
+            ];
         }
-        $this->noteSelf($self);
+        $this->noteNoLines($noLines);
 
         return $out;
     }
 
-    // ------------------------------------------------------------------ row shapes (legacy arithmetic)
+    // ------------------------------------------------------------------ row shape
 
-    protected function b2cRow($date, string $ref, string $cusId, $name, $address, $city, $phone, $pan, $aadhaar,
-        float $weight, float $rate, float $chargePct, float $taxable): array
+    /** One register row from a normalised redemption invoice. BILLING VALUE = TAXABLE + GST exactly. */
+    protected function row(string $register, array $r): array
     {
-        $net = $weight * $rate;
-        $charges = $net * ($chargePct / 100);
-        $gst = $taxable * self::GST_PCT / 100;
-
-        return array_combine(self::B2C_COLUMNS, [
-            null, $this->date($date), $ref, $cusId, $this->text($name), $this->text($address), $this->text($city), $this->text($phone),
-            $this->text($pan), $this->text($aadhaar), 'BTOC', 'NA', self::B2C_ITEM, self::HSN, 1,
-            round($taxable + $gst, 2), round($weight, 2), $rate, round($net, 2), round($charges, 2),
-            round($taxable, 2), round($gst, 2), round($gst / 2, 2), round($gst / 2, 2),
-        ]);
-    }
-
-    /**
-     * B2B rows are tax-reversed from the billed amount: the order header is what the dealer was
-     * billed (for redemption restocks it is the customer's original redeemed value, which differs
-     * from the cart priced at the restock-day rate), so TAXABLE = billing ÷ 1.03 and GST = the
-     * remainder, then NET / CHARGES split the taxable amount by the cart's charge percentage.
-     * The auditor imports taxable + GST, and those must add back to BILLING VALUE.
-     */
-    protected function b2bRow($date, string $ref, string $cusId, $name, $address, $city, $phone, string $mode, string $gstin,
-        int $qty, float $billing, float $weight, float $value, float $charges): array
-    {
-        $billing = round($billing, 2);
-        $taxable = round($billing / (1 + self::GST_PCT / 100), 2);
-        $gst = round($billing - $taxable, 2);
+        $taxable = round($r['taxable'], 2);
+        $gst = round($r['cgst'] + $r['sgst'], 2);
         $sgst = round($gst / 2, 2);
         $cgst = round($gst - $sgst, 2);
-        $chargePct = $value > 0 ? $charges / $value : self::B2B_DEFAULT_CHARGE_PCT / 100;
-        $net = round($taxable / (1 + $chargePct), 2);
-        $rate = $weight > 0 ? round($net / $weight, 2) : 0.0;
+        $billing = round($taxable + $gst, 2);
 
-        return array_combine(self::B2B_COLUMNS, [
-            null, $this->date($date), $ref, $cusId, $this->text($name), $this->text($address), $this->text($city), $this->text($phone), $mode, $gstin,
-            self::B2B_ITEM, self::HSN, $qty, $billing, round($weight, 2), $rate, $net,
-            round($taxable - $net, 2), $taxable, $gst, $sgst, $cgst,
-        ]);
+        $lines = $r['lines'];
+        $pieces = array_sum(array_column($lines, 'pieces'));
+        $qty = $pieces > 0 ? (int) round($pieces) : 1;
+        $net = $lines ? round(array_sum(array_column($lines, 'net')), 2) : $taxable;
+        $charges = round($taxable - $net, 2);
+
+        // per-material split, scaled to the invoice's taxable amount so the HSN sheet agrees with the registers
+        $split = [];
+        $lineTaxable = array_sum(array_column($lines, 'taxable'));
+        foreach ($lines as $l) {
+            $m = $l['material'];
+            $share = $lineTaxable > 0 ? $taxable * $l['taxable'] / $lineTaxable : 0.0;
+            $split[$m]['grams'] = ($split[$m]['grams'] ?? 0) + $l['grams'];
+            $split[$m]['taxable'] = ($split[$m]['taxable'] ?? 0) + $share;
+        }
+        if (! $split) {
+            $split['gold'] = ['grams' => 0.0, 'taxable' => $taxable];
+        }
+        foreach ($split as $m => &$s) {
+            $s['taxable'] = round($s['taxable'], 2);
+            $s['gst'] = round($s['taxable'] * self::GST_PCT / 100, 2);
+            $s['grams'] = round($s['grams'], 3);
+        }
+        unset($s);
+        $goldGrams = $split['gold']['grams'] ?? 0.0;
+        $silverGrams = $split['silver']['grams'] ?? 0.0;
+        $item = match (true) {
+            isset($split['gold']) && isset($split['silver']) => self::ITEM_GOLD.' + '.self::ITEM_SILVER.' '.rtrim(rtrim(number_format($silverGrams, 3, '.', ''), '0'), '.').' g',
+            isset($split['silver']) => self::ITEM_SILVER,
+            default => self::ITEM_GOLD,
+        };
+        $hsn = isset($split['gold']) ? self::HSN : self::HSN_SILVER;
+
+        $b = $r['branch'];
+        $c = $r['customer'];
+        $head = [null, $this->date($r['date']), $r['ref']];
+        $money = [$billing, round($goldGrams, 3), round($r['gold_rate'], 2), $net, $charges, $taxable, $gst, $sgst, $cgst];
+        $row = $register === 'b2b'
+            ? array_combine(self::B2B_COLUMNS, [...$head, $b['id'], $this->text($b['name']), $this->text($b['address']), $this->text($b['city']),
+                $this->text($b['phone']), 'RO', $b['gstin'], $item, $hsn, $qty, ...$money])
+            : array_combine(self::B2C_COLUMNS, [...$head, $c['id'], $this->text($c['name']), $this->text($c['address']), $this->text($c['city']),
+                $this->text($c['phone']), $this->text($c['pan']), $this->text($c['aadhaar']), 'BTOC', 'NA', $item, $hsn, $qty, ...$money]);
+        $row[self::HSN_KEY] = $split;
+
+        return $row;
+    }
+
+    /** "100 mg Gold" → 0.1, "2 g Gold" → 2.0, "5 g Silver" → 5.0; 0 when the label carries no size. */
+    public static function gramsPerPiece(string $label): float
+    {
+        if (preg_match('/(\d+(?:\.\d+)?)\s*(mg|g)\b/i', $label, $m)) {
+            return strtolower($m[2]) === 'mg' ? (float) $m[1] / 1000 : (float) $m[1];
+        }
+
+        return 0.0;
     }
 
     protected function date($d): Carbon
@@ -421,11 +437,10 @@ class GstAuditorReport
         return trim((string) preg_replace('/\s+/u', ' ', (string) $v));
     }
 
-    protected function noteSelf(int $self): void
+    protected function noteNoLines(int $n): void
     {
-        if ($self > 0) {
-            $this->notes[] = __(':n approved order(s) were left out of B2B because the buyer branch carries the filing GSTIN :gstin itself (not a B2B supply — fix the branch record if it is really a dealer).',
-                ['n' => $self, 'gstin' => $this->gstin]);
+        if ($n > 0) {
+            $this->notes[] = __(':n redemption invoice(s) have no cart lines on record — their gold weight is shown as 0 and the whole taxable amount as net value.', ['n' => $n]);
         }
     }
 }
