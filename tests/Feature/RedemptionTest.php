@@ -343,6 +343,53 @@ class RedemptionTest extends TestCase
         $this->assertEquals('33ONRECORD9Z9', $inv2->buyer_gst);
     }
 
+    /**
+     * User 2026-11-13 (invoice 4598): a redemption value that carries no GST of its own is
+     * GST-INCLUSIVE — the cart figure stays the grand total and the tax is split out of it;
+     * invoices already saved as Taxable = Grand Total are re-stated by the command.
+     */
+    public function test_untaxed_redemption_value_is_gst_inclusive_and_old_ones_restate(): void
+    {
+        $branch = Branch::create(['name' => 'Incl Branch', 'country' => 'IN', 'level' => 'reseller', 'is_active' => true]);
+        $plan = $this->plan('530', 'digital');
+        $member = $this->member('INC1');
+        $bond = Bond::create(['member_id' => $member->id, 'plan_id' => $plan->id, 'branch_id' => $branch->id, 'bond_date' => now(), 'value' => 50000, 'invoice_no' => 'INV-INC1', 'status' => 'active']);
+        $cp = $this->gold('GINC');
+        $cp->update(['gst_pct' => 0]);
+        Stock::create(['branch_id' => $branch->id, 'catalog_product_id' => $cp->id, 'quantity' => 100]);
+        $qr = RedeemableQr::create(['bond_id' => $bond->id, 'member_id' => $member->id, 'branch_id' => $branch->id, 'invoice_no' => 'INV-INC1', 'qr_code' => 'QINC1', 'qr_mode' => 'cash', 'cash_worth' => 50000, 'status' => 'pending']);
+        $svc = app(RedemptionService::class);
+        $svc->generateOtp($qr);
+
+        // 20 × 1 g @ ₹5,000 = ₹1,00,000 carted, nothing added on top
+        $invoice = $svc->redeem(['qr_code' => 'QINC1', 'branch_id' => $branch->id, 'otp' => $qr->fresh()->otp,
+            'lines' => [['catalog_product_id' => $cp->id, 'unit_weight' => 1, 'quantity' => 20]]])->fresh();
+
+        $this->assertEquals(100000, (float) $invoice->grand_total);
+        $this->assertEquals(97087.38, (float) $invoice->taxable_total);
+        $this->assertEquals(2912.62, (float) $invoice->tax_total);
+        $this->assertEquals(1456.31, (float) $invoice->cgst);
+        $this->assertEquals(1456.31, (float) $invoice->sgst);
+        $this->assertEquals(3, (float) $invoice->lines()->value('gst_pct'));
+
+        // an invoice saved the old way: Taxable Value = Grand Total, no tax
+        \Illuminate\Support\Facades\DB::table('redemption_invoices')->where('id', $invoice->id)
+            ->update(['taxable_total' => 410245.86, 'grand_total' => 410245.86, 'cgst' => 0, 'sgst' => 0, 'tax_total' => 0]);
+
+        $this->artisan('redemptions:restate-inclusive', ['--id' => $invoice->id])->assertSuccessful();
+        $this->assertEquals(410245.86, (float) $invoice->fresh()->taxable_total);   // dry run writes nothing
+
+        $this->artisan('redemptions:restate-inclusive', ['--id' => $invoice->id, '--apply' => true])->assertSuccessful();
+        $invoice->refresh();
+        $this->assertEquals(410245.86, (float) $invoice->grand_total);
+        $this->assertEquals(398296.95, (float) $invoice->taxable_total);
+        $this->assertEquals(11948.91, (float) $invoice->tax_total);
+        $this->assertEquals(410245.86, round((float) $invoice->taxable_total + (float) $invoice->cgst + (float) $invoice->sgst, 2));
+
+        // the PDF's HSN table ties to the head
+        $this->assertStringStartsWith('%PDF', app(\App\Services\Redeem\RedemptionInvoicePdf::class)->download($invoice)->getContent());
+    }
+
     /** The tax-invoice PDF renders, and rupees-in-words uses Indian (lakh/crore) grouping. */
     public function test_invoice_pdf_amount_in_words_and_renders(): void
     {
