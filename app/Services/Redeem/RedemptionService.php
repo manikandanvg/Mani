@@ -41,9 +41,6 @@ class RedemptionService
     /** GST halves (CGST + SGST). */
     public const GST_SPLIT = 2;
 
-    /** GST % taken OUT of a redemption value that carries no tax of its own (gold / silver = 3 %). */
-    public const GST_INCLUSIVE_PCT = 3.0;
-
     /** Mode A = the metal itself was billed up front (plans typed gold/silver). */
     public function isMetalPurchasePlan($plan): bool
     {
@@ -159,31 +156,6 @@ class RedemptionService
         ];
     }
 
-    /**
-     * Split a GST-INCLUSIVE value into [taxable, gst]: ₹4,10,245.86 at 3 % → 3,98,296.95 + 11,948.91.
-     * The two always add back to the value given, to the paisa.
-     *
-     * @return array{0:float,1:float}
-     */
-    public static function splitInclusive(float $gross, float $pct = self::GST_INCLUSIVE_PCT): array
-    {
-        $taxable = round($gross / (1 + $pct / 100), 2);
-
-        return [$taxable, round($gross - $taxable, 2)];
-    }
-
-    /** A priced line that carries no GST of its own: its value is inclusive — take the GST out of it. */
-    protected function gstInclusiveLine(array $l): array
-    {
-        if ((float) $l['gst'] > 0 || (float) $l['taxable'] <= 0 || ($l['material'] ?? null) === 'cash') {
-            return $l;
-        }
-        [$l['taxable'], $l['gst']] = self::splitInclusive((float) $l['taxable']);
-        $l['gst_pct'] = self::GST_INCLUSIVE_PCT;   // line_total (the cart figure) is unchanged
-
-        return $l;
-    }
-
     protected function lineLabel(CatalogProduct $cp, float $unitWeight): string
     {
         $w = $unitWeight >= 1 ? rtrim(rtrim(number_format($unitWeight, 2), '0'), '.') . ' G'
@@ -236,12 +208,9 @@ class RedemptionService
             // the branch currency), so a foreign redemption prices in its own market.
             // Fresh query on purpose: LiveRate::latestFor's static memo outlives a
             // request only in long-lived processes (tests) and would serve stale rows.
-            $rate = $this->liveRate($country = $branch?->country ?: 'IN');
-            // A QR carried over from legacy is priced at the rate of ITS date (board
-            // 2026-11-01), not today's: that metal's rate is frozen onto the feed used below.
-            if ((float) $qr->frozen_rate > 0) {
-                $rate = $this->frozenRate($rate, $qr);
-            }
+            // rateFor() is the ONE rate source — the redeem screen carts with it too, so the
+            // invoice is exactly the cart the operator saw (user 2026-11-13, invoice 4598).
+            $rate = $this->rateFor($qr, $country = $branch?->country ?: 'IN');
             // Mode B prices from this feed — refuse loudly when the region has no
             // rate row (the zero-rate stub would price every line at 0 and fail the
             // worth gate with a misleading "below the QR worth" message).
@@ -256,13 +225,6 @@ class RedemptionService
                         (float) ($l['unit_weight'] ?? 0), (float) $l['quantity'], $rate))
                     ->all();
             abort_if(empty($lines), 422, 'Add at least one item to redeem.');
-
-            // A GST invoice never goes out with the tax missing (user 2026-11-13, invoice 4598
-            // printed Taxable Value = Grand Total): a line that priced without GST of its own
-            // is a GST-INCLUSIVE value — the cart figure stays the bill, the tax is split out of it.
-            if (! in_array($branch?->tax_regime, ['vat', 'none'], true)) {
-                $lines = array_map(fn (array $l) => $this->gstInclusiveLine($l), $lines);
-            }
 
             $taxable = round(array_sum(array_column($lines, 'taxable')), 2);
             $gst = round(array_sum(array_column($lines, 'gst')), 2);
@@ -515,6 +477,20 @@ class RedemptionService
         }
 
         return $this->cleanGst($typed);
+    }
+
+    /**
+     * The metal rates a QR is carted AND billed at. A QR carried over from legacy is priced at
+     * the rate of ITS date (board 2026-11-01), not today's: that metal's rate is frozen onto the
+     * regional feed. The redeem screen and redeem() must both price from here — when the screen
+     * carted at today's rate and the invoice billed at the frozen one, a ₹4,00,085 cart came out
+     * as a ₹4,10,245.86 invoice (user 2026-11-13).
+     */
+    public function rateFor(?RedeemableQr $qr, string $country = 'IN'): LiveRate
+    {
+        $rate = $this->liveRate($country);
+
+        return $qr && (float) $qr->frozen_rate > 0 ? $this->frozenRate($rate, $qr) : $rate;
     }
 
     /** The live feed with the QR's own metal priced at the QR's frozen rate. */
