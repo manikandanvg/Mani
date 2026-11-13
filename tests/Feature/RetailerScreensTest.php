@@ -146,11 +146,11 @@ class RetailerScreensTest extends TestCase
     public function test_order_within_limit_passes(): void
     {
         $user = $this->distributorWith(invested: 2500000, bv: 5000000);   // limit ₹50,00,000
-        $gold = $this->catalog('gold');                                   // ≈ ₹7,210
+        $gold = $this->catalog('gold');                                   // ≈ ₹7,210 a gram
 
         $req = app(BranchOrderService::class)->submit([
             'branch_id' => $user->branch_id, 'requested_by' => $user->id,
-            'lines' => [['catalog_product_id' => $gold->id, 'weight' => 1]],
+            'lines' => [['catalog_product_id' => $gold->id, 'weight' => 3]],
         ]);
 
         $this->assertEquals('pending', $req->status);
@@ -199,7 +199,7 @@ class RetailerScreensTest extends TestCase
         $gold = $this->catalog('gold');
         $req = app(BranchOrderService::class)->submit([
             'branch_id' => $user->branch_id, 'requested_by' => $user->fresh()->id,
-            'lines' => [['catalog_product_id' => $gold->id, 'weight' => 1]],
+            'lines' => [['catalog_product_id' => $gold->id, 'weight' => 3]],
         ]);
         $this->assertEquals('pending', $req->status);
 
@@ -208,13 +208,34 @@ class RetailerScreensTest extends TestCase
         try {
             app(BranchOrderService::class)->submit([
                 'branch_id' => $user->branch_id, 'requested_by' => $user->fresh()->id,
-                'lines' => [['catalog_product_id' => $gold->id, 'weight' => 1]],
+                'lines' => [['catalog_product_id' => $gold->id, 'weight' => 3]],
             ]);
             $this->fail('Expected an over-limit rejection.');
         } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
             $this->assertEquals(422, $e->getStatusCode());
             $this->assertStringContainsString('exceeds your order limit of ₹7,000', $e->getMessage());
         }
+    }
+
+    /** User 2026-11-13: an Order Form order below ₹15,000 is refused; admin / HQ staff have no minimum. */
+    public function test_order_below_minimum_is_blocked(): void
+    {
+        $user = $this->distributorWith(invested: 2500000, bv: 5000000);   // limit ₹50,00,000
+        $gold = $this->catalog('gold');                                   // ≈ ₹7,210 a gram
+        $this->assertEquals(15000.0, BranchOrderService::orderMinimumFor($user));
+        $this->assertEquals(0.0, BranchOrderService::orderMinimumFor(User::where('email', 'admin@lordicl.com')->first()));
+
+        try {
+            app(BranchOrderService::class)->submit([
+                'branch_id' => $user->branch_id, 'requested_by' => $user->id,
+                'lines' => [['catalog_product_id' => $gold->id, 'weight' => 2]],   // ≈ ₹14,420
+            ]);
+            $this->fail('Expected a below-minimum rejection.');
+        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
+            $this->assertEquals(422, $e->getStatusCode());
+            $this->assertStringContainsString('below the minimum order of ₹15,000', $e->getMessage());
+        }
+        $this->assertEquals(0, BranchOrderRequest::where('branch_id', $user->branch_id)->count());
     }
 
     public function test_admin_is_exempt_from_order_limit(): void

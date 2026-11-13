@@ -103,7 +103,10 @@ class RedemptionService
             ->get()
             ->map(fn (SaleLine $l) => $this->normaliseLine(
                 $l->catalogProduct,
-                description: (string) ($l->description ?: ($l->catalogProduct ? strtoupper((string) $l->catalogProduct->material) : 'ITEM')),
+                // the catalog name; a sale line that only carries the bare metal ("gold") gets it too
+                description: $l->catalogProduct && (blank($l->description) || strcasecmp(trim((string) $l->description), (string) $l->catalogProduct->material) === 0)
+                    ? self::lineLabel($l->catalogProduct, 0)
+                    : (string) ($l->description ?: 'ITEM'),
                 quantity: (float) $l->qty,
                 rate: (float) $l->rate,
                 making: (float) $l->making,
@@ -156,12 +159,18 @@ class RedemptionService
         ];
     }
 
-    protected function lineLabel(CatalogProduct $cp, float $unitWeight): string
+    /**
+     * "Description of Goods" = the Catalog Product name in capitals ("100 mg Gold" in the
+     * catalog prints "100 MG GOLD" — user 2026-11-13). The old label built the weight itself and
+     * trimmed the zeros off whole milligrams: 100 mg printed as "1 MG GOLD", 500 mg as "5 MG GOLD".
+     * Nothing is added to the catalog string — the weight has its own column on the invoice.
+     */
+    public static function lineLabel(CatalogProduct $cp, float $unitWeight = 0): string
     {
-        $w = $unitWeight >= 1 ? rtrim(rtrim(number_format($unitWeight, 2), '0'), '.') . ' G'
-            : rtrim(rtrim(number_format($unitWeight * 1000, 0), '0'), '.') . ' MG';
+        $name = trim((string) \App\Support\Translatable::pick($cp->name, \App\Support\Translatable::defaultLocale()))
+            ?: (string) $cp->material;
 
-        return trim($w . ' ' . strtoupper((string) $cp->material));
+        return mb_strtoupper($name);
     }
 
     /** Store + return a fresh OTP for the QR (the caller sends it over WhatsApp). */

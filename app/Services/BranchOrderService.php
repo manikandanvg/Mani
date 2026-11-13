@@ -28,6 +28,9 @@ class BranchOrderService
     /** Upper bound for a single line's weight/value — fits decimal(15,4) used across stock tables. */
     public const MAX_LINE_QTY = 9_999_999_999;
 
+    /** Smallest stock order a distributor may place from the Order Form, ₹ incl. GST (user 2026-11-13). */
+    public const MIN_ORDER_VALUE = 15000;
+
     /** Where a request originated. Order-Form is the normal path; Redemption is a restock. */
     public const SOURCE_ORDER_FORM = 'order_form';
 
@@ -266,7 +269,9 @@ class BranchOrderService
             abort_if(empty($priced), 422, 'Add at least one item to the order.');
             $grand = round($cross + $gst, 2);
 
-            $this->assertWithinOrderLimit($userId ? User::find($userId) : null, $branchId, $grand);
+            $orderer = $userId ? User::find($userId) : null;
+            $this->assertWithinOrderLimit($orderer, $branchId, $grand);
+            $this->assertMeetsOrderMinimum($orderer, $grand);
 
             // One payment can be split over several orders of the SAME branch (order limit),
             // but the orders on a URN never exceed the amount paid on it.
@@ -640,6 +645,33 @@ class BranchOrderService
             $grand > $limit + 0.004,
             422,
             sprintf('This order of ₹%s exceeds your order limit of ₹%s.', \App\Support\Money::group($grand), \App\Support\Money::group($limit))
+        );
+    }
+
+    /**
+     * The smallest order the Order Form accepts for a distributor — 0 = no minimum. Admin / HQ
+     * staff have none; nor has a distributor whose own order limit is below the minimum (the
+     * ceiling wins, otherwise that branch could never order at all).
+     */
+    public static function orderMinimumFor(?User $user): float
+    {
+        if (! $user || ! $user->isDistributor()) {
+            return 0.0;
+        }
+        $limit = (float) $user->orderLimit();
+
+        return $limit > 0 && $limit < self::MIN_ORDER_VALUE ? 0.0 : (float) self::MIN_ORDER_VALUE;
+    }
+
+    /** Order Form orders below the minimum are refused (user 2026-11-13: ₹15,000). */
+    protected function assertMeetsOrderMinimum(?User $user, float $grand): void
+    {
+        $min = static::orderMinimumFor($user);
+
+        abort_if(
+            $min > 0 && $grand < $min - 0.004,
+            422,
+            sprintf('This order of ₹%s is below the minimum order of ₹%s.', \App\Support\Money::group($grand), \App\Support\Money::group($min))
         );
     }
 

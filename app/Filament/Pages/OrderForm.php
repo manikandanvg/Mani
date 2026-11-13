@@ -106,10 +106,10 @@ class OrderForm extends Page implements HasForms
                 ]),
                 Section::make('Items')->schema([
                     // Dealer's per-order ceiling, one quiet line (user 2026-11-03: no running total).
+                    // … plus the minimum order (user 2026-11-13) — both shown as a hint.
                     Placeholder::make('order_limit_banner')->label('')
-                        ->visible(fn () => (bool) auth()->user()?->isDistributor() && (float) auth()->user()->orderLimit() > 0)
-                        ->content(fn () => new HtmlString(sprintf('<span class="text-sm">%s <b>₹%s</b></span>',
-                            e(__('Order limit (per order)')), \App\Support\Money::group((float) auth()->user()->orderLimit())))),
+                        ->visible(fn () => $this->orderLimitsHint() !== null)
+                        ->content(fn () => $this->orderLimitsHint()),
                     Repeater::make('lines')
                         ->label('')
                         ->addActionLabel('Add item')
@@ -240,6 +240,30 @@ class OrderForm extends Page implements HasForms
             ->statePath('data');
     }
 
+    /**
+     * The distributor's order limits as one hint line: "Minimum order ₹15,000 · Maximum order
+     * (per order) ₹5,00,000". Null for admin / HQ staff, who have neither.
+     */
+    protected function orderLimitsHint(): ?HtmlString
+    {
+        $user = auth()->user();
+        if (! $user || ! $user->isDistributor()) {
+            return null;
+        }
+        $parts = [];
+        if (($min = BranchOrderService::orderMinimumFor($user)) > 0) {
+            $parts[] = e(__('Minimum order')) . ' <b>₹' . \App\Support\Money::group($min) . '</b>';
+        }
+        if (($max = (float) $user->orderLimit()) > 0) {
+            $parts[] = e(__('Maximum order (per order)')) . ' <b>₹' . \App\Support\Money::group($max) . '</b>';
+        }
+
+        return $parts
+            ? new HtmlString('<span class="text-sm text-gray-500 dark:text-gray-400">' . implode(' &nbsp;·&nbsp; ', $parts)
+                . ' <span class="text-xs">(' . e(__('order value including GST')) . ')</span></span>')
+            : null;
+    }
+
     /** Shows the branch this order will be placed with (its source), with a link to change it. */
     protected function supplierBanner(): HtmlString
     {
@@ -326,9 +350,12 @@ class OrderForm extends Page implements HasForms
         // The distributor's per-order ceiling (user 2026-11-03: each order on its own).
         $user = auth()->user();
         if ($user && $user->isDistributor()) {
+            if (($min = BranchOrderService::orderMinimumFor($user)) > 0) {
+                $rows[] = ['Minimum order', \App\Support\Money::inr($min)];
+            }
             $limit = $user->orderLimit();
             if ($limit > 0) {
-                $rows[] = ['Order limit (per order)', \App\Support\Money::inr($limit)];
+                $rows[] = ['Maximum order (per order)', \App\Support\Money::inr($limit)];
             }
         }
         $html = '<div class="grid grid-cols-4 gap-2 text-sm">';

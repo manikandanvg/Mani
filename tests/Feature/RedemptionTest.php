@@ -81,6 +81,11 @@ class RedemptionTest extends TestCase
         $this->assertEquals(0, \App\Models\ResellerCommission::where('com_type_id', 1)->count());
         // ₹100,000 goods + 3% GST = ₹103,000
         $this->assertEquals(103000, (float) $invoice->grand_total);
+        // Description of Goods = the Catalog Product name in capitals (user 2026-11-13) …
+        $this->assertEquals('GOLD 1G', $invoice->lines()->value('description'));
+        // … and the 100 mg piece is "100 MG GOLD", never the old "1 MG GOLD"
+        $mg = CatalogProduct::create(['code' => 'G100', 'name' => ['en' => '100 mg Gold'], 'material' => 'gold', 'default_weight' => 0.1, 'gst_pct' => 3, 'is_active' => true]);
+        $this->assertEquals('100 MG GOLD', RedemptionService::lineLabel($mg, 0.1));
     }
 
     /** A Mode-B redemption can raise a restock order that, once approved, replenishes the branch. */
@@ -345,9 +350,9 @@ class RedemptionTest extends TestCase
 
     /**
      * User 2026-11-13 (invoice 4598): an invoice billed at a legacy QR-date rate while the screen
-     * carted at the live rate is re-stated to the cart value by redemptions:audit-cart-rate.
+     * carted at the live rate is LISTED (never changed) by redemptions:audit-cart-rate.
      */
-    public function test_audit_cart_rate_restates_invoice_to_the_cart_value(): void
+    public function test_audit_cart_rate_lists_mismatch_and_changes_nothing(): void
     {
         $branch = Branch::create(['name' => 'Audit Branch', 'country' => 'IN', 'level' => 'reseller', 'is_active' => true]);
         $plan = $this->plan('540', 'digital');
@@ -367,17 +372,36 @@ class RedemptionTest extends TestCase
             'lines' => [['catalog_product_id' => $cp->id, 'unit_weight' => 1, 'quantity' => 20]]]);
         $this->assertEquals(123600, (float) $invoice->grand_total);
 
-        $this->artisan('redemptions:audit-cart-rate', ['--id' => $invoice->id])->assertSuccessful();
-        $this->assertEquals(123600, (float) $invoice->fresh()->grand_total);   // dry run writes nothing
-
-        $this->artisan('redemptions:audit-cart-rate', ['--id' => $invoice->id, '--apply' => true])->assertSuccessful();
+        // the list is read-only: it reports the screen total (₹1,03,000) and the excess over the QR worth,
+        // and the invoice keeps its frozen-price figures
+        $this->artisan('redemptions:audit-cart-rate', ['--id' => $invoice->id])
+            ->expectsOutputToContain('above the QR worth: ₹23,600.00')
+            ->assertSuccessful();
         $invoice->refresh();
-        $this->assertEquals(103000, (float) $invoice->grand_total);
-        $this->assertEquals(100000, (float) $invoice->taxable_total);
-        $this->assertEquals(3000, (float) $invoice->tax_total);
-        $this->assertEquals(1500, (float) $invoice->cgst);
-        $this->assertEquals(5000, (float) $invoice->gold_rate);
-        $this->assertEquals(103000, (float) $invoice->lines()->sum('line_total'));
+        $this->assertEquals(123600, (float) $invoice->grand_total);
+        $this->assertEquals(6000, (float) $invoice->gold_rate);
+
+        // already at the frozen price → re-calibration leaves it alone
+        $this->artisan('redemptions:recalibrate', ['--apply' => true])->expectsOutputToContain('0 re-calibrated')->assertSuccessful();
+        $this->assertEquals(123600, (float) $invoice->fresh()->grand_total);
+
+        // set to the LIVE price (₹5,000) by an earlier correction → brought back to the frozen price
+        \Illuminate\Support\Facades\DB::table('redemption_invoices')->where('id', $invoice->id)
+            ->update(['gold_rate' => 5000, 'taxable_total' => 100000, 'cgst' => 1500, 'sgst' => 1500, 'tax_total' => 3000, 'grand_total' => 103000]);
+        \Illuminate\Support\Facades\DB::table('redemption_lines')->where('redemption_invoice_id', $invoice->id)
+            ->update(['rate' => 5000, 'amount' => 100000, 'line_total' => 103000]);
+
+        $this->artisan('redemptions:recalibrate')->expectsOutputToContain('1 differ from')->assertSuccessful();
+        $this->assertEquals(103000, (float) $invoice->fresh()->grand_total);   // dry run writes nothing
+
+        $this->artisan('redemptions:recalibrate', ['--apply' => true])->expectsOutputToContain('1 re-calibrated')->assertSuccessful();
+        $invoice->refresh();
+        $this->assertEquals(123600, (float) $invoice->grand_total);
+        $this->assertEquals(120000, (float) $invoice->taxable_total);
+        $this->assertEquals(3600, (float) $invoice->tax_total);
+        $this->assertEquals(1800, (float) $invoice->cgst);
+        $this->assertEquals(6000, (float) $invoice->gold_rate);
+        $this->assertEquals(123600, (float) $invoice->lines()->sum('line_total'));
         $this->assertEquals(80, (float) Stock::where('branch_id', $branch->id)->where('catalog_product_id', $cp->id)->value('quantity'));   // stock untouched
     }
 
