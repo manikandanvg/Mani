@@ -56,6 +56,12 @@ class LegacyStagePendingQrs extends Command
                     $grams = (float) $q->gram_worth;
                     $rate = (float) $q->rate ?: ($grams > 0 ? round((float) $q->cash_worth / $grams, 2) : null);
                     $mode = in_array($q->qr_mode, ['gold', 'silver'], true) ? $q->qr_mode : 'gold';
+                    // the legacy queue carries the GOLD rate on every row — a silver QR's frozen
+                    // price is the SILVER rate of its bill (user 2026-11-13)
+                    if ($mode === 'silver') {
+                        $billSilver = (float) DB::table('sales_invoices')->where('invoice_no', $q->reference)->value('silver_rate');
+                        $rate = $billSilver > 0 ? $billSilver : $rate;
+                    }
                     $staged[$mode]++;
                     $batch[] = [
                         'bond_id' => $bond?->id,

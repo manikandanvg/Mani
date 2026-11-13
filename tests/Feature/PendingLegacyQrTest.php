@@ -213,7 +213,8 @@ class PendingLegacyQrTest extends TestCase
             'created_by' => $this->admin->id,
         ]);
         $this->assertInstanceOf(RedemptionInvoice::class, $invoice);
-        $this->assertEquals(10000.0, (float) $invoice->gold_rate, 'invoice carries the QR-date price, not today\'s');
+        $this->assertEquals(10000.0, (float) $invoice->frozen_gold_rate, 'invoice is calculated at the QR-date price, not today\'s');
+        $this->assertEquals(15000.0, (float) $invoice->gold_rate, 'and shows today\'s live price on top of the bill');
         $this->assertEquals(20000.0, (float) $invoice->grand_total);
         $this->assertSame('redeemed', $qr->fresh()->status);
         $this->assertEquals(8.0, (float) Stock::where('branch_id', $other->id)->value('quantity'));

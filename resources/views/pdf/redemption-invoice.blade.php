@@ -104,8 +104,18 @@
                 <td><span class="lbl">Payment Reference</span>{{ $invoice->payment_reference ?: '—' }}</td>
             </tr>
             <tr>
-                <td><span class="lbl">Gold Market Price</span>{{ $sym }}{{ $fmt($invoice->gold_rate) }}/gm</td>
-                <td><span class="lbl">Silver Market Price</span>{{ $sym }}{{ $fmt($invoice->silver_rate) }}/gm</td>
+                <td>
+                    <span class="lbl">Gold Market Price</span>{{ $sym }}{{ $fmt($invoice->gold_rate) }}/gm
+                    @if ((float) $invoice->frozen_gold_rate > 0)
+                        <span class="lbl" style="margin-top:2px;">Gold Billed Price{{ $invoice->frozen_on ? ' (' . $invoice->frozen_on->format('d-m-Y') . ')' : '' }}</span><span class="b">{{ $sym }}{{ $fmt($invoice->frozen_gold_rate) }}/gm</span>
+                    @endif
+                </td>
+                <td>
+                    <span class="lbl">Silver Market Price</span>{{ $sym }}{{ $fmt($invoice->silver_rate) }}/gm
+                    @if ((float) $invoice->frozen_silver_rate > 0)
+                        <span class="lbl" style="margin-top:2px;">Silver Billed Price{{ $invoice->frozen_on ? ' (' . $invoice->frozen_on->format('d-m-Y') . ')' : '' }}</span><span class="b">{{ $sym }}{{ $fmt($invoice->frozen_silver_rate) }}/gm</span>
+                    @endif
+                </td>
             </tr>
         </table>
 

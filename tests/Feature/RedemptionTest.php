@@ -382,7 +382,7 @@ class RedemptionTest extends TestCase
             ->assertSuccessful();
         $invoice->refresh();
         $this->assertEquals(120000, (float) $invoice->grand_total);
-        $this->assertEquals(6000, (float) $invoice->gold_rate);
+        $this->assertEquals(6000, (float) $invoice->frozen_gold_rate);
 
         // already at the frozen price → re-calibration leaves it alone
         $this->artisan('redemptions:recalibrate', ['--apply' => true])->expectsOutputToContain('0 re-calibrated')->assertSuccessful();
@@ -403,9 +403,51 @@ class RedemptionTest extends TestCase
         $this->assertEquals(116504.85, (float) $invoice->taxable_total);
         $this->assertEquals(3495.15, (float) $invoice->tax_total);
         $this->assertEquals(1747.58, (float) $invoice->cgst);
-        $this->assertEquals(6000, (float) $invoice->gold_rate);
+        $this->assertEquals(6000, (float) $invoice->frozen_gold_rate);
         $this->assertEquals(120000, (float) $invoice->lines()->sum('line_total'));
         $this->assertEquals(80, (float) Stock::where('branch_id', $branch->id)->where('catalog_product_id', $cp->id)->value('quantity'));   // stock untouched
+    }
+
+    /**
+     * Final confirmation, user 2026-11-13: the frozen price is the gold / silver price of the
+     * BILLED date — a gold item at that day's gold price, a silver item at that day's silver
+     * price — and the bill also carries the live market price of the redemption day.
+     */
+    public function test_redemption_prices_gold_and_silver_at_the_billed_date_and_shows_the_live_price(): void
+    {
+        $branch = Branch::create(['name' => 'Frozen Branch', 'country' => 'IN', 'level' => 'reseller', 'is_active' => true]);
+        $plan = $this->plan('550', 'digital');
+        $member = $this->member('FRZ1');
+        $bond = Bond::create(['member_id' => $member->id, 'plan_id' => $plan->id, 'branch_id' => $branch->id, 'bond_date' => '2026-10-17', 'value' => 50000, 'invoice_no' => 'INV-FRZ1', 'status' => 'active']);
+        // billed on 17 Oct at gold ₹6,000 / silver ₹120; today's live price is ₹5,000 / ₹100
+        SalesInvoice::create(['invoice_no' => 'INV-FRZ1', 'date' => '2026-10-17', 'customer_member_id' => $member->id, 'branch_id' => $branch->id, 'grand_total' => 50000, 'gold_rate' => 6000, 'silver_rate' => 120]);
+        $gold = $this->gold('GFRZ');
+        $silver = CatalogProduct::create(['code' => 'SFRZ', 'name' => ['en' => '10 g Silver'], 'material' => 'silver', 'default_weight' => 10, 'gm_margin' => 0, 'making_charge_pct' => 0, 'wastage_charge_pct' => 0, 'gst_pct' => 3, 'is_active' => true]);
+        Stock::create(['branch_id' => $branch->id, 'catalog_product_id' => $gold->id, 'quantity' => 100]);
+        Stock::create(['branch_id' => $branch->id, 'catalog_product_id' => $silver->id, 'quantity' => 100]);
+        // a silver QR staged the legacy way: the GOLD rate sits in its frozen rate
+        $qr = (new RedeemableQr)->forceFill(['bond_id' => $bond->id, 'member_id' => $member->id, 'branch_id' => $branch->id, 'invoice_no' => 'INV-FRZ1',
+            'qr_code' => 'QFRZ1', 'qr_mode' => 'silver', 'source' => RedeemableQr::SOURCE_LEGACY, 'priced_on' => '2026-10-17', 'frozen_rate' => 6000,
+            'cash_worth' => 50000, 'status' => 'pending']);
+        $qr->save();
+        $svc = app(RedemptionService::class);
+        $this->assertEquals(['gold' => 6000.0, 'silver' => 120.0, 'date' => '2026-10-17'], $svc->billedRates($qr));
+        $svc->generateOtp($qr);
+
+        $invoice = $svc->redeem(['qr_code' => 'QFRZ1', 'branch_id' => $branch->id, 'otp' => $qr->fresh()->otp, 'lines' => [
+            ['catalog_product_id' => $gold->id, 'unit_weight' => 1, 'quantity' => 10],      // 10 × 6,000 = 60,000
+            ['catalog_product_id' => $silver->id, 'unit_weight' => 10, 'quantity' => 5],    // 5 × 10 g × 120 = 6,000
+        ]])->fresh();
+
+        $this->assertEquals(66000, (float) $invoice->grand_total);
+        $lines = $invoice->lines()->orderBy('id')->get();
+        $this->assertEquals(6000, (float) $lines[0]->rate, 'gold item at the billed-date GOLD price');
+        $this->assertEquals(1200, (float) $lines[1]->rate, 'silver item at the billed-date SILVER price — never the gold price');
+        // on top of the bill: the live price; alongside it the frozen prices the calculation used
+        $this->assertEquals([5000.0, 100.0], [(float) $invoice->gold_rate, (float) $invoice->silver_rate]);
+        $this->assertEquals([6000.0, 120.0], [(float) $invoice->frozen_gold_rate, (float) $invoice->frozen_silver_rate]);
+        $this->assertEquals('2026-10-17', $invoice->frozen_on->toDateString());
+        $this->assertStringStartsWith('%PDF', app(\App\Services\Redeem\RedemptionInvoicePdf::class)->download($invoice)->getContent());
     }
 
     /** The tax-invoice PDF renders, and rupees-in-words uses Indian (lakh/crore) grouping. */

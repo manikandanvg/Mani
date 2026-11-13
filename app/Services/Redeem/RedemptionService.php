@@ -230,6 +230,7 @@ class RedemptionService
             // rateFor() is the ONE rate source — the redeem screen carts with it too, so the
             // invoice is exactly the cart the operator saw (user 2026-11-13, invoice 4598).
             $rate = $this->rateFor($qr, $country = $branch?->country ?: 'IN');
+            $market = $this->liveRate($country);
             // Mode B prices from this feed — refuse loudly when the region has no
             // rate row (the zero-rate stub would price every line at 0 and fail the
             // worth gate with a misleading "below the QR worth" message).
@@ -279,8 +280,13 @@ class RedemptionService
                 'buyer_gst' => $buyerGst = $this->resolveBuyerGst($member, $data['buyer_gst'] ?? null),
                 'payment_mode' => 'pending',
                 'payment_reference' => $qr->qr_code,
-                'gold_rate' => (float) ($rate->gold ?? 0),
-                'silver_rate' => (float) ($rate->silver ?? 0),
+                // header of the bill = the LIVE market price of the redemption day (as legacy printed it);
+                // the calculation uses the frozen (billed-date) prices, stamped alongside
+                'gold_rate' => (float) ($market->gold ?? 0),
+                'silver_rate' => (float) ($market->silver ?? 0),
+                'frozen_gold_rate' => (float) ($rate->gold ?? 0) ?: null,
+                'frozen_silver_rate' => (float) ($rate->silver ?? 0) ?: null,
+                'frozen_on' => $this->billedRates($qr, $market)['date'],
                 'taxable_total' => $taxable,
                 'cgst' => $tax['cgst'],
                 'sgst' => $tax['sgst'],
@@ -504,27 +510,71 @@ class RedemptionService
     }
 
     /**
-     * The metal rates a QR is carted AND billed at. A QR carried over from legacy is priced at
-     * the rate of ITS date (board 2026-11-01), not today's: that metal's rate is frozen onto the
-     * regional feed. The redeem screen and redeem() must both price from here — when the screen
+     * The metal rates a QR is carted AND billed at: the live regional feed with gold and silver
+     * replaced by the QR's FROZEN prices — those of its billed date (billedRates()). The redeem screen and redeem() must both price from here — when the screen
      * carted at today's rate and the invoice billed at the frozen one, a ₹4,00,085 cart came out
      * as a ₹4,10,245.86 invoice (user 2026-11-13).
      */
     public function rateFor(?RedeemableQr $qr, string $country = 'IN'): LiveRate
     {
         $rate = $this->liveRate($country);
-
-        return $qr && (float) $qr->frozen_rate > 0 ? $this->frozenRate($rate, $qr) : $rate;
-    }
-
-    /** The live feed with the QR's own metal priced at the QR's frozen rate. */
-    protected function frozenRate(LiveRate $live, RedeemableQr $qr): LiveRate
-    {
-        $r = $live->replicate();
+        $billed = $this->billedRates($qr, $rate);
+        if ($billed['gold'] <= 0 && $billed['silver'] <= 0) {
+            return $rate;
+        }
+        $r = $rate->replicate();
         $r->exists = true;
-        $r->{$qr->qr_mode === 'silver' ? 'silver' : 'gold'} = (float) $qr->frozen_rate;
+        foreach (['gold', 'silver'] as $metal) {
+            if ($billed[$metal] > 0) {
+                $r->{$metal} = $billed[$metal];
+            }
+        }
 
         return $r;
+    }
+
+    /**
+     * The FROZEN price of a QR = the gold AND the silver price of the day it was BILLED (final
+     * confirmation, user 2026-11-13 — legacy priced 569 of 606 later-day redemptions that way):
+     * a gold item is priced at that day's gold rate, a silver item at that day's silver rate,
+     * whatever the QR's own metal. Source: the rates stamped on the QR's original bill
+     * (sales_invoices.gold_rate / silver_rate); the QR's own stored rate wins for its own metal.
+     * 0 = not known for that metal → the live rate is used.
+     *
+     * Legacy silver QRs were staged with the GOLD rate as their frozen rate (₹15,465/g on a
+     * silver QR) — a stored silver rate that is really the bill's gold rate is ignored here.
+     *
+     * @return array{gold:float,silver:float,date:?string}
+     */
+    public function billedRates(?RedeemableQr $qr, ?LiveRate $live = null): array
+    {
+        $out = ['gold' => 0.0, 'silver' => 0.0, 'date' => null];
+        if (! $qr) {
+            return $out;
+        }
+        $sale = filled($qr->invoice_no)
+            ? \App\Models\SalesInvoice::where('invoice_no', $qr->invoice_no)->first(['date', 'gold_rate', 'silver_rate'])
+            : null;
+        $out['gold'] = (float) ($sale->gold_rate ?? 0);
+        $out['silver'] = (float) ($sale->silver_rate ?? 0);
+        $date = $sale->date ?? $qr->priced_on;
+        $out['date'] = $date ? Carbon::parse($date)->toDateString() : null;
+
+        $own = (float) $qr->frozen_rate;
+        if ($own > 0) {
+            $metal = $qr->qr_mode === 'silver' ? 'silver' : 'gold';
+            $reallyGold = $metal === 'silver' && (
+                ($sale && abs($own - (float) $sale->gold_rate) < 1)
+                || (! $sale && (float) ($live->silver ?? 0) > 0 && $own > 10 * (float) $live->silver)
+            );
+            if ($reallyGold) {
+                $out['gold'] = $out['gold'] ?: $own;
+            } else {
+                $out[$metal] = $own;
+            }
+        }
+
+        return $out;
     }
 
     protected function liveRate(string $country = 'IN'): LiveRate

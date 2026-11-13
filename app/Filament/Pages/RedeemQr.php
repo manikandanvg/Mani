@@ -267,6 +267,8 @@ class RedeemQr extends Page implements HasForms
             'qr_mode' => $lookup['qr']->qr_mode,
             'frozen_rate' => (float) ($lookup['frozen_rate'] ?? 0),
             'priced_on' => $lookup['priced_on'] ? \Illuminate\Support\Carbon::parse($lookup['priced_on'])->format('d M Y') : null,
+            // frozen prices = gold / silver of the billed date (shown next to today's live price)
+            'billed' => $svc->billedRates($lookup['qr'], $this->regionRate()),
         ];
 
         // Mode A is billing-branch-locked — pin the branch to the bond's branch.
@@ -496,13 +498,20 @@ class RedeemQr extends Page implements HasForms
         $colour = $ok ? '#16a34a' : '#dc2626';
         $note = $ok ? 'meets the QR worth' : 'below the QR worth — add more';
 
-        // a legacy QR is carted (and billed) at the metal rate of its own date — say so
-        $frozen = (float) ($this->ctx['frozen_rate'] ?? 0);
-        $rateNote = $frozen > 0
-            ? '<br><span style="color:#6b7280;font-size:.8rem">' . e(ucfirst((string) ($this->ctx['qr_mode'] ?? 'gold'))) . ' priced at '
-                . $sym . \App\Support\Money::group($frozen) . '/g — the rate of ' . e($this->ctx['priced_on'] ?? 'the QR date')
-                . '. Total includes making, wastage and GST; the tax invoice will be this amount.</span>'
-            : '<br><span style="color:#6b7280;font-size:.8rem">Total includes making, wastage and GST; the tax invoice will be this amount.</span>';
+        // The cart is calculated at the FROZEN price — gold / silver of the billed date, each item
+        // at its own metal's price — and today's live price is shown beside it (user 2026-11-13).
+        $used = $this->cartRate();
+        $live = $this->regionRate();
+        $billed = $this->ctx['billed'] ?? [];
+        $price = fn ($n) => $sym . \App\Support\Money::group((float) $n) . '/g';
+        $isFrozen = (float) ($billed['gold'] ?? 0) > 0 || (float) ($billed['silver'] ?? 0) > 0;
+        $rateNote = '<br><span style="color:#6b7280;font-size:.8rem">'
+            . ($isFrozen
+                ? '<b>Billed-date price' . (! empty($billed['date']) ? ' (' . e(\Illuminate\Support\Carbon::parse($billed['date'])->format('d M Y')) . ')' : '')
+                    . ' — used for this cart:</b> Gold ' . $price($used->gold) . ' · Silver ' . $price($used->silver)
+                    . ' &nbsp;|&nbsp; Live price today: Gold ' . $price($live?->gold) . ' · Silver ' . $price($live?->silver) . '.<br>'
+                : 'Live price today — used for this cart: Gold ' . $price($used->gold) . ' · Silver ' . $price($used->silver) . '.<br>')
+            . 'Total includes making, wastage and GST; the tax invoice will be this amount.</span>';
 
         return '<span style="font-size:1.25rem;font-weight:700;color:' . $colour . '">' . $sym . \App\Support\Money::group($total) . '</span>'
             . ' <span style="color:#6b7280">/ worth ' . $sym . \App\Support\Money::group($worth) . ' — ' . $note . '</span>' . $rateNote;

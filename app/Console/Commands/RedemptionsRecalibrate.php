@@ -40,7 +40,7 @@ class RedemptionsRecalibrate extends Command
 
         $invoices = RedemptionInvoice::with(['lines', 'qr', 'branch'])
             ->whereNull('legacy_restock')                                     // raised on the new system
-            ->whereHas('qr', fn ($q) => $q->where('frozen_rate', '>', 0))     // a past-dated QR
+            ->whereNotNull('redeemable_qr_id')->has('qr')
             ->when($one, fn ($q) => $q->whereKey($one), fn ($q) => $q->whereDate('invoice_date', '>=', (string) $this->option('since')))
             ->orderBy('id')->get();
 
@@ -51,7 +51,14 @@ class RedemptionsRecalibrate extends Command
             if (in_array($inv->tax_regime, ['vat', 'none'], true)) {
                 continue;
             }
-            $rate = $this->frozenRateFor($inv);
+            $billed = $svc->billedRates($inv->qr);
+            if ($billed['gold'] <= 0 && $billed['silver'] <= 0) {
+                continue;   // no billed-date price on record for this QR: it was (rightly) priced live
+            }
+            if ($inv->lines->contains(fn ($l) => (float) $l->unit_weight <= 0)) {
+                continue;   // Mode A: the cart IS the original bill's lines, already at billed-date prices
+            }
+            [$rate, $market] = $this->ratesFor($inv, $billed);
             $priced = [];
             foreach ($inv->lines as $l) {
                 $cp = $l->catalog_product_id ? CatalogProduct::find($l->catalog_product_id) : null;
@@ -73,26 +80,31 @@ class RedemptionsRecalibrate extends Command
             $sgst = round($gst - $cgst, 2);
             $grand = round($taxable + $gst, 2);
             if (abs($grand - (float) $inv->grand_total) < 0.01 && abs($taxable - (float) $inv->taxable_total) < 0.01) {
-                continue;   // already at the frozen price
+                // already at the frozen price — only make sure the bill carries the billed-date prices
+                if ($apply && $inv->frozen_gold_rate === null && $inv->frozen_silver_rate === null) {
+                    DB::table('redemption_invoices')->where('id', $inv->id)->update($this->headRates($rate, $market, $billed));
+                }
+
+                continue;
             }
             $changed++;
             $metal = $inv->qr->qr_mode === 'silver' ? 'silver' : 'gold';
             $table[] = [$inv->id, $inv->invoice_no, substr((string) $inv->invoice_date, 0, 10), mb_substr((string) $inv->branch?->name, 0, 22),
                 number_format((float) $inv->qr->cash_worth, 2),
-                number_format((float) $inv->{$metal . '_rate'}, 2) . ' → ' . number_format((float) $inv->qr->frozen_rate, 2),
+                number_format((float) ($inv->{'frozen_' . $metal . '_rate'} ?? $inv->{$metal . '_rate'}), 2) . ' → ' . number_format((float) $rate->{$metal}, 2),
                 number_format((float) $inv->grand_total, 2), number_format($grand, 2),
                 number_format($taxable, 2) . ' + ' . number_format($gst, 2)];
 
             if ($apply) {
-                DB::transaction(function () use ($inv, $priced, $rate, $taxable, $gst, $cgst, $sgst, $grand) {
+                $head = $this->headRates($rate, $market, $billed);
+                DB::transaction(function () use ($inv, $priced, $head, $taxable, $gst, $cgst, $sgst, $grand) {
                     foreach ($priced as [$l, $p]) {
                         DB::table('redemption_lines')->where('id', $l->id)->update([
                             'rate' => $p['rate'], 'making' => $p['making'], 'wastage' => $p['wastage'],
                             'gst_pct' => $p['gst_pct'], 'amount' => $p['amount'], 'line_total' => $p['line_total'],
                         ]);
                     }
-                    DB::table('redemption_invoices')->where('id', $inv->id)->update([
-                        'gold_rate' => (float) $rate->gold, 'silver_rate' => (float) $rate->silver,
+                    DB::table('redemption_invoices')->where('id', $inv->id)->update($head + [
                         'taxable_total' => $taxable, 'cgst' => $cgst, 'sgst' => $sgst, 'tax_total' => $gst,
                         'grand_total' => $grand, 'updated_at' => now(),
                     ]);
@@ -116,18 +128,35 @@ class RedemptionsRecalibrate extends Command
         return self::SUCCESS;
     }
 
-    /** The feed redeem() bills this invoice with: the day's live rates, the QR's own metal at its frozen price. */
-    protected function frozenRateFor(RedemptionInvoice $inv): LiveRate
+    /**
+     * [the feed redeem() bills with, the live market feed of the redemption day or null].
+     * Feed = gold and silver at the billed-date (frozen) prices; a metal with no billed-date price
+     * keeps the price the invoice was raised with.
+     *
+     * @return array{0:LiveRate,1:?LiveRate}
+     */
+    protected function ratesFor(RedemptionInvoice $inv, array $billed): array
     {
         $country = $inv->branch?->country ?: 'IN';
         $at = $inv->created_at ?: $inv->invoice_date;
-        $rate = LiveRate::where('country', $country)->where('effective_at', '<=', $at)->latest('effective_at')->first()
-            ?? LiveRate::where('country', $country)->oldest('effective_at')->first()
-            ?? new LiveRate(['gold' => 0, 'silver' => 0]);
-        $rate = $rate->replicate();
-        $rate->exists = true;
-        $rate->{$inv->qr->qr_mode === 'silver' ? 'silver' : 'gold'} = (float) $inv->qr->frozen_rate;
+        $market = LiveRate::where('country', $country)->where('effective_at', '<=', $at)->latest('effective_at')->first();
 
-        return $rate;
+        $rate = new LiveRate(['country' => $country]);
+        $rate->exists = true;
+        foreach (['gold', 'silver'] as $m) {
+            $rate->{$m} = $billed[$m] > 0 ? $billed[$m] : (float) ($market?->{$m} ?? $inv->{$m . '_rate'});
+        }
+
+        return [$rate, $market];
+    }
+
+    /** Invoice head: live market price on top of the bill (when that day is on record) + the frozen prices used. */
+    protected function headRates(LiveRate $rate, ?LiveRate $market, array $billed): array
+    {
+        return ($market ? ['gold_rate' => (float) $market->gold, 'silver_rate' => (float) $market->silver] : []) + [
+            'frozen_gold_rate' => (float) $rate->gold ?: null,
+            'frozen_silver_rate' => (float) $rate->silver ?: null,
+            'frozen_on' => $billed['date'] ?? null,
+        ];
     }
 }
