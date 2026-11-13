@@ -38,6 +38,12 @@ class RedemptionsRecalibrate extends Command
         $apply = (bool) $this->option('apply');
         $one = $this->option('id') ? (int) $this->option('id') : null;
 
+        if (! \Illuminate\Support\Facades\Schema::hasColumn('redemption_invoices', 'frozen_gold_rate')) {
+            $this->error('The frozen-price columns are missing. Run "php artisan migrate" first, then run this again.');
+
+            return self::FAILURE;
+        }
+
         $invoices = RedemptionInvoice::with(['lines', 'qr', 'branch'])
             ->whereNull('legacy_restock')                                     // raised on the new system
             ->whereNotNull('redeemable_qr_id')->has('qr')
