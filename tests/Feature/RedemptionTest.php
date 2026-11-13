@@ -343,6 +343,44 @@ class RedemptionTest extends TestCase
         $this->assertEquals('33ONRECORD9Z9', $inv2->buyer_gst);
     }
 
+    /**
+     * User 2026-11-13 (invoice 4598): an invoice billed at a legacy QR-date rate while the screen
+     * carted at the live rate is re-stated to the cart value by redemptions:audit-cart-rate.
+     */
+    public function test_audit_cart_rate_restates_invoice_to_the_cart_value(): void
+    {
+        $branch = Branch::create(['name' => 'Audit Branch', 'country' => 'IN', 'level' => 'reseller', 'is_active' => true]);
+        $plan = $this->plan('540', 'digital');
+        $member = $this->member('AUD1');
+        $bond = Bond::create(['member_id' => $member->id, 'plan_id' => $plan->id, 'branch_id' => $branch->id, 'bond_date' => now(), 'value' => 100000, 'invoice_no' => '4770', 'status' => 'active']);
+        $cp = $this->gold('GAUD');
+        Stock::create(['branch_id' => $branch->id, 'catalog_product_id' => $cp->id, 'quantity' => 100]);
+        $qr = (new RedeemableQr)->forceFill(['bond_id' => $bond->id, 'member_id' => $member->id, 'branch_id' => $branch->id, 'invoice_no' => '4770',
+            'qr_code' => 'QAUD1', 'qr_mode' => 'gold', 'source' => RedeemableQr::SOURCE_LEGACY, 'priced_on' => '2026-02-01', 'frozen_rate' => 6000,
+            'cash_worth' => 100000, 'status' => 'pending']);
+        $qr->save();
+        $svc = app(RedemptionService::class);
+        $svc->generateOtp($qr);
+
+        // billed at the QR-date ₹6,000: 20 g = 1,20,000 + 3 % = ₹1,23,600 (the screen had shown ₹1,03,000 at ₹5,000)
+        $invoice = $svc->redeem(['qr_code' => 'QAUD1', 'branch_id' => $branch->id, 'otp' => $qr->fresh()->otp,
+            'lines' => [['catalog_product_id' => $cp->id, 'unit_weight' => 1, 'quantity' => 20]]]);
+        $this->assertEquals(123600, (float) $invoice->grand_total);
+
+        $this->artisan('redemptions:audit-cart-rate', ['--id' => $invoice->id])->assertSuccessful();
+        $this->assertEquals(123600, (float) $invoice->fresh()->grand_total);   // dry run writes nothing
+
+        $this->artisan('redemptions:audit-cart-rate', ['--id' => $invoice->id, '--apply' => true])->assertSuccessful();
+        $invoice->refresh();
+        $this->assertEquals(103000, (float) $invoice->grand_total);
+        $this->assertEquals(100000, (float) $invoice->taxable_total);
+        $this->assertEquals(3000, (float) $invoice->tax_total);
+        $this->assertEquals(1500, (float) $invoice->cgst);
+        $this->assertEquals(5000, (float) $invoice->gold_rate);
+        $this->assertEquals(103000, (float) $invoice->lines()->sum('line_total'));
+        $this->assertEquals(80, (float) Stock::where('branch_id', $branch->id)->where('catalog_product_id', $cp->id)->value('quantity'));   // stock untouched
+    }
+
     /** The tax-invoice PDF renders, and rupees-in-words uses Indian (lakh/crore) grouping. */
     public function test_invoice_pdf_amount_in_words_and_renders(): void
     {

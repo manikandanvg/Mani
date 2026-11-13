@@ -208,12 +208,9 @@ class RedemptionService
             // the branch currency), so a foreign redemption prices in its own market.
             // Fresh query on purpose: LiveRate::latestFor's static memo outlives a
             // request only in long-lived processes (tests) and would serve stale rows.
-            $rate = $this->liveRate($country = $branch?->country ?: 'IN');
-            // A QR carried over from legacy is priced at the rate of ITS date (board
-            // 2026-11-01), not today's: that metal's rate is frozen onto the feed used below.
-            if ((float) $qr->frozen_rate > 0) {
-                $rate = $this->frozenRate($rate, $qr);
-            }
+            // rateFor() is the ONE rate source — the redeem screen carts with it too, so the
+            // invoice is exactly the cart the operator saw (user 2026-11-13, invoice 4598).
+            $rate = $this->rateFor($qr, $country = $branch?->country ?: 'IN');
             // Mode B prices from this feed — refuse loudly when the region has no
             // rate row (the zero-rate stub would price every line at 0 and fail the
             // worth gate with a misleading "below the QR worth" message).
@@ -480,6 +477,20 @@ class RedemptionService
         }
 
         return $this->cleanGst($typed);
+    }
+
+    /**
+     * The metal rates a QR is carted AND billed at. A QR carried over from legacy is priced at
+     * the rate of ITS date (board 2026-11-01), not today's: that metal's rate is frozen onto the
+     * regional feed. The redeem screen and redeem() must both price from here — when the screen
+     * carted at today's rate and the invoice billed at the frozen one, a ₹4,00,085 cart came out
+     * as a ₹4,10,245.86 invoice (user 2026-11-13).
+     */
+    public function rateFor(?RedeemableQr $qr, string $country = 'IN'): LiveRate
+    {
+        $rate = $this->liveRate($country);
+
+        return $qr && (float) $qr->frozen_rate > 0 ? $this->frozenRate($rate, $qr) : $rate;
     }
 
     /** The live feed with the QR's own metal priced at the QR's frozen rate. */

@@ -93,25 +93,46 @@ class RedemptionInvoicePdf
     }
 
     /**
-     * HSN-wise tax summary. Per line: taxable = amount + making + wastage; the GST
-     * already baked into line_total is split equally into CGST + SGST.
+     * HSN-wise tax summary. The invoice head is the authority (taxable / CGST / SGST as billed):
+     * it is shared over the HSN groups by their share of the goods value, the last group taking
+     * the rounding remainder — so the table always adds up to the totals printed above it,
+     * whether the lines were stored before GST, GST-inclusive, or imported from the old system.
      *
      * @return array<int,array{hsn:string,rate:float,taxable:float,cgst:float,sgst:float}>
      */
     protected function hsnSummary(RedemptionInvoice $invoice): array
     {
-        $rows = [];
+        $taxable = (float) $invoice->taxable_total;
+        $cgst = (float) $invoice->cgst;
+        $sgst = (float) $invoice->sgst;
+        $headRate = $taxable > 0 ? round(($cgst + $sgst) / $taxable * 100, 1) : 0.0;
+
+        $groups = [];
         foreach ($invoice->lines as $l) {
             $hsn = (string) ($l->hsn_code ?: '7113');
-            $taxable = round((float) $l->amount + (float) $l->making + (float) $l->wastage, 2);
-            $gst = round((float) $l->line_total - $taxable, 2);
-            $rows[$hsn] ??= ['hsn' => $hsn, 'rate' => (float) $l->gst_pct, 'taxable' => 0.0, 'cgst' => 0.0, 'sgst' => 0.0];
-            $rows[$hsn]['taxable'] += $taxable;
-            $rows[$hsn]['cgst'] += round($gst / 2, 2);
-            $rows[$hsn]['sgst'] += round($gst / 2, 2);
+            $value = (float) $l->line_total ?: (float) $l->amount + (float) $l->making + (float) $l->wastage;
+            $groups[$hsn] ??= ['hsn' => $hsn, 'rate' => (float) $l->gst_pct ?: $headRate, 'value' => 0.0];
+            $groups[$hsn]['value'] += $value;
+        }
+        if (! $groups) {
+            return [['hsn' => '7113', 'rate' => $headRate, 'taxable' => $taxable, 'cgst' => $cgst, 'sgst' => $sgst]];
         }
 
-        return array_values($rows);
+        $total = array_sum(array_column($groups, 'value'));
+        $left = ['taxable' => $taxable, 'cgst' => $cgst, 'sgst' => $sgst];
+        $rows = [];
+        $last = array_key_last($groups);
+        foreach ($groups as $hsn => $g) {
+            $share = $total > 0 ? $g['value'] / $total : 1 / count($groups);
+            $row = ['hsn' => $g['hsn'], 'rate' => $g['rate']];
+            foreach (['taxable' => $taxable, 'cgst' => $cgst, 'sgst' => $sgst] as $k => $whole) {
+                $row[$k] = $hsn === $last ? round($left[$k], 2) : round($whole * $share, 2);
+                $left[$k] -= $row[$k];
+            }
+            $rows[] = $row;
+        }
+
+        return $rows;
     }
 
     protected function filename(RedemptionInvoice $invoice): string

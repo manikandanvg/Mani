@@ -262,6 +262,11 @@ class RedeemQr extends Page implements HasForms
             'member' => $member ? trim(($member->member_code ?? '') . ' — ' . ($member->name ?? '')) : '—',
             'plan' => $plan ? (Translatable::pick($plan->name) ?: $plan->code) : '—',
             'cart' => $lookup['cart'],
+            // the cart below is priced exactly as redeem() will bill this QR
+            'qr_id' => $lookup['qr']->id,
+            'qr_mode' => $lookup['qr']->qr_mode,
+            'frozen_rate' => (float) ($lookup['frozen_rate'] ?? 0),
+            'priced_on' => $lookup['priced_on'] ? \Illuminate\Support\Carbon::parse($lookup['priced_on'])->format('d M Y') : null,
         ];
 
         // Mode A is billing-branch-locked — pin the branch to the bond's branch.
@@ -455,8 +460,27 @@ class RedeemQr extends Page implements HasForms
             return 0.0;
         }
 
-        return (float) app(RedemptionService::class)->priceLine($cp, $unitWeight, $quantity, $this->regionRate())['line_total'];
+        return (float) app(RedemptionService::class)->priceLine($cp, $unitWeight, $quantity, $this->cartRate())['line_total'];
     }
+
+    /**
+     * The rate feed the cart is priced with — RedemptionService::rateFor(), the very one redeem()
+     * bills with, so the invoice equals the cart on screen. A legacy QR prices its metal at the
+     * rate of its own date; carting it at today's rate showed ₹4,00,085 for a bill of ₹4,10,245.86
+     * (user 2026-11-13).
+     */
+    protected function cartRate(): \App\Models\LiveRate
+    {
+        $qrId = (int) ($this->ctx['qr_id'] ?? 0);
+        $country = $this->redeemBranch()?->country ?: 'IN';
+        $key = $qrId . '|' . $country;
+
+        return $this->cartRates[$key] ??= app(RedemptionService::class)
+            ->rateFor($qrId ? RedeemableQr::find($qrId) : null, $country);
+    }
+
+    /** @var array<string,\App\Models\LiveRate> per-request memo (not Livewire state) */
+    protected array $cartRates = [];
 
     protected function renderCartTotal(array $lines): string
     {
@@ -472,8 +496,16 @@ class RedeemQr extends Page implements HasForms
         $colour = $ok ? '#16a34a' : '#dc2626';
         $note = $ok ? 'meets the QR worth' : 'below the QR worth — add more';
 
+        // a legacy QR is carted (and billed) at the metal rate of its own date — say so
+        $frozen = (float) ($this->ctx['frozen_rate'] ?? 0);
+        $rateNote = $frozen > 0
+            ? '<br><span style="color:#6b7280;font-size:.8rem">' . e(ucfirst((string) ($this->ctx['qr_mode'] ?? 'gold'))) . ' priced at '
+                . $sym . \App\Support\Money::group($frozen) . '/g — the rate of ' . e($this->ctx['priced_on'] ?? 'the QR date')
+                . '. Total includes making, wastage and GST; the tax invoice will be this amount.</span>'
+            : '<br><span style="color:#6b7280;font-size:.8rem">Total includes making, wastage and GST; the tax invoice will be this amount.</span>';
+
         return '<span style="font-size:1.25rem;font-weight:700;color:' . $colour . '">' . $sym . \App\Support\Money::group($total) . '</span>'
-            . ' <span style="color:#6b7280">/ worth ' . $sym . \App\Support\Money::group($worth) . ' — ' . $note . '</span>';
+            . ' <span style="color:#6b7280">/ worth ' . $sym . \App\Support\Money::group($worth) . ' — ' . $note . '</span>' . $rateNote;
     }
 
     protected function renderModeACart(): string
