@@ -388,8 +388,9 @@ class GstAuditorReport
                 if ($material === 'cash') {
                     continue;
                 }
-                if ($r->legacy_restock !== null) {
-                    // imported from the Lord DB: unit_weight = pieces, amount = taxable incl. charges, no piece price
+                if ($r->legacy_restock !== null && $l->hsn_code === null) {
+                    // imported from the Lord DB BEFORE 2026-11-13 (NULL HSN): unit_weight = pieces, amount = taxable
+                    // incl. charges, no piece price. `legacy:import-redemptions --fix-lines` re-shapes them like native lines.
                     $pieces = (float) $l->unit_weight;
                     $perPiece = self::gramsPerPiece((string) $l->description) ?: (float) $l->default_weight;
                     $taxable = (float) $l->amount;
@@ -401,6 +402,13 @@ class GstAuditorReport
                     $perPiece = (float) $l->unit_weight ?: self::gramsPerPiece((string) $l->description);
                     $net = (float) $l->amount;
                     $taxable = $net + (float) $l->making + (float) $l->wastage;
+                    // redeemed on the new system since 2026-11-13: the GST is INSIDE the line value
+                    // (line_total = amount + making + wastage) — take it out of both figures
+                    $pct = (float) $l->gst_pct;
+                    if ($r->legacy_restock === null && $pct > 0 && abs((float) $l->line_total - $taxable) < 0.01) {
+                        $net = round($net / (1 + $pct / 100), 2);
+                        $taxable = round($taxable / (1 + $pct / 100), 2);
+                    }
                 }
                 $ls[] = ['material' => $material === 'silver' ? 'silver' : 'gold', 'pieces' => $pieces, 'grams' => $pieces * $perPiece,
                     'net' => $net, 'taxable' => $taxable];

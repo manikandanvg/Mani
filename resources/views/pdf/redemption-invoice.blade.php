@@ -93,6 +93,8 @@
                 <td style="width:50%;" rowspan="2">
                     <span class="lbl">Invoice To</span>
                     <span class="b">{{ $member?->name ?? '—' }}</span>@if ($member?->member_code) ({{ $member->member_code }})@endif<br>
+                    @php $buyerAddress = trim(implode(', ', array_filter([trim((string) $member?->address), trim((string) $member?->city)])) . ($member?->pincode ? ' - ' . $member->pincode : ''), ' ,-'); @endphp
+                    @if ($buyerAddress !== '')<span class="muted">{{ $buyerAddress }}</span><br>@endif
                     @if ($member?->phone)<span class="muted">Phone: {{ $member->phone }}</span><br>@endif
                     @if ($plan)<span class="muted">Scheme: {{ Translatable::pick($plan->name) ?: $plan->code }}</span><br>@endif
                     @if ($invoice->bond)<span class="muted">Bond/Contract: {{ $invoice->bond->invoice_no }}</span><br>@endif
@@ -207,11 +209,9 @@
             </tr>
         </table>
 
-    </div>
-
-    {{-- Foot band: QR codes + signatures, pinned just above the printed bank box --}}
-    <div class="overlay-foot">
-        <table style="border:0;">
+        {{-- QR codes + signatures FLOW under the declaration (they were pinned at 174 mm and
+             were over-printed once an invoice had a buyer address or a second HSN row) --}}
+        <table style="border:0; margin-top:5px;">
             <tr>
                 <td style="border:0; width:55%; vertical-align:top;">
                     @if (!empty($qrInvoice))
@@ -225,12 +225,14 @@
                     <span style="font-size:7.5px; color:#6b7280; margin-left:6mm;">Get it on Play Store</span>
                     <br><br><span class="b">Distributor Seal &amp; Signature</span>
                 </td>
-                <td style="border:0; width:45%; vertical-align:bottom;" class="right b red">
+                <td style="border:0; width:45%; vertical-align:top; padding-top:2mm;" class="right b red">
                     For {{ $company['legal_name'] }}<br><br><br>
                     <span class="muted b" style="color:#374151;">Authorised Signatory</span>
                 </td>
             </tr>
         </table>
+
     </div>
+
 </body>
 </html>

@@ -14,8 +14,8 @@ use Illuminate\Support\Facades\DB;
  * gold price of its own date, never the live price.
  *
  * Re-calibrates the redemption invoices raised on the new system (since 1 Nov 2026) on such QRs:
- * every line is re-priced at the QR's frozen price (making + wastage + 3 % GST as the catalog
- * sets them) and the invoice head follows. An invoice already standing at the frozen price comes
+ * every line is re-priced at the QR's frozen price — gold + making + wastage is the bill and the 3 % GST
+ * is taken OUT of it (RDM-HQ-0405: ₹4,10,245.86 = 3,98,296.95 + 11,948.91) — and the invoice head follows. An invoice already standing at the frozen price comes
  * out identical and is skipped, so this is safe to run again; one that was set to the live price
  * is brought back to the frozen price.
  *

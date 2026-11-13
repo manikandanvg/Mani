@@ -80,6 +80,26 @@ class GstAuditorReportTest extends TestCase
         return $inv;
     }
 
+    /**
+     * User 2026-11-13: a redemption is billed GST-INSIDE — the line value (gold + making + wastage)
+     * is the bill. The register takes the GST out of net value and charges, and still ties
+     * BILLING VALUE = TAXABLE + GST = the invoice grand total.
+     */
+    public function test_register_takes_the_gst_out_of_a_gst_inside_redemption(): void
+    {
+        $inv = $this->redeem('RDM-HQ-0001', '2026-11-13', $this->hq, [['1 g Gold', 1, 1.0, 13390, 5]]);   // value 14,059.50
+        $inv->update(['taxable_total' => 13650, 'cgst' => 204.75, 'sgst' => 204.75, 'tax_total' => 409.5, 'grand_total' => 14059.5]);
+        $inv->lines()->update(['line_total' => 14059.5]);
+
+        $r = (new GstAuditorReport('new', '2026-11-01', '2026-11-30'))->b2cRows()[0];
+
+        $this->assertSame(14059.5, $r['BILLING VALUE']);
+        $this->assertSame(13650.0, $r['TAXABLE AMOUNT']);
+        $this->assertSame(409.5, $r['GST (3%)']);
+        $this->assertSame(13000.0, $r['NET VALUE'], '13,390 a piece with its 3 % taken out');
+        $this->assertSame(650.0, $r['CHARGES  (MC(2.5%)+WC(2.5%))']);
+    }
+
     public function test_b2c_register_lists_redemptions_under_the_filing_gstin_one_row_per_invoice(): void
     {
         $this->redeem('4463', '2026-11-03', $this->hq, [['1 g Gold', 1, 1.0, 13390, 5], ['100 mg Gold', 6, 0.1, 1339, 40]]);
