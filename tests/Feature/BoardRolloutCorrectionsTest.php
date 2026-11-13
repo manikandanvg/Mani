@@ -93,6 +93,14 @@ class BoardRolloutCorrectionsTest extends TestCase
         $this->assertFalse($dealerOnly->availableAt($lords));
         $this->assertFalse($dealerOnly->availableAt($hq));
 
+        // user 2026-11-13: Head Office (HQ) only — G12 Forward contractors
+        $hqOnly = $this->plan('PHQ', 'hq');
+        $this->assertTrue($hqOnly->availableAt($hq));
+        $this->assertFalse($hqOnly->availableAt($dealer) || $hqOnly->availableAt($lords));
+        $this->assertSame([], Plan::availableFor('dealer')->where('code', 'PHQ')->pluck('code')->all());
+        $this->assertSame([], Plan::availableFor('branch')->where('code', 'PHQ')->pluck('code')->all());
+        $this->assertSame(['PHQ'], Plan::availableFor('branch', true)->where('code', 'PHQ')->pluck('code')->all());
+
         $this->assertEqualsCanonicalizing(['PALL', 'PDL'], Plan::availableFor('dealer')->whereIn('code', ['PALL', 'PBR', 'PDL'])->pluck('code')->all());
         $this->assertEqualsCanonicalizing(['PALL', 'PBR'], Plan::availableFor('branch')->whereIn('code', ['PALL', 'PBR', 'PDL'])->pluck('code')->all());
     }

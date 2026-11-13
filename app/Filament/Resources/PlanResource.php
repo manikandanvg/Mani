@@ -152,8 +152,8 @@ class PlanResource extends BaseResource
                     ->badge(),
                 Tables\Columns\TextColumn::make('available_to')
                     ->label('Available to')->badge()
-                    ->formatStateUsing(fn (?string $state) => match ($state ?: 'all') { 'branch' => "Lord's Branches", 'dealer' => 'Dealers', default => 'Both' })
-                    ->color(fn (?string $state) => match ($state ?: 'all') { 'branch' => 'info', 'dealer' => 'warning', default => 'gray' })
+                    ->formatStateUsing(fn (?string $state) => match ($state ?: 'all') { 'branch' => "Lord's Branches", 'dealer' => 'Dealers', 'hq' => 'Head Office only', default => 'Both' })
+                    ->color(fn (?string $state) => match ($state ?: 'all') { 'branch' => 'info', 'dealer' => 'warning', 'hq' => 'danger', default => 'gray' })
                     ->sortable(),
                 Tables\Columns\TextColumn::make('min_value')
                     ->numeric()
@@ -189,7 +189,7 @@ class PlanResource extends BaseResource
             ])
             ->filters([
                 Tables\Filters\SelectFilter::make('available_to')->label('Available to')
-                    ->options(['all' => 'Both', 'branch' => "Lord's Branches only", 'dealer' => 'Dealers only']),
+                    ->options(['all' => 'Both', 'branch' => "Lord's Branches only", 'dealer' => 'Dealers only', 'hq' => 'Head Office (HQ) only']),
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),

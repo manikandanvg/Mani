@@ -91,7 +91,7 @@ class SalesService
             abort_unless($plan->availableAt($branch), 422, sprintf(
                 'Scheme %s is available to %s only; this branch is a %s.',
                 $plan->code,
-                $plan->available_to === Plan::AVAILABLE_BRANCH ? "Lord's Branches" : 'dealers',
+                match ($plan->available_to) { Plan::AVAILABLE_HQ => 'Head Office', Plan::AVAILABLE_BRANCH => "Lord's Branches", default => 'dealers' },
                 $branch?->isLordBranch() ? "Lord's Branch" : 'dealer',
             ));
 

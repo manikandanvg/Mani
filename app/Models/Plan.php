@@ -41,10 +41,13 @@ class Plan extends Model
     public const AVAILABLE_ALL = 'all';
     public const AVAILABLE_BRANCH = 'branch';
     public const AVAILABLE_DEALER = 'dealer';
+    /** Head Office (HQ / admin) only — no dealer and no other Lord's Branch may bill it (user 2026-11-13, G12). */
+    public const AVAILABLE_HQ = 'hq';
     public const AVAILABILITY_LABELS = [
         self::AVAILABLE_ALL => "Both — Lord's Branches and dealers",
         self::AVAILABLE_BRANCH => "Lord's Branches only",
         self::AVAILABLE_DEALER => 'Dealers only',
+        self::AVAILABLE_HQ => 'Head Office (HQ) only',
     ];
 
     public static function availabilityLabel(?string $v): string
@@ -60,11 +63,15 @@ class Plan extends Model
             return true;
         }
 
+        if ($mode === self::AVAILABLE_HQ) {
+            return $branch->level === 'hq';
+        }
+
         return $branch->kindForSchemes() === $mode;
     }
 
     /** Query scope: schemes billable at a branch of this kind ('branch' | 'dealer'). */
-    public function scopeAvailableFor($query, ?string $kind)
+    public function scopeAvailableFor($query, ?string $kind, bool $isHq = false)
     {
         if (! $kind) {
             return $query;
@@ -72,7 +79,8 @@ class Plan extends Model
 
         return $query->where(fn ($q) => $q->whereNull('available_to')
             ->orWhere('available_to', self::AVAILABLE_ALL)
-            ->orWhere('available_to', $kind));
+            ->orWhere('available_to', $kind)
+            ->when($isHq, fn ($w) => $w->orWhere('available_to', self::AVAILABLE_HQ)));
     }
 
     public function mou() { return $this->belongsTo(Mou::class); }

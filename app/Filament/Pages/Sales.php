@@ -1080,7 +1080,7 @@ class Sales extends Page implements HasForms
 
         // Board 2026-10-24: schemes limited to Lord's Branches / dealers never show for the other kind.
         return Plan::where('is_active', true)
-            ->availableFor($branch?->kindForSchemes())
+            ->availableFor($branch?->kindForSchemes(), $branch?->level === 'hq')
             ->where('min_value', '<=', $grand)
             ->where(fn ($q) => $q->whereNull('max_value')->orWhere('max_value', '>=', $grand))
             ->when($types !== null, fn ($q) => $q->whereIn('type', $types))
