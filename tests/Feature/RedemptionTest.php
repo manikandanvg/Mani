@@ -79,11 +79,11 @@ class RedemptionTest extends TestCase
         $this->assertEquals(1000, (float) $branch->fresh()->gold_gm_margin);
         $this->assertEquals(1000, (float) \App\Models\ResellerCommission::where('branch_id', $branch->id)->where('com_type_id', 2)->sum('com_value'));
         $this->assertEquals(0, \App\Models\ResellerCommission::where('com_type_id', 1)->count());
-        // ₹1,00,000 of goods is the bill — the 3 % GST is INSIDE it (user 2026-11-13): 97,087.38 + 2,912.62
-        $this->assertEquals(100000, (float) $invoice->grand_total);
-        $this->assertEquals(97087.38, (float) $invoice->taxable_total);
-        $this->assertEquals(2912.62, (float) $invoice->tax_total);
-        $this->assertEquals(1456.31, (float) $invoice->cgst);
+        // ₹1,00,000 of goods + 3 % GST ON TOP = ₹1,03,000 (Lord's board 2026-11-14)
+        $this->assertEquals(103000, (float) $invoice->grand_total);
+        $this->assertEquals(100000, (float) $invoice->taxable_total);
+        $this->assertEquals(3000, (float) $invoice->tax_total);
+        $this->assertEquals(1500, (float) $invoice->cgst);
         // Description of Goods = the Catalog Product name in capitals (user 2026-11-13) …
         $this->assertEquals('GOLD 1G', $invoice->lines()->value('description'));
         // … and the 100 mg piece is "100 MG GOLD", never the old "1 MG GOLD"
@@ -370,21 +370,29 @@ class RedemptionTest extends TestCase
         $svc = app(RedemptionService::class);
         $svc->generateOtp($qr);
 
-        // billed at the QR-date ₹6,000: 20 g = ₹1,20,000, GST inside (the screen had shown ₹1,00,000 at ₹5,000)
+        // billed at the QR-date ₹6,000: 20 g = ₹1,20,000 + 3 % = ₹1,23,600 (the screen had shown ₹1,03,000 at ₹5,000)
         $invoice = $svc->redeem(['qr_code' => 'QAUD1', 'branch_id' => $branch->id, 'otp' => $qr->fresh()->otp,
             'lines' => [['catalog_product_id' => $cp->id, 'unit_weight' => 1, 'quantity' => 20]]]);
-        $this->assertEquals(120000, (float) $invoice->grand_total);
+        $this->assertEquals(123600, (float) $invoice->grand_total);
 
-        // the list is read-only: it reports the screen total (₹1,00,000) and the excess over the QR worth,
+        // the list is read-only: it reports the screen total (₹1,03,000) and the excess over the QR worth,
         // and the invoice keeps its frozen-price figures
         $this->artisan('redemptions:audit-cart-rate', ['--id' => $invoice->id])
-            ->expectsOutputToContain('above the QR worth: ₹20,000.00')
+            ->expectsOutputToContain('above the QR worth: ₹23,600.00')
             ->assertSuccessful();
         $invoice->refresh();
-        $this->assertEquals(120000, (float) $invoice->grand_total);
+        $this->assertEquals(123600, (float) $invoice->grand_total);
         $this->assertEquals(6000, (float) $invoice->frozen_gold_rate);
 
         // already at the frozen price → re-calibration leaves it alone
+        $this->artisan('redemptions:recalibrate', ['--apply' => true])->expectsOutputToContain('0 re-calibrated')->assertSuccessful();
+        $this->assertEquals(123600, (float) $invoice->fresh()->grand_total);
+
+        // an invoice raised 13–14 Nov 2026 at the frozen price with the GST taken OUT of the value
+        // (grand = rows) keeps its figures — the board's 14 Nov rule is for new invoices only
+        $inside = ['taxable_total' => 116504.85, 'cgst' => 1747.58, 'sgst' => 1747.57, 'tax_total' => 3495.15, 'grand_total' => 120000];
+        \Illuminate\Support\Facades\DB::table('redemption_invoices')->where('id', $invoice->id)->update($inside);
+        \Illuminate\Support\Facades\DB::table('redemption_lines')->where('redemption_invoice_id', $invoice->id)->update(['line_total' => 120000]);
         $this->artisan('redemptions:recalibrate', ['--apply' => true])->expectsOutputToContain('0 re-calibrated')->assertSuccessful();
         $this->assertEquals(120000, (float) $invoice->fresh()->grand_total);
 
@@ -399,12 +407,12 @@ class RedemptionTest extends TestCase
 
         $this->artisan('redemptions:recalibrate', ['--apply' => true])->expectsOutputToContain('1 re-calibrated')->assertSuccessful();
         $invoice->refresh();
-        $this->assertEquals(120000, (float) $invoice->grand_total);
-        $this->assertEquals(116504.85, (float) $invoice->taxable_total);
-        $this->assertEquals(3495.15, (float) $invoice->tax_total);
-        $this->assertEquals(1747.58, (float) $invoice->cgst);
+        $this->assertEquals(123600, (float) $invoice->grand_total);
+        $this->assertEquals(120000, (float) $invoice->taxable_total);
+        $this->assertEquals(3600, (float) $invoice->tax_total);
+        $this->assertEquals(1800, (float) $invoice->cgst);
         $this->assertEquals(6000, (float) $invoice->frozen_gold_rate);
-        $this->assertEquals(120000, (float) $invoice->lines()->sum('line_total'));
+        $this->assertEquals(123600, (float) $invoice->lines()->sum('line_total'));
         $this->assertEquals(80, (float) Stock::where('branch_id', $branch->id)->where('catalog_product_id', $cp->id)->value('quantity'));   // stock untouched
     }
 
@@ -439,7 +447,7 @@ class RedemptionTest extends TestCase
             ['catalog_product_id' => $silver->id, 'unit_weight' => 10, 'quantity' => 5],    // 5 × 10 g × 120 = 6,000
         ]])->fresh();
 
-        $this->assertEquals(66000, (float) $invoice->grand_total);
+        $this->assertEquals(67980, (float) $invoice->grand_total);   // 66,000 + 3 % GST on top
         $lines = $invoice->lines()->orderBy('id')->get();
         $this->assertEquals(6000, (float) $lines[0]->rate, 'gold item at the billed-date GOLD price');
         $this->assertEquals(1200, (float) $lines[1]->rate, 'silver item at the billed-date SILVER price — never the gold price');

@@ -62,7 +62,7 @@ class RedeemQrPageTest extends TestCase
             ->call('redeem')
             ->assertSet('ctx', null);   // reset after success
 
-        $this->assertDatabaseHas('redemption_invoices', ['member_id' => $member->id, 'grand_total' => 100000]);
+        $this->assertDatabaseHas('redemption_invoices', ['member_id' => $member->id, 'grand_total' => 103000]);
         $this->assertEquals('redeemed', $qr->fresh()->status);
     }
 
@@ -95,20 +95,20 @@ class RedeemQrPageTest extends TestCase
         \App\Models\Stock::create(['branch_id' => $branch->id, 'catalog_product_id' => $cp->id, 'quantity' => 100]);
         app(\App\Services\Redeem\RedemptionService::class)->generateOtp($qr);
 
-        // 20 × 1 g @ ₹6,000 = 1,20,000 + 5 % making/wastage = ₹1,26,000, the 3 % GST inside it
+        // 20 × 1 g @ ₹6,000 = 1,20,000 + 5 % making/wastage = 1,26,000 + 3 % GST on top = ₹1,29,780
         Livewire::test(RedeemQr::class)
             ->set('data.qr_code', 'QLEG1')
             ->set('data.branch_id', $branch->id)
             ->call('fetch')
             ->assertSet('ctx.frozen_rate', 6000.0)
             ->set('data.lines', [['catalog_product_id' => $cp->id, 'unit_weight' => 1, 'quantity' => 20]])
-            ->assertSee('1,26,000.00')          // the cart total the operator sees …
-            ->assertDontSee('1,05,000.00')      // … not the same cart at today's ₹5,000
+            ->assertSee('1,29,780.00')          // the cart total the operator sees …
+            ->assertDontSee('1,08,150.00')      // … not the same cart at today's ₹5,000
             ->set('data.otp', $qr->fresh()->otp)
             ->call('redeem')
             ->assertSet('ctx', null);
 
-        // … is the tax invoice, to the paisa: GST is taken out of it, never added on top
-        $this->assertDatabaseHas('redemption_invoices', ['member_id' => $member->id, 'taxable_total' => 122330.10, 'tax_total' => 3669.90, 'grand_total' => 126000]);
+        // … is the tax invoice, to the paisa: row value + 3 % GST
+        $this->assertDatabaseHas('redemption_invoices', ['member_id' => $member->id, 'taxable_total' => 126000, 'tax_total' => 3780, 'grand_total' => 129780]);
     }
 }

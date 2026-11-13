@@ -120,21 +120,33 @@
         </table>
 
         {{-- Line items --}}
+        @php
+            // Lord's board 2026-11-14 — INCLUSIVE bill: every row shows its own GST and an amount
+            // that already includes it, so the rows add up to the grand total (as on the Redeem
+            // screen cart). Used when the invoice was built with the GST on top of the rows; an
+            // imported / VAT / 13–14 Nov "GST inside" invoice keeps the older layout below.
+            $rowsValue = (float) $invoice->lines->sum(fn ($l) => (float) $l->amount + (float) $l->making + (float) $l->wastage);
+            $inclusive = $invoice->legacy_restock === null && (float) $totalGst > 0
+                && abs($rowsValue - (float) $invoice->taxable_total) < 0.06
+                && abs((float) $invoice->lines->sum('line_total') - (float) $invoice->grand_total) < 0.06;
+        @endphp
         <table class="items" style="margin-top:4px;">
             <thead>
                 <tr>
                     <th style="width:6%;">S.No</th>
-                    <th style="width:33%;">Description of Goods</th>
+                    <th style="width:{{ $inclusive ? 24 : 33 }}%;">Description of Goods</th>
                     <th style="width:11%;">HSN</th>
                     <th style="width:9%;">Wt (g)</th>
                     <th style="width:8%;">Qty</th>
                     <th style="width:11%;">Rate {{ $sym }}</th>
                     <th style="width:10%;">Making {{ $sym }}</th>
-                    <th style="width:12%;" class="right">Amount {{ $sym }}</th>
+                    @if ($inclusive)<th style="width:9%;">GST {{ $sym }}</th>@endif
+                    <th style="width:12%;" class="right">Amount {{ $sym }}@if ($inclusive)<br><span style="font-size:7px;">(incl. GST)</span>@endif</th>
                 </tr>
             </thead>
             <tbody>
                 @foreach ($invoice->lines as $i => $l)
+                    @php $rowValue = (float) $l->amount + (float) $l->making + (float) $l->wastage; @endphp
                     <tr>
                         <td class="center">{{ $i + 1 }}</td>
                         <td style="text-transform:uppercase;">{{ $l->description }}</td>
@@ -143,31 +155,48 @@
                         <td class="right">{{ $wt($l->quantity) }}</td>
                         <td class="right">{{ $fmt($l->rate) }}</td>
                         <td class="right">{{ $fmt((float) $l->making + (float) $l->wastage) }}</td>
-                        <td class="right b">{{ $fmt((float) $l->amount + (float) $l->making + (float) $l->wastage) }}</td>
+                        @if ($inclusive)<td class="right">{{ $fmt((float) $l->line_total - $rowValue) }}</td>@endif
+                        <td class="right b">{{ $fmt($inclusive ? (float) $l->line_total : $rowValue) }}</td>
                     </tr>
                 @endforeach
             </tbody>
             <tfoot>
+                @php $span = $inclusive ? 8 : 7; @endphp
+                @if ($inclusive)
                 <tr>
-                    <td colspan="7" class="right">Taxable Value</td>
+                    <td colspan="{{ $span }}" class="right b red" style="font-size:11px;">GRAND TOTAL (GST included)</td>
+                    <td class="right b red" style="font-size:11px;">{{ $sym }}{{ $fmt($invoice->grand_total) }}</td>
+                </tr>
+                <tr>
+                    <td colspan="{{ $span }}" class="right muted">Included in the above — Taxable Value</td>
+                    <td class="right muted">{{ $fmt($invoice->taxable_total) }}</td>
+                </tr>
+                <tr>
+                    <td colspan="{{ $span }}" class="right muted">Included in the above — {{ $taxLabel }}</td>
+                    <td class="right muted">{{ $fmt($totalGst) }}</td>
+                </tr>
+                @else
+                <tr>
+                    <td colspan="{{ $span }}" class="right">Taxable Value</td>
                     <td class="right">{{ $fmt($invoice->taxable_total) }}</td>
                 </tr>
                 <tr>
-                    <td colspan="7" class="right">{{ $taxLabel }}</td>
+                    <td colspan="{{ $span }}" class="right">{{ $taxLabel }}</td>
                     <td class="right">{{ $fmt($totalGst) }}</td>
                 </tr>
                 <tr>
-                    <td colspan="7" class="right b red" style="font-size:11px;">GRAND TOTAL</td>
+                    <td colspan="{{ $span }}" class="right b red" style="font-size:11px;">GRAND TOTAL</td>
                     <td class="right b red" style="font-size:11px;">{{ $sym }}{{ $fmt($invoice->grand_total) }}</td>
                 </tr>
+                @endif
                 @if ($showFx)
                 <tr>
-                    <td colspan="7" class="right muted" style="font-size:9px;">Approx. in {{ strtoupper($fxCode) }}</td>
+                    <td colspan="{{ $span }}" class="right muted" style="font-size:9px;">Approx. in {{ strtoupper($fxCode) }}</td>
                     <td class="right muted" style="font-size:9px;">{{ $fxSymbol }}{{ \App\Support\Money::group($fxGrand, 2, strtoupper($fxCode)) }}</td>
                 </tr>
                 @endif
                 <tr>
-                    <td colspan="8" style="text-transform:uppercase;"><span class="muted">Amount Chargeable (in words):</span> <span class="b">{{ $amountWords }}</span></td>
+                    <td colspan="{{ $span + 1 }}" style="text-transform:uppercase;"><span class="muted">Amount Chargeable (in words):</span> <span class="b">{{ $amountWords }}</span></td>
                 </tr>
             </tfoot>
         </table>

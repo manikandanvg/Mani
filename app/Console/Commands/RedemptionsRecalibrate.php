@@ -85,7 +85,11 @@ class RedemptionsRecalibrate extends Command
             $cgst = round($gst / 2, 2);
             $sgst = round($gst - $cgst, 2);
             $grand = round($taxable + $gst, 2);
-            if (abs($grand - (float) $inv->grand_total) < 0.01 && abs($taxable - (float) $inv->taxable_total) < 0.01) {
+            // Raised 13–14 Nov 2026 at the frozen price with the GST taken OUT of the row value (the
+            // rule of those two days): its grand total is today's taxable. The board moved the GST
+            // back on top on 14 Nov for NEW invoices only — these keep their figures.
+            $gstInsideAtFrozen = abs($taxable - (float) $inv->grand_total) < 0.01;
+            if ($gstInsideAtFrozen || (abs($grand - (float) $inv->grand_total) < 0.01 && abs($taxable - (float) $inv->taxable_total) < 0.01)) {
                 // already at the frozen price — only make sure the bill carries the billed-date prices
                 if ($apply && $inv->frozen_gold_rate === null && $inv->frozen_silver_rate === null) {
                     DB::table('redemption_invoices')->where('id', $inv->id)->update($this->headRates($rate, $market, $billed));

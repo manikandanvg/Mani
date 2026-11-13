@@ -32,7 +32,7 @@ use Illuminate\Support\Str;
  *     earns the gold/silver GM margin (no bill margin). Plans flagged `useraccess` may turn the
  *     customer into a dealer (branch + distributor) seeded with the redeemed stock.
  *
- * Pricing: rate + catalog making/wastage/hallmark is the billed value, GST INCLUDED in it (user
+ * Pricing: rate + catalog making/wastage/hallmark is the billed value, GST added ON TOP of it (board 2026-11-14; user
  * 2026-11-13) — no cash→gold reversal. A past-dated (legacy) QR prices its metal at the frozen
  * rate of its own date, on the redeem screen and on the invoice alike (rateFor()).
  */
@@ -137,19 +137,19 @@ class RedemptionService
     /**
      * A uniform internal line shape used by both modes.
      *
-     * GST IS INSIDE the value (user ruling 2026-11-13, invoice RDM-HQ-0405): gold + making +
-     * wastage is what the customer is billed (`line_total`), and the GST is taken OUT of it —
-     * ₹4,10,245.86 of goods → taxable 3,98,296.95 + GST 11,948.91 — never added on top
-     * (which made the same invoice ₹4,22,553.24).
+     * GST GOES ON TOP of the row (Lord's board 2026-11-14, invoice RDM-B1978-0042): rate +
+     * making + wastage is the row value (taxable) and the 3 % GST is added to it — the way a QR's
+     * worth is built. ₹2,01,836.26 of goods → GST 6,055.09 → grand ₹2,07,891.35.
+     * (13 to 14 Nov 2026 the GST was taken OUT of the row value instead; the invoices raised then
+     * keep their figures — line_total there equals amount + making + wastage.)
      */
     protected function normaliseLine(?CatalogProduct $cp, string $description, float $quantity, float $rate, float $making = 0, float $wastage = 0, float $unitWeight = 0, ?float $amount = null): array
     {
         $amount ??= round($quantity * $rate, 2);
         $hallmark = round((float) ($cp->hallmark_charge ?? 0) * $quantity, 2);
         $gstPct = (float) ($cp->gst_pct ?? 3);
-        $value = round($amount + $making + $wastage + $hallmark, 2);
-        $taxable = round($value / (1 + $gstPct / 100), 2);
-        $gst = round($value - $taxable, 2);
+        $taxable = round($amount + $making + $wastage + $hallmark, 2);
+        $gst = round($taxable * $gstPct / 100, 2);
 
         return [
             'catalog_product_id' => $cp?->id,
@@ -165,7 +165,7 @@ class RedemptionService
             'amount' => $amount,
             'taxable' => $taxable,
             'gst' => $gst,
-            'line_total' => $value,
+            'line_total' => round($taxable + $gst, 2),
         ];
     }
 
@@ -248,11 +248,6 @@ class RedemptionService
 
             $taxable = round(array_sum(array_column($lines, 'taxable')), 2);
             $gst = round(array_sum(array_column($lines, 'gst')), 2);
-            // A VAT / tax-free branch has no GST inside its prices: the whole value is taxable
-            // there and its own tax (if any) goes on top, as before.
-            if (in_array($branch?->tax_regime, ['vat', 'none'], true)) {
-                $taxable = round(array_sum(array_column($lines, 'line_total')), 2);
-            }
             // Tax follows the branch regime (GST split / flat VAT / none).
             $tax = $branch
                 ? $branch->taxOn($taxable, $gst)
