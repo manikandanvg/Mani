@@ -48,7 +48,8 @@ class RdCollectionService
             // legacy fetchrdsalesdetails way (see renewalQuote) — the branch cannot edit it.
             $quote = $this->renewalQuote($bond);
             $fixedAmount = $quote['total'] ?? null;
-            if ($fixedAmount !== null) {
+            // a bond with no first-month amount on record has nothing to fix against
+            if ($fixedAmount !== null && $fixedAmount > 0) {
                 $amount = $fixedAmount;
             }
             abort_unless($amount > 0, 422, 'Installment amount must be greater than zero.');
