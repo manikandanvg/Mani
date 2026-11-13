@@ -47,7 +47,9 @@ class SettlementService
             // Legacy contracts (tbl_bond carried over at go-live) are never auto-settled:
             // HQ closes / settles each one by hand on the Settlements page.
             ->where('source', '!=', MemberContract::SOURCE_LEGACY)
-            ->whereHas('plan', fn ($q) => $q->whereNotNull('settlement_cycle_months'))
+            // Gold Saving (type rd) is never auto-settled either (board 2026-11-13): the saver
+            // hands the coins back first — GoldSavingSettlementService, on the Settlements page.
+            ->whereHas('plan', fn ($q) => $q->whereNotNull('settlement_cycle_months')->where('type', '!=', 'rd'))
             ->orderBy('id')
             ->chunkById(100, function ($contracts) use ($today, &$count) {
                 foreach ($contracts as $contract) {

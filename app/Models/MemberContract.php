@@ -31,6 +31,9 @@ class MemberContract extends Model
     /** Admin-generated settlements (board phase 2, 2026-08-28) — at most one per contract. */
     public function settlements() { return $this->hasMany(ContractSettlement::class); }
 
+    /** Gold Saving settlement (board 2026-11-13): coins back, then a gold / silver QR. */
+    public function rdSettlement() { return $this->hasOne(RdSettlement::class); }
+
     public function isExpired(): bool
     {
         return \App\Services\ContractSettlementService::isExpired($this);

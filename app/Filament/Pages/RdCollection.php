@@ -100,12 +100,12 @@ class RdCollection extends Page implements HasForms
                         ->numeric()
                         ->minValue(1)
                         ->required()
-                        ->disabled(fn (Get $get) => (float) (Bond::with('plan')->find($get('bond_id'))?->plan?->rd_qr_grams ?? 0) > 0)
+                        // Lord's board 2026-11-13: no Gold Saving renewal amount is editable
+                        ->disabled()
                         ->dehydrated()
                         ->helperText(function (Get $get) {
                             $bond = Bond::with('plan')->find($get('bond_id'));
-                            $plan = $bond?->plan;
-                            if (! $plan || (float) $plan->rd_qr_grams <= 0) {
+                            if (! $bond?->plan) {
                                 return null;
                             }
                             // show how the fixed amount is built, so the counter can answer the saver
@@ -114,20 +114,23 @@ class RdCollection extends Page implements HasForms
                             } catch (\Throwable) {
                                 return 'Fixed: current gold price (incl. making/wastage/GST) — not editable. No live gold rate set.';
                             }
+                            if (! $q) {
+                                return null;
+                            }
+                            $money = fn (float $v) => '₹' . \App\Support\Money::group($v);
                             if ($q['mode'] === 'bond_value') {
-                                return 'Fixed, not editable: the saving value of this contract (₹' . \App\Support\Money::group($q['total']) . ' every month).';
+                                return 'Fixed, not editable: the first month amount of this contract (' . $money($q['total']) . ' every month).';
                             }
                             $b = $q['breakup'];
                             $pct = fn (float $v) => rtrim(rtrim(number_format($v, 2), '0'), '.') . ' %';
                             $mg = rtrim(rtrim(number_format($b['grams'] * 1000, 1), '0'), '.');
 
-                            return 'Fixed, not editable: ' . $q['units'] . ' × ' . $mg . ' mg (₹' . \App\Support\Money::group((float) $bond->value)
-                                . ' ÷ ₹' . \App\Support\Money::group(RdCollectionService::LEGACY_RD_UNIT_VALUE) . ') at ₹' . \App\Support\Money::group($b['total']) . ' each = '
-                                . $mg . ' mg gold ₹' . \App\Support\Money::group($b['metal'])
-                                . ' + making ' . $pct($b['making_pct']) . ' ₹' . \App\Support\Money::group($b['making'])
-                                . ' + wastage ' . $pct($b['wastage_pct']) . ' ₹' . \App\Support\Money::group($b['wastage'])
-                                . ' + GST ' . $pct($b['gst_pct']) . ' ₹' . \App\Support\Money::group($b['gst'])
-                                . ' (Charge Brackets).';
+                            return 'Fixed, not editable: ' . $q['units'] . ' × ' . $mg . ' mg at the price of today ' . $money($b['total']) . ' each ('
+                                . $mg . ' mg gold ' . $money($b['metal'])
+                                . ' + making ' . $pct($b['making_pct']) . ' ' . $money($b['making'])
+                                . ' + wastage ' . $pct($b['wastage_pct']) . ' ' . $money($b['wastage'])
+                                . ' + GST ' . $pct($b['gst_pct']) . ' ' . $money($b['gst'])
+                                . ', Charge Brackets). A gold QR for ' . $q['units'] . ' × ' . $mg . ' mg is given with this payment.';
                         }),
                     Textarea::make('remarks')->label('Remarks')->rows(2)->columnSpanFull(),
                     Hidden::make('branch_id'),

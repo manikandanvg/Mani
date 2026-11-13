@@ -116,39 +116,43 @@ class RdCollectionService
     }
 
     /**
-     * Fixed renewal amount of a G11 gold-QR bond, exactly as legacy admin/trade/
-     * fetchrdsalesdetails prefilled it (read-only) — null for variable plans (PLUS3):
+     * The renewal amount of a Gold Saving bond — fixed, never editable (Lord's board 2026-11-13):
      *
-     *   PLUS1 (legacy 210, rd_qr_on 'always'): intdiv(bond value, ₹1,500) units × today's
-     *          100 mg price incl. making/wastage/GST — a ₹1,00,000 saver renews 66 × 100 mg,
-     *          a ₹1,500 saver 1 × 100 mg (never fewer than one unit).
-     *   PLUS2 (legacy 209, 'first_renewal'): the bond's own monthly value (₹48,000 → ₹48,000).
+     *   PLUS 1            pieces × today's 100 mg price incl. making/wastage/GST, a gold QR for
+     *                     the pieces every month. Pieces are fixed at joining (bill ÷ that day's
+     *                     100 mg price); a bond from before the rule: bond value ÷ ₹1,500.
+     *   PLUS 2, month 2   pieces (joining ÷ ₹1,500) × today's 100 mg price, with the gold QR.
+     *   PLUS 2 otherwise  the joining amount, no QR.
+     *   PLUS 3            the joining amount, no QR.
      *
-     * User 2026-11-06: both had renewed at ONE 100 mg price whatever the bond value.
+     * null = not a Gold Saving bond.
      *
-     * @return array{mode: string, units: int, unit_price: float|null, total: float, breakup: array|null}|null
+     * @return array{mode: string, units: int, unit_price: float|null, total: float, breakup: array|null, qr: bool}|null
      */
     public function renewalQuote(Bond $bond): ?array
     {
         $plan = $bond->plan ?? $bond->load('plan')->plan;
-        if (! $plan || (float) $plan->rd_qr_grams <= 0) {
+        $variant = \App\Services\Rd\GoldSavingRules::variant($plan);
+        if ($variant === null) {
             return null;
         }
+        $units = \App\Services\Rd\GoldSavingRules::pieces($bond);
+        $gold = $variant === \App\Services\Rd\GoldSavingRules::PLUS1
+            || ($variant === \App\Services\Rd\GoldSavingRules::PLUS2 && self::nextDueNumber($bond) === 2);
 
-        if ($plan->rd_qr_on === 'first_renewal') {
-            return ['mode' => 'bond_value', 'units' => 1, 'unit_price' => null,
-                'total' => round((float) $bond->value, 2), 'breakup' => null];
+        if (! $gold) {
+            return ['mode' => 'bond_value', 'units' => $units, 'unit_price' => null,
+                'total' => \App\Services\Rd\GoldSavingRules::firstDue($bond), 'breakup' => null, 'qr' => false];
         }
 
         $breakup = app(\App\Services\Qr\GoldQrPricing::class)->breakup($plan);
-        $units = max(1, intdiv((int) floor((float) $bond->value), self::LEGACY_RD_UNIT_VALUE));
 
         return ['mode' => 'gold_units', 'units' => $units, 'unit_price' => $breakup['total'],
-            'total' => round($breakup['total'] * $units, 2), 'breakup' => $breakup];
+            'total' => round($breakup['total'] * $units, 2), 'breakup' => $breakup, 'qr' => true];
     }
 
-    /** Legacy fetchrdsalesdetails: one 100 mg unit per ₹1,500 of the PLUS1 bond value. */
-    public const LEGACY_RD_UNIT_VALUE = 1500;
+    /** Old-system basis: one 100 mg piece per ₹1,500 of the bond value. */
+    public const LEGACY_RD_UNIT_VALUE = \App\Services\Rd\GoldSavingRules::LEGACY_UNIT_VALUE;
 
     /**
      * Dues PAID on the bond, the registration payment included (user 2026-11-06:
@@ -190,10 +194,9 @@ class RdCollectionService
     }
 
     /**
-     * RD ceiling (schema v2 item 12): a bond can never collect beyond its plan's
-     * validity. Fixed-amount (gold-QR) plans count installments — joining + renewals
-     * ≤ validity months. Variable plans (PLUS3) cap the rupee total at monthly ×
-     * validity and only accept whole multiples of the monthly amount.
+     * RD ceiling (schema v2 item 12): a bond can never collect beyond its plan's validity —
+     * the joining payment is due #1, renewals fill the remaining validity − 1 dues. Every
+     * renewal is exactly one due now (board 2026-11-13: no editable amount).
      */
     protected function assertWithinRdLimit(Bond $bond, $plan, float $amount, bool $fixed): void
     {
@@ -201,54 +204,22 @@ class RdCollectionService
         if ($validity <= 0) {
             return;
         }
-
-        if ($fixed) {
-            // joining consumed installment 1; renewals may fill the remaining validity-1
-            $collected = RdEntry::where('bond_id', $bond->id)->count();
-            abort_if($collected + 1 > $validity - 1, 422,
-                "Gold Saving limit reached: this {$validity}-month scheme has no dues left to renew.");
-
-            return;
-        }
-
-        $monthly = (float) $bond->value;
-        if ($monthly <= 0) {
-            return;     // no monthly baseline on record — nothing to enforce against
-        }
-
-        $units = $amount / $monthly;
-        abort_if(abs($units - round($units)) > 0.001, 422,
-            'Renewal must be a whole multiple of the monthly amount (₹' . \App\Support\Money::group($monthly) . ').');
-
-        $paid = $monthly + (float) RdEntry::where('bond_id', $bond->id)->sum('value');
-        abort_if($paid + $amount > $monthly * $validity + 0.01, 422,
-            "Gold Saving limit reached: total collections cannot exceed {$validity} × the monthly amount.");
+        abort_if(self::duesCovered($bond) + 1 > $validity - 1, 422,
+            "Gold Saving limit reached: this {$validity}-month scheme has no dues left to renew.");
     }
 
     /**
-     * G11 renewal QRs: 'always' (PLUS1) mints a gold QR on every renewal — 11 over the
-     * scheme's life including the billing QR; 'first_renewal' (PLUS2) mints its single
-     * QR only on renewal #1 (none at billing, none later).
+     * Renewal gold QR: PLUS 1 every month, PLUS 2 in month 2 only — for the bond's 100 mg
+     * pieces, worth what the saver paid that day and redeemed at that day's gold price.
      */
     protected function mintRenewalQr(Bond $bond, $plan, int $dueCount, ?array $quote): void
     {
-        if (! $plan->is_redeem || $quote === null || $quote['total'] <= 0) {
+        if (! $plan->is_redeem || $quote === null || empty($quote['qr']) || $quote['total'] <= 0) {
             return;
         }
-        $shouldMint = $plan->rd_qr_on === 'always'
-            || ($plan->rd_qr_on === 'first_renewal' && $dueCount === 2);   // first renewal = due #2
-        if (! $shouldMint) {
-            return;
-        }
-
-        // PLUS1: the QR backs every 100 mg unit the renewal bought (66 units = 6.6 g).
-        // PLUS2: its one QR stays a single 100 mg piece at today's price.
-        [$worth, $grams] = $quote['mode'] === 'gold_units'
-            ? [$quote['total'], round((float) $plan->rd_qr_grams * $quote['units'], 4)]
-            : [app(\App\Services\Qr\GoldQrPricing::class)->price($plan), (float) $plan->rd_qr_grams];
 
         $this->pendingQrId = app(\App\Services\Qr\RedeemableQrService::class)
-            ->mintSettlementQr($bond, $worth, $grams)->id;
+            ->mintSettlementQr($bond, $quote['total'], round((float) $plan->rd_qr_grams * $quote['units'], 4), 'gold', true)->id;
     }
 
     /**

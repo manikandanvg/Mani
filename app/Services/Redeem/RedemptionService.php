@@ -557,7 +557,8 @@ class RedemptionService
             : null;
         $out['gold'] = (float) ($sale->gold_rate ?? 0);
         $out['silver'] = (float) ($sale->silver_rate ?? 0);
-        $date = $sale->date ?? $qr->priced_on;
+        // a QR priced on its own day (Gold Saving renewal / settlement) shows that day
+        $date = ((float) $qr->frozen_rate > 0 && $qr->priced_on) ? $qr->priced_on : ($sale->date ?? $qr->priced_on);
         $out['date'] = $date ? Carbon::parse($date)->toDateString() : null;
 
         $own = (float) $qr->frozen_rate;

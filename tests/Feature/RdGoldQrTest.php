@@ -126,18 +126,75 @@ class RdGoldQrTest extends TestCase
         $this->assertEquals(1, RdCollectionService::duesCovered($bond));
     }
 
-    /** Legacy plan 209: a PLUS2 renewal is the bond's own monthly value; its one QR stays 100 mg. */
-    public function test_plus2_renewal_is_the_bond_value_like_legacy(): void
+    /**
+     * Lord's board 2026-11-13 — PLUS 2: month 2 collects pieces (joining ÷ ₹1,500) × that day's
+     * 100 mg price and gives the gold QR for those pieces; every other month is the joining amount.
+     */
+    public function test_plus2_month_two_collects_the_gold_price_then_the_joining_amount(): void
     {
-        $plan = $this->rdPlan(['rd_qr_grams' => 0.100, 'rd_qr_on' => 'first_renewal']);
-        $bond = $this->bond($plan, $this->member('RQ7'), 48000);
+        $plan = $this->rdPlan(['rd_qr_grams' => 0.100, 'rd_qr_on' => 'first_renewal', 'rd_step' => 1500, 'min_value' => 1500]);
+        $bond = $this->bond($plan, $this->member('RQ7'), 3000);
+        $svc = app(RdCollectionService::class);
 
-        $entry = app(RdCollectionService::class)->collect(['bond_id' => $bond->id, 'branch_id' => $this->branch->id, 'amount' => 721]);
-        $this->assertEquals(48000.0, (float) $entry->value);
-
+        $second = $svc->collect(['bond_id' => $bond->id, 'branch_id' => $this->branch->id, 'amount' => 1]);
+        $this->assertEquals(2 * 721.0, (float) $second->value);          // 2 pieces × ₹721, not ₹3,000
         $qr = RedeemableQr::where('bond_id', $bond->id)->firstOrFail();
-        $this->assertEquals(721.0, (float) $qr->cash_worth);
-        $this->assertEquals(0.1, (float) $qr->gram_worth);
+        $this->assertEquals(1442.0, (float) $qr->cash_worth);
+        $this->assertEquals(0.2, (float) $qr->gram_worth);
+        $this->assertEquals(7000.0, (float) $qr->frozen_rate);           // redeemed at that day's price
+
+        $third = $svc->collect(['bond_id' => $bond->id, 'branch_id' => $this->branch->id, 'amount' => 99999]);
+        $this->assertEquals(3000.0, (float) $third->value);              // the joining amount, whatever was typed
+        $this->assertEquals(1, RedeemableQr::where('bond_id', $bond->id)->count());
+    }
+
+    /**
+     * Lord's board 2026-11-13 — joining amounts: PLUS 1 in whole 100 mg pieces at today's price
+     * (pieces kept for the scheme), PLUS 2 in ₹1,500 multiples, PLUS 3 from ₹1,000 in ₹500 steps.
+     */
+    public function test_joining_amounts_follow_the_board_rules(): void
+    {
+        $bill = fn (Plan $plan, float $amount, string $phone) => app(SalesService::class)->generateInvoice([
+            'branch_id' => $this->branch->id, 'plan_id' => $plan->id, 'gold_rate' => 7000,
+            'customer' => ['name' => 'GS ' . $phone, 'phone' => $phone],
+            'cart' => [['material' => 'cash', 'net_total' => $amount, 'grand_total' => $amount]],
+        ]);
+        $refused = function (Plan $plan, float $amount, string $phone) use ($bill) {
+            try {
+                $bill($plan, $amount, $phone);
+            } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
+                return $e->getMessage();
+            }
+            $this->fail("₹{$amount} should have been refused for {$plan->code}.");
+        };
+
+        // PLUS 1: 100 mg today = ₹721 → 3 pieces = ₹2,163
+        $plus1 = $this->rdPlan(['rd_qr_grams' => 0.100, 'rd_qr_on' => 'always']);
+        $this->assertStringContainsString('721.00', $refused($plus1, 1500, '9000000071'));
+        $bill($plus1, 2163, '9000000072');
+        $bond = Bond::where('plan_id', $plus1->id)->firstOrFail();
+        $this->assertSame(3, (int) $bond->rd_pieces);
+        $qr = RedeemableQr::where('bond_id', $bond->id)->firstOrFail();
+        $this->assertEquals(2163.0, (float) $qr->cash_worth);            // the QR backs all three pieces
+        $this->assertEquals(0.3, (float) $qr->gram_worth);
+
+        // the price moves: the renewal is still 3 pieces, at the new price
+        LiveRate::query()->update(['gold' => 8000]);
+        $entry = app(RdCollectionService::class)->collect(['bond_id' => $bond->id, 'branch_id' => $this->branch->id, 'amount' => 1]);
+        $this->assertEquals(3 * 824.0, (float) $entry->value);           // 800 + 3 % = 824 each
+
+        // PLUS 2: ₹1,500 multiples
+        $plus2 = $this->rdPlan(['rd_qr_grams' => 0.100, 'rd_qr_on' => 'first_renewal', 'rd_step' => 1500, 'min_value' => 1500]);
+        $refused($plus2, 2000, '9000000073');
+        $bill($plus2, 4500, '9000000074');
+        $this->assertSame(3, (int) Bond::where('plan_id', $plus2->id)->value('rd_pieces'));
+
+        // PLUS 3: ₹1,000 minimum, ₹500 steps
+        $plus3 = $this->rdPlan(['is_redeem' => false, 'rd_step' => 500, 'min_value' => 1000]);
+        $refused($plus3, 500, '9000000075');
+        $refused($plus3, 1200, '9000000076');
+        $bill($plus3, 2500, '9000000077');
+        $this->assertEquals(2500.0, (float) Bond::where('plan_id', $plus3->id)->value('value'));
     }
 
     /** The gold a scheme's gold share buys = the legacy cash→gold conversion, not worth ÷ rate. */
@@ -198,27 +255,21 @@ class RdGoldQrTest extends TestCase
         $svc->collect(['bond_id' => $bond->id, 'branch_id' => $this->branch->id, 'amount' => 1]);
     }
 
-    /** Item 12: variable RD (PLUS3-style) takes whole multiples of the monthly and caps the total. */
-    public function test_variable_rd_multiples_and_total_cap(): void
+    /** Lord's board 2026-11-13: a PLUS 3 renewal is always the joining amount — not editable. */
+    public function test_plus3_renewal_is_the_joining_amount_and_stops_at_validity(): void
     {
-        $plan = $this->rdPlan(['validity_months' => 11, 'is_redeem' => false]);
+        $plan = $this->rdPlan(['validity_months' => 3, 'is_redeem' => false]);
         $bond = $this->bond($plan, $this->member('RQ4'), 1500);
         $svc = app(RdCollectionService::class);
 
-        // The item-11 example: 1500, then a 3000 double-due — both fine.
-        $svc->collect(['bond_id' => $bond->id, 'branch_id' => $this->branch->id, 'amount' => 1500]);
-        $svc->collect(['bond_id' => $bond->id, 'branch_id' => $this->branch->id, 'amount' => 3000]);
+        // whatever the counter types, one month's amount is collected
+        $this->assertEquals(1500.0, (float) $svc->collect(['bond_id' => $bond->id, 'branch_id' => $this->branch->id, 'amount' => 3000])->value);
+        $this->assertEquals(1500.0, (float) $svc->collect(['bond_id' => $bond->id, 'branch_id' => $this->branch->id, 'amount' => 2000])->value);
+        $this->assertEquals(0, RedeemableQr::where('bond_id', $bond->id)->count());
 
-        // Not a multiple of ₹1500 → rejected.
-        try {
-            $svc->collect(['bond_id' => $bond->id, 'branch_id' => $this->branch->id, 'amount' => 2000]);
-            $this->fail('Non-multiple renewal should have been rejected.');
-        } catch (\Symfony\Component\HttpKernel\Exception\HttpException) {
-        }
-
-        // Cap: total is 11 × 1500 = 16,500; joining 1500 + 4500 collected → 10,500 headroom.
+        // joining + 2 renewals = 3 months: nothing left
         $this->expectException(\Symfony\Component\HttpKernel\Exception\HttpException::class);
-        $svc->collect(['bond_id' => $bond->id, 'branch_id' => $this->branch->id, 'amount' => 12000]);
+        $svc->collect(['bond_id' => $bond->id, 'branch_id' => $this->branch->id, 'amount' => 1500]);
     }
 
     /** Item 11: each renewal refreshes the contract body with the actual paid dates/amounts. */
@@ -238,13 +289,12 @@ class RdGoldQrTest extends TestCase
         // start — pay the renewal in month 2 so it lands on the chart.
         $paidOn = now()->addMonthsNoOverflow(1)->day(4);
         app(RdCollectionService::class)->collect([
-            'bond_id' => $bond->id, 'branch_id' => $this->branch->id, 'amount' => 3000,
+            'bond_id' => $bond->id, 'branch_id' => $this->branch->id, 'amount' => 1500,
             'paid_on' => $paidOn->toDateString(),
         ]);
 
         $content = $contract->fresh()->content;
         $this->assertStringContainsString('PAID ' . $paidOn->format('d/m/Y'), $content);  // renewal date printed
-        $this->assertStringContainsString('3,000.00', $content);            // renewal amount printed
         $this->assertStringContainsString('RD Branch', $content);           // collecting branch printed
         // joining row prints the real amount — guards the epin_value "0.00"-is-truthy bug
         $this->assertStringContainsString('1,500.00', $content);

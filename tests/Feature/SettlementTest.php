@@ -97,28 +97,88 @@ class SettlementTest extends TestCase
         $this->assertEquals(20000.0, (float) $qr->cash_worth);
     }
 
-    /** G11 RD (PLUS2-style): QR = paid total + 2 bonus months × monthly, then contract + bond close. */
-    public function test_rd_plan_settles_paid_plus_bonus_and_closes(): void
+    /**
+     * Lord's board 2026-11-13 — Gold Saving never settles by itself: Head Office settles it on
+     * the Settlements page once the saver has handed the coins back.
+     *   all dues → gold QR with the bonus months at the FIRST due · coins not returned are
+     *   deducted at the day's 100 mg price · a QR never redeemed is cancelled.
+     */
+    public function test_gold_saving_settles_by_hand_with_coins_back_and_bonus(): void
     {
+        \App\Models\LiveRate::create(['country' => 'IN', 'gold' => 7000, 'silver' => 100, 'diamond' => 0, 'source' => 'manual', 'effective_at' => now()]);
+        $coin = \App\Models\CatalogProduct::create(['code' => 'G100', 'name' => ['en' => '100 mg Gold'], 'material' => 'gold', 'default_weight' => 0.1, 'is_active' => true]);
         $contract = $this->setup_contract(
-            ['type' => 'rd', 'settlement_cycle_months' => 12, 'settlement_bonus_months' => 2, 'settlement_close' => true],
-            1000, now()->subMonthsNoOverflow(12)->toDateString(), bondValue: 1000
+            ['type' => 'rd', 'validity_months' => 11, 'rd_qr_grams' => 0.1, 'rd_qr_on' => 'always', 'is_redeem' => true,
+                'settlement_cycle_months' => 12, 'settlement_bonus_months' => 1, 'settlement_close' => true],
+            1000, now()->subMonthsNoOverflow(13)->toDateString(), bondValue: 1000
         );
-        // 10 collections after the joining month → paid total 11 × 1000
+        $contract->update(['end_date' => now()->subDay()->toDateString()]);
+        // 10 renewals at moving prices: 1,100 each → paid 1,000 + 11,000 = 12,000
         foreach (range(1, 10) as $i) {
-            RdEntry::create([
-                'bond_id' => $contract->bond_id, 'member_id' => $contract->member_id,
-                'paid_on' => now()->subMonthsNoOverflow(12 - $i)->toDateString(),
-                'value' => 1000, 'due_count' => $i + 1, 'branch_id' => $this->branch->id,
-            ]);
+            RdEntry::create(['bond_id' => $contract->bond_id, 'member_id' => $contract->member_id,
+                'paid_on' => now()->subMonthsNoOverflow(12 - $i)->toDateString(), 'value' => 1100, 'due_count' => $i + 1, 'branch_id' => $this->branch->id]);
+        }
+        // 11 coins given: 8 redeemed (taken as coins), 3 QRs never redeemed
+        foreach (range(1, 11) as $i) {
+            RedeemableQr::create(['bond_id' => $contract->bond_id, 'member_id' => $contract->member_id, 'branch_id' => $this->branch->id,
+                'qr_code' => 'GSQR' . $i, 'qr_mode' => 'gold', 'gram_worth' => 0.1, 'cash_worth' => 1000,
+                'status' => $i <= 8 ? 'redeemed' : 'pending', 'qr_sent' => true]);
         }
 
+        // the engine leaves it alone
         app(SettlementService::class)->run();
+        $this->assertNull($contract->fresh()->settled_on);
+        $this->assertEquals('active', $contract->fresh()->status);
 
-        $qr = RedeemableQr::where('bond_id', $contract->bond_id)->firstOrFail();
-        $this->assertEquals(13000.0, (float) $qr->cash_worth);   // 11 paid + 2 bonus months
+        // saver hands back 6 of the 8 coins → 2 missing × ₹721 (100 mg @ ₹7,000 + 3 %) deducted
+        $svc = app(\App\Services\Rd\GoldSavingSettlementService::class);
+        $this->assertTrue($svc::canSettle($contract->fresh()));
+        $row = $svc->settle($contract->fresh(), $this->branch->id, 6, null, null);
+
+        $this->assertSame(11, (int) $row->dues_paid);
+        $this->assertEquals(12000.0, (float) $row->paid_total);
+        $this->assertEquals(1000.0, (float) $row->bonus);               // 1 month × the FIRST due
+        $this->assertSame([11, 3, 6, 2], [(int) $row->coins_given, (int) $row->coins_cancelled, (int) $row->coins_returned, (int) $row->coins_missing]);
+        $this->assertEquals(1442.0, (float) $row->deduction);
+        $this->assertEquals(11558.0, (float) $row->worth);              // 12,000 + 1,000 − 1,442
+        $this->assertSame('gold', $row->metal);
+
+        $qr = $row->qr;
+        $this->assertEquals(11558.0, (float) $qr->cash_worth);
+        $this->assertSame('gold', $qr->qr_mode);
+        $this->assertEquals(7000.0, (float) $qr->frozen_rate);          // redeemed at the settlement day's price
+        $this->assertEquals(3, RedeemableQr::where('bond_id', $contract->bond_id)->where('status', 'cancelled')->count());
+        $this->assertEquals(6.0, (float) \App\Models\Stock::where('branch_id', $this->branch->id)->where('catalog_product_id', $coin->id)->value('quantity'));
         $this->assertEquals('closed', $contract->fresh()->status);
         $this->assertEquals('closed', $contract->fresh()->bond->status);
+        $this->assertFalse($svc::canSettle($contract->fresh()));       // once only
+    }
+
+    /** 6 to 10 dues → gold, no bonus · fewer than 6 → silver, no bonus (Lord's board 2026-11-13). */
+    public function test_gold_saving_short_payers_get_no_bonus_and_silver_below_six_dues(): void
+    {
+        \App\Models\LiveRate::create(['country' => 'IN', 'gold' => 7000, 'silver' => 100, 'diamond' => 0, 'source' => 'manual', 'effective_at' => now()]);
+        $make = function (int $renewals) {
+            $c = $this->setup_contract(
+                ['type' => 'rd', 'validity_months' => 11, 'settlement_cycle_months' => 12, 'settlement_bonus_months' => 3, 'settlement_close' => true],
+                1000, now()->subMonthsNoOverflow(13)->toDateString(), bondValue: 1000
+            );
+            $c->update(['end_date' => now()->subDay()->toDateString()]);
+            foreach (range(1, $renewals) as $i) {
+                RdEntry::create(['bond_id' => $c->bond_id, 'member_id' => $c->member_id, 'paid_on' => now()->subMonths(5)->toDateString(),
+                    'value' => 1000, 'due_count' => $i + 1, 'branch_id' => $this->branch->id]);
+            }
+
+            return app(\App\Services\Rd\GoldSavingSettlementService::class)->settle($c->fresh(), $this->branch->id);
+        };
+
+        $seven = $make(6);                                              // joining + 6 = 7 dues
+        $this->assertSame(['gold', 0.0, 7000.0], [$seven->metal, (float) $seven->bonus, (float) $seven->worth]);
+
+        $four = $make(3);                                               // joining + 3 = 4 dues
+        $this->assertSame(['silver', 0.0, 4000.0], [$four->metal, (float) $four->bonus, (float) $four->worth]);
+        $this->assertSame('silver', $four->qr->qr_mode);
+        $this->assertEquals(100.0, (float) $four->qr->frozen_rate);
     }
 
     /** Area-Distributor-style: closes the contract + bond and suspends the dealer login. */

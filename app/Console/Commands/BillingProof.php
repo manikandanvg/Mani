@@ -111,7 +111,10 @@ class BillingProof extends Command
             foreach ($plans as $plan) {
                 foreach (['MINIMUM' => 1, 'DOUBLE' => 2] as $label => $times) {
                     $n++;
-                    $target = round((float) $plan->min_value * $times, 2);
+                    // Gold Saving PLUS 1 has no rupee minimum: 1 and 2 pieces of 100 mg at today's price
+                    $target = \App\Services\Rd\GoldSavingRules::variant($plan) === \App\Services\Rd\GoldSavingRules::PLUS1
+                        ? round(\App\Services\Rd\GoldSavingRules::unitPrice($plan) * $times, 2)
+                        : round((float) $plan->min_value * $times, 2);
                     DB::beginTransaction();   // savepoint: every test bill starts from the same clean state
                     try {
                         $this->runCase($sales, $plan, $label, $target, $senior->fresh(), $branch, $rate, $n, $seniorDepth);
@@ -268,14 +271,15 @@ class BillingProof extends Command
         $qrs = RedeemableQr::where('bond_id', $bond->id)->get();
         $expQr = $plan->is_redeem && $plan->rd_qr_on !== 'first_renewal';
         $expWorth = ! $expQr ? 0.0 : match (true) {
-            (float) $plan->rd_qr_grams > 0 => (float) app(\App\Services\Qr\GoldQrPricing::class)->price($plan),
+            // Gold Saving PLUS 1 (board 2026-11-13): the QR backs every 100 mg piece billed = the bill
+            (float) $plan->rd_qr_grams > 0 => round((float) app(\App\Services\Qr\GoldQrPricing::class)->price($plan) * max(1, (int) $bond->rd_pieces), 2),
             (float) $plan->allocation_cont > 0 => round($grand * (float) $plan->allocation_cont / 100, 2),
             default => $grand,
         };
         $qr = $qrs->first();
         $ok['qr'] = $expQr ? ($qrs->count() === 1 && abs((float) $qr->cash_worth - $expWorth) < 0.01) : $qrs->isEmpty();
         $why = ! $plan->is_redeem ? 'scheme is not redeemable — no QR' : ($plan->rd_qr_on === 'first_renewal' ? 'QR is issued at the first renewal, not at billing'
-            : ((float) $plan->rd_qr_grams > 0 ? (float) $plan->rd_qr_grams . ' g gold at today\'s price incl. charges + GST'
+            : ((float) $plan->rd_qr_grams > 0 ? max(1, (int) $bond->rd_pieces) . ' × ' . (float) $plan->rd_qr_grams . ' g gold at today\'s price incl. charges + GST'
                 : ((float) $plan->allocation_cont > 0 ? 'bill × ' . (float) $plan->allocation_cont . ' % (contract share)' : 'the full bill')));
         $this->row('QR code', array_merge($case, [$grand, $expQr ? 'Yes' : 'No', $why, $expWorth, $qrs->count(), $qr->qr_code ?? '—', $qr->qr_mode ?? '—',
             (float) ($qr->cash_worth ?? 0), $qr && $qr->gram_worth !== null ? (float) $qr->gram_worth : '—', $qr->status ?? '—', $this->flag($ok['qr'])]));

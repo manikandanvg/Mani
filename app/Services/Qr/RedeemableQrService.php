@@ -46,8 +46,10 @@ class RedeemableQrService
             return null;
         }
         $grand = (float) ($bond->epin_value ?: $bond->value);
+        // Gold Saving PLUS 1 (board 2026-11-13): the joining QR backs every 100 mg piece billed.
+        $pieces = max(1, (int) $bond->rd_pieces);
         $cashWorth = match (true) {
-            $plan && (float) $plan->rd_qr_grams > 0 => app(GoldQrPricing::class)->price($plan),
+            $plan && (float) $plan->rd_qr_grams > 0 => round(app(GoldQrPricing::class)->price($plan) * $pieces, 2),
             $plan && (float) $plan->allocation_cont > 0 => round($grand * (float) $plan->allocation_cont / 100, 2),
             default => $grand,
         };
@@ -56,7 +58,7 @@ class RedeemableQrService
         // making + wastage of the Charge Brackets slab out (₹25,000 → 1.8159 g @ ₹12,730).
         // A bare worth ÷ rate (1.9639 g) promised gold the QR cannot redeem (user 2026-11-05).
         $gramWorth = match (true) {
-            $plan && (float) $plan->rd_qr_grams > 0 => (float) $plan->rd_qr_grams,
+            $plan && (float) $plan->rd_qr_grams > 0 => round((float) $plan->rd_qr_grams * $pieces, 4),
             $goldRate > 0 => app(\App\Services\Charges\ChargeResolver::class)->gramsForWorth($cashWorth, $goldRate),
             default => null,
         };
@@ -80,8 +82,24 @@ class RedeemableQrService
      * the contract amount, or the RD paid-total + bonus). Unlike forBond this is never
      * idempotent: a bond can hold a sale QR and a settlement QR side by side.
      */
-    public function mintSettlementQr(Bond $bond, float $worth, ?float $grams = null): RedeemableQr
+    public function mintSettlementQr(Bond $bond, float $worth, ?float $grams = null, string $mode = 'gold', bool $priceToday = false): RedeemableQr
     {
+        // Gold Saving (board 2026-11-13): a renewal / settlement QR is worth what was paid THAT
+        // day, so it is redeemed at that day's price — not the joining bill's. The QR carries
+        // its own frozen price; $grams is then always given by the caller.
+        if ($priceToday) {
+            $live = \App\Models\LiveRate::where('country', 'IN')->latest('effective_at')->first();
+            $rate = (float) ($mode === 'silver' ? $live?->silver : $live?->gold);
+
+            return RedeemableQr::create([
+                'bond_id' => $bond->id, 'member_id' => $bond->member_id, 'branch_id' => $bond->branch_id,
+                'invoice_no' => $bond->invoice_no, 'qr_code' => $this->uniqueToken(), 'qr_mode' => $mode,
+                'gram_worth' => $grams, 'cash_worth' => round($worth, 2),
+                'frozen_rate' => $rate > 0 ? $rate : null, 'priced_on' => $rate > 0 ? now()->toDateString() : null,
+                'status' => 'pending', 'qr_sent' => false,
+            ]);
+        }
+
         // Gram worth = the plan's PREDEFINED piece (100 mg ⇒ 0.1000), or $grams when the
         // caller bought several pieces — the cash worth includes charges/GST, so dividing
         // by the rate would overstate the gold (₹1,380.20 ÷ ₹13,400 = 0.103 g ≠ 0.100 g).

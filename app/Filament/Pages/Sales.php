@@ -387,7 +387,9 @@ class Sales extends Page implements HasForms
                         Select::make('plan_id')->label('Select Scheme')
                             ->options(fn (Get $get) => self::planOptions($get('cart') ?? [], $get('branch_id')))
                             ->live()->required()
-                            ->helperText('Schemes are matched to your cart — Gold items → gold scheme, Silver → silver scheme, Cash → Digital/RD — and only those whose minimum value ≤ cart total.'),
+                            ->helperText(fn () => new \Illuminate\Support\HtmlString(
+                                e('Schemes are matched to your cart — Gold items → gold scheme, Silver → silver scheme, Cash → Digital/RD — and only those whose minimum value ≤ cart total.')
+                                . self::goldSavingHint())),
                         Placeholder::make('plan_benefits')->label('Scheme Benefits')
                             ->content(fn (Get $get) => self::planBenefits($get('plan_id'), self::totals($get('cart') ?? []))),
                     ]),
@@ -1069,6 +1071,17 @@ class Sales extends Page implements HasForms
         return ['gross' => round($gross, 2), 'gst' => round($gst, 2), 'grand' => round($gross + $gst, 2)];
     }
 
+    /** Gold Saving amounts the counter may bill today (Lord's board 2026-11-13). */
+    protected static function goldSavingHint(): string
+    {
+        $lines = [];
+        foreach (Plan::where('is_active', true)->where('type', 'rd')->orderBy('code')->get() as $p) {
+            $lines[] = '<b>' . e($p->code . ' ' . (Translatable::pick($p->name) ?: '')) . '</b>: ' . e(\App\Services\Rd\GoldSavingRules::amountsHint($p));
+        }
+
+        return $lines ? '<br><span style="color:#92400e">Gold Saving amounts today — ' . implode(' · ', $lines) . '</span>' : '';
+    }
+
     protected static function planOptions(array $cart, $branchId = null): array
     {
         // Plan min/max ceilings are INR base; the cart totals are in the branch
@@ -1085,6 +1098,14 @@ class Sales extends Page implements HasForms
             ->where(fn ($q) => $q->whereNull('max_value')->orWhere('max_value', '>=', $grand))
             ->when($types !== null, fn ($q) => $q->whereIn('type', $types))
             ->get()
+            // Lord's board 2026-11-13: a Gold Saving scheme shows only for an amount its rule allows
+            ->filter(function ($p) use ($grand) {
+                try {
+                    return \App\Services\Rd\GoldSavingRules::joining($p, $grand)['ok'];
+                } catch (\Throwable) {
+                    return false;   // no live gold rate — PLUS 1 cannot be priced
+                }
+            })
             ->mapWithKeys(function ($p) {
                 $name = Translatable::pick($p->name) ?: $p->code;
 

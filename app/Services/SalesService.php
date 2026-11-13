@@ -110,6 +110,11 @@ class SalesService
 
             $this->assertPlanCaps($plan, $member, $grandTotal, $fx, $billDate);
 
+            // Lord's board 2026-11-13 — Gold Saving joining amounts: PLUS 1 in whole 100 mg
+            // pieces at today's price, PLUS 2 in ₹1,500 multiples, PLUS 3 in ₹500 steps.
+            $goldSaving = \App\Services\Rd\GoldSavingRules::joining($plan, round($grandTotal * $fx, 2));
+            abort_unless($goldSaving['ok'], 422, (string) $goldSaving['message']);
+
             // Legacy way to bill (user 2026-11-04): every commission — IC, level income, CBC —
             // is a % of the FULL bill value (pre-tax cross total, legacy `billingvalue`); the
             // bond keeps only the legacy allocation share (bvalue = bill × plan.allocation).
@@ -179,6 +184,7 @@ class SalesService
                 'branch_id' => $branchId,
                 'bond_date' => $billDate,
                 'value' => $allocation,                 // bvalue = allocated amount
+                'rd_pieces' => $goldSaving['pieces'],   // Gold Saving: 100 mg pieces fixed at joining
                 'invoice_no' => $invoice->invoice_no,
                 'lvlcom' => $levelAmounts,
                 'upline_member_id' => $member->upline_id,   // level-1 upline frozen at sale (legacy tbl_bond.uplineuserid)
