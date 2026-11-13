@@ -86,9 +86,7 @@ class TrackEarning extends TrackPage
             'columns' => [__('Status'), __('Entries'), __('Worth')],
             'rows' => $cbc->map(fn ($s) => [ucfirst((string) $s->status), (string) $s->c, $this->money($s->worth)])->all()];
 
-        $reseller = $range(ResellerCommission::where(fn ($w) => $w
-            ->where('reference_member_id', $member->id)
-            ->orWhere('mapped_uid', $member->member_code)), 'bill_date')
+        $reseller = $range(ResellerCommission::earnedBy($member), 'bill_date')
             ->latest('bill_date')->limit(15)->get();
         $this->sections[] = ['heading' => __('Bill margin (reseller commissions)'),
             'columns' => [__('Bill date'), __('Invoice #'), __('Amount'), __('Status')],

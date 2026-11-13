@@ -40,5 +40,25 @@ class ResellerCommission extends Model
 
     public function branch() { return $this->belongsTo(Branch::class); }
     public function user() { return $this->belongsTo(User::class); }
+    /** The BUYER the bill was raised for (legacy tbl_reseller_com.referrance) — never the earner. */
     public function referenceMember() { return $this->belongsTo(Member::class, 'reference_member_id'); }
+
+    /**
+     * Margins EARNED by this member: the rows of the branch(es) whose distributor login is this
+     * member — the same payee CommissionApprovalService credits. reference_member_id is the buyer,
+     * so listing by it showed the dealer's margin in the customer's app (complaint 2026-11-13).
+     * Imported legacy history (settled in legacy) is left out.
+     */
+    public function scopeEarnedBy($query, Member $member)
+    {
+        $branchIds = User::query()
+            ->where('member_code', $member->member_code)
+            ->where('status', 'active')
+            ->whereNotNull('branch_id')
+            ->whereHas('roles', fn ($q) => $q->where('name', 'distributor'))
+            ->pluck('branch_id');
+
+        return $query->whereIn('branch_id', $branchIds)
+            ->where(fn ($q) => $q->whereNull('source')->orWhere('source', '!=', self::SOURCE_LEGACY));
+    }
 }

@@ -304,10 +304,7 @@ class MemberBusinessController extends Controller
         $today = now()->toDateString();
         $gapToday = (float) $this->ledgerQuery($member, 'GAP')->whereDate('earned_on', $today)->sum('amount');
         $icToday = (float) $this->ledgerQuery($member, 'IC')->whereDate('earned_on', $today)->sum('amount');
-        $resellerToday = (float) ResellerCommission::where(fn ($q) => $q
-            ->where('reference_member_id', $member->id)
-            ->orWhere('mapped_uid', $member->member_code))
-            ->whereDate('bill_date', $today)->sum('com_value');
+        $resellerToday = (float) $this->resellerQuery($member)->whereDate('bill_date', $today)->sum('com_value');
         $earnedToday = $gapToday + $icToday + $resellerToday;
 
         $ep = app(\App\Services\CommissionService::class)->earningPotential($member);
@@ -501,7 +498,8 @@ class MemberBusinessController extends Controller
 
     protected function resellerQuery(Member $member)
     {
-        return ResellerCommission::where('reference_member_id', $member->id);
+        // the EARNING dealer's rows — reference_member_id is the buyer (complaint 2026-11-13)
+        return ResellerCommission::earnedBy($member);
     }
 
     protected function resellerLabel(int $comTypeId): string

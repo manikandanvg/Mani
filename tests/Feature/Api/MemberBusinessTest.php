@@ -114,6 +114,36 @@ class MemberBusinessTest extends TestCase
             ->assertJsonStructure(['ic' => ['total', 'paid', 'pending'], 'gap', 'cbc', 'reseller']);
     }
 
+    /**
+     * Complaint 2026-11-13: a billed customer saw the DEALER's pending billing margin in the
+     * app's earnings. A margin belongs to the billing branch's distributor, never to the buyer.
+     */
+    public function test_billing_margin_is_listed_for_the_dealer_and_never_for_the_buyer(): void
+    {
+        \Spatie\Permission\Models\Role::findOrCreate('distributor', 'web');
+        $branch = \App\Models\Branch::create(['name' => 'Dealer BM', 'country' => 'IN', 'is_active' => true]);
+        $dealerMember = Member::create(['member_code' => 'DLR1', 'name' => 'Dealer', 'phone' => '9000000009', 'joined_on' => now(),
+            'placement' => 'level', 'rank_id' => $this->member->rank_id, 'status' => 'active']);
+        $login = \App\Models\User::create(['name' => 'Dealer BM', 'email' => 'dealerbm@test.local', 'password' => 'secret123',
+            'status' => 'active', 'branch_id' => $branch->id, 'member_code' => 'DLR1']);
+        $login->assignRole('distributor');
+
+        // the bill was raised for $this->member (the customer) at the dealer's branch
+        \App\Models\ResellerCommission::create(['bill_date' => now(), 'invoice_no' => 'INV-BM', 'com_type_id' => 1,
+            'branch_id' => $branch->id, 'com_value' => 650, 'reference_member_id' => $this->member->id, 'status' => 'passed']);
+
+        $this->actingAsMember();   // the customer
+        $this->assertCount(0, $this->getJson('/api/v1/member/earnings?stream=RESELLER&type=BILL_MARGIN')->assertOk()->json('data'));
+        $this->getJson('/api/v1/member/earnings/summary')->assertOk()->assertJsonPath('reseller.total', 0);
+
+        Sanctum::actingAs($dealerMember, ['*']);   // the dealer
+        $rows = $this->getJson('/api/v1/member/earnings?stream=RESELLER&type=BILL_MARGIN')->assertOk()->json('data');
+        $this->assertCount(1, $rows);
+        $this->assertEquals(650.0, $rows[0]['amount']);
+        $this->assertSame('INV-BM', $rows[0]['reference']);
+        $this->getJson('/api/v1/member/earnings/summary')->assertOk()->assertJsonPath('reseller.total', 650);
+    }
+
     public function test_bonds_list(): void
     {
         $this->actingAsMember();
