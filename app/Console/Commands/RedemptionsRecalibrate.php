@@ -24,12 +24,16 @@ use Illuminate\Support\Facades\DB;
  *   php artisan redemptions:recalibrate                  dry run — invoice now vs frozen price
  *   php artisan redemptions:recalibrate --id=4598        one invoice
  *   php artisan redemptions:recalibrate --apply          write it
+ *   php artisan redemptions:recalibrate --id=4601 --gst-on-top [--apply]
+ *        an invoice raised 13–14 Nov with the GST taken out of the rows → GST added on top (board 2026-11-14)
  */
 class RedemptionsRecalibrate extends Command
 {
     protected $signature = 'redemptions:recalibrate {--apply : write the frozen-price figures (default = dry run)}
         {--id= : one redemption invoice id only}
-        {--since=2026-11-01 : invoices dated on or after this day (new-system go-live)}';
+        {--since=2026-11-01 : invoices dated on or after this day (new-system go-live)}
+        {--except= : invoice ids to leave alone, comma separated (e.g. 4598)}
+        {--gst-on-top : also re-state the invoices raised 13–14 Nov 2026 with the GST INSIDE the rows to GST ON TOP (use with --id for one invoice)}';
 
     protected $description = 'Re-price new-system redemption invoices on past-dated QRs at the frozen QR-date gold price';
 
@@ -53,7 +57,11 @@ class RedemptionsRecalibrate extends Command
         $table = [];
         $skipped = [];
         $changed = 0;
+        $except = array_filter(array_map('intval', explode(',', (string) $this->option('except'))));
         foreach ($invoices as $inv) {
+            if (in_array((int) $inv->id, $except, true)) {
+                continue;   // Head Office asked to keep this one as it is
+            }
             if (in_array($inv->tax_regime, ['vat', 'none'], true)) {
                 continue;
             }
@@ -89,7 +97,7 @@ class RedemptionsRecalibrate extends Command
             // rule of those two days): its grand total is today's taxable. The board moved the GST
             // back on top on 14 Nov for NEW invoices only — these keep their figures.
             $gstInsideAtFrozen = abs($taxable - (float) $inv->grand_total) < 0.01;
-            if ($gstInsideAtFrozen || (abs($grand - (float) $inv->grand_total) < 0.01 && abs($taxable - (float) $inv->taxable_total) < 0.01)) {
+            if (($gstInsideAtFrozen && ! $this->option('gst-on-top')) || (abs($grand - (float) $inv->grand_total) < 0.01 && abs($taxable - (float) $inv->taxable_total) < 0.01)) {
                 // already at the frozen price — only make sure the bill carries the billed-date prices
                 if ($apply && $inv->frozen_gold_rate === null && $inv->frozen_silver_rate === null) {
                     DB::table('redemption_invoices')->where('id', $inv->id)->update($this->headRates($rate, $market, $billed));

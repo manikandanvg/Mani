@@ -396,6 +396,13 @@ class RedemptionTest extends TestCase
         $this->artisan('redemptions:recalibrate', ['--apply' => true])->expectsOutputToContain('0 re-calibrated')->assertSuccessful();
         $this->assertEquals(120000, (float) $invoice->fresh()->grand_total);
 
+        // … unless Head Office asks for that one invoice: --gst-on-top puts the GST on top of its rows
+        $this->artisan('redemptions:recalibrate', ['--id' => $invoice->id, '--gst-on-top' => true])->expectsOutputToContain('1 differ from')->assertSuccessful();
+        $this->assertEquals(120000, (float) $invoice->fresh()->grand_total);   // dry run
+        $this->artisan('redemptions:recalibrate', ['--id' => $invoice->id, '--gst-on-top' => true, '--apply' => true])->expectsOutputToContain('1 re-calibrated')->assertSuccessful();
+        $this->assertEquals([120000.0, 3600.0, 123600.0], [(float) $invoice->fresh()->taxable_total, (float) $invoice->fresh()->tax_total, (float) $invoice->fresh()->grand_total]);
+        $this->assertEquals(123600, (float) $invoice->lines()->sum('line_total'));
+
         // set to the LIVE price (₹5,000) by an earlier correction → brought back to the frozen price
         \Illuminate\Support\Facades\DB::table('redemption_invoices')->where('id', $invoice->id)
             ->update(['gold_rate' => 5000, 'taxable_total' => 97087.38, 'cgst' => 1456.31, 'sgst' => 1456.31, 'tax_total' => 2912.62, 'grand_total' => 100000]);
