@@ -50,6 +50,30 @@ class RedemptionTest extends TestCase
         return CatalogProduct::create(['code' => $code, 'name' => ['en' => 'Gold 1g'], 'material' => 'gold', 'gm_margin' => 50, 'making_charge_pct' => 0, 'wastage_charge_pct' => 0, 'hallmark_charge' => 0, 'gst_pct' => 3, 'hsn_code' => '71082000', 'is_active' => true]);
     }
 
+    /** Board 2026-11-14: a QR is redeemed for gold and silver items only — never cash, HQ included. */
+    public function test_cash_stock_cannot_be_redeemed_even_at_head_office(): void
+    {
+        $hq = Branch::where('level', 'hq')->first() ?? Branch::create(['name' => 'HQ', 'country' => 'IN', 'level' => 'hq', 'is_active' => true]);
+        $plan = $this->plan('501', 'digital');
+        $member = $this->member('RC1');
+        $bond = Bond::create(['member_id' => $member->id, 'plan_id' => $plan->id, 'branch_id' => $hq->id, 'bond_date' => now(), 'value' => 50000, 'invoice_no' => 'INV-RC1', 'status' => 'active']);
+        $cash = CatalogProduct::create(['code' => 'CASHX', 'name' => ['en' => 'CASH'], 'material' => 'cash', 'default_weight' => 0, 'gst_pct' => 0, 'is_active' => true]);
+        Stock::create(['branch_id' => $hq->id, 'catalog_product_id' => $cash->id, 'quantity' => 1000000]);
+        $qr = RedeemableQr::create(['bond_id' => $bond->id, 'member_id' => $member->id, 'branch_id' => $hq->id, 'invoice_no' => 'INV-RC1', 'qr_code' => 'QRC1', 'qr_mode' => 'cash', 'cash_worth' => 50000, 'status' => 'pending']);
+        $svc = app(RedemptionService::class);
+        $svc->generateOtp($qr);
+
+        try {
+            $svc->redeem(['qr_code' => 'QRC1', 'branch_id' => $hq->id, 'otp' => $qr->fresh()->otp,
+                'lines' => [['catalog_product_id' => $cash->id, 'unit_weight' => 1, 'quantity' => 50000]]]);
+            $this->fail('Cash stock was redeemed.');
+        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
+            $this->assertStringContainsString('gold and silver items only', $e->getMessage());
+        }
+        $this->assertEquals('pending', $qr->fresh()->status);
+        $this->assertEquals(1000000, (float) Stock::where('catalog_product_id', $cash->id)->value('quantity'));
+    }
+
     /** Mode B: manual cart redeem deducts the redeeming branch's stock + pays GM margin, no bill margin. */
     public function test_mode_b_redeem_deducts_stock_and_pays_gm_margin(): void
     {

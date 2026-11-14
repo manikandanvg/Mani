@@ -432,7 +432,9 @@ class RedeemQr extends Page implements HasForms
             ->where('quantity', '>', 0)
             ->where('order_line_id', 0)
             ->get()
-            ->filter(fn ($s) => $s->catalogProduct?->is_active && ! $s->catalogProduct->is_custom_order)
+            // board 2026-11-14: gold and silver items only — cash stock is never offered, HQ included
+            ->filter(fn ($s) => $s->catalogProduct?->is_active && ! $s->catalogProduct->is_custom_order
+                && in_array($s->catalogProduct->material, \App\Services\Redeem\RedemptionService::REDEEMABLE_MATERIALS, true))
             ->sortBy(fn ($s) => $s->catalogProduct->code)
             ->mapWithKeys(function ($s) use ($default) {
                 $p = $s->catalogProduct;

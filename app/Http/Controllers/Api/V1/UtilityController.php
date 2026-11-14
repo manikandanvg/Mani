@@ -34,7 +34,9 @@ class UtilityController extends Controller
                 $rate = $rates[$p->material] ?? 0.0;
                 $weight = $p->unitWeight();   // name-derived when legacy left default_weight empty
                 $metal = $rate * $weight;
-                $charges = (float) $p->making_charge_pct + (float) $p->wastage_charge_pct;
+                // same rule as billing: the product's own making + wastage, else its Charge Bracket
+                $c = $p->charges($weight);
+                $charges = $c['making_pct'] + $c['wastage_pct'];
                 $price = $metal * (1 + $charges / 100) + (float) $p->hallmark_charge;
                 $price *= 1 + ((float) $p->gst_pct) / 100;
 

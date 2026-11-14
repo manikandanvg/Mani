@@ -44,6 +44,42 @@ class CatalogProduct extends Model
      * read off the name ("8 g Gold", "500 mg Silver") when the column is empty
      * (board 2026-10-31: app price list showed every item at ₹0).
      */
+    /**
+     * Making + wastage % for this item — THE one rule, used by billing, redemption and the app
+     * price list (user 2026-11-14):
+     *
+     *   1. the product's own percentages;
+     *   2. when the product carries none: the Charge Brackets slab for its weight (safety net for
+     *      an item created without charges);
+     *   3. neither → source 'none': a gold / silver item must not be billed or redeemed like that.
+     *
+     * @return array{making_pct: float, wastage_pct: float, source: string}  source = product | bracket | none
+     */
+    public function charges(?float $grams = null): array
+    {
+        $making = (float) $this->making_charge_pct;
+        $wastage = (float) $this->wastage_charge_pct;
+        if ($making + $wastage > 0) {
+            return ['making_pct' => $making, 'wastage_pct' => $wastage, 'source' => 'product'];
+        }
+        if (in_array($this->material, ['gold', 'silver'], true)) {
+            $grams = (float) $grams > 0 ? (float) $grams : $this->unitWeight();
+            $slab = app(\App\Services\Charges\ChargeResolver::class)->forWeight($this->material, $grams);
+            if (! empty($slab['bracket_id']) && ((float) $slab['making_pct'] + (float) $slab['wastage_pct']) > 0) {
+                return ['making_pct' => (float) $slab['making_pct'], 'wastage_pct' => (float) $slab['wastage_pct'], 'source' => 'bracket'];
+            }
+        }
+
+        return ['making_pct' => 0.0, 'wastage_pct' => 0.0, 'source' => 'none'];
+    }
+
+    /** A gold / silver stock item that has no making + wastage on the product and no bracket either. */
+    public function lacksCharges(?float $grams = null): bool
+    {
+        return in_array($this->material, ['gold', 'silver'], true) && ! $this->is_custom_order
+            && $this->charges($grams)['source'] === 'none';
+    }
+
     public function unitWeight(): float
     {
         $w = (float) $this->default_weight;

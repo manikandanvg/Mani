@@ -99,6 +99,7 @@ class SalesService
 
             // --- totals from cart (in the BRANCH currency) ---
             $cart = $data['cart'] ?? [];
+            $this->assertMetalLinesCarryCharges($cart, $branch);
             $crossTotal = round(array_sum(array_map(fn ($l) => (float) ($l['net_total'] ?? 0), $cart)), 2);
             $cartGrand = round(array_sum(array_map(fn ($l) => (float) ($l['grand_total'] ?? 0), $cart)), 2);
             // Tax follows the branch regime: GST splits the per-line GST the page computed;
@@ -579,6 +580,51 @@ class SalesService
         $network->evaluateRank($member->id);
         foreach ($chain as $ancestorId) {
             $network->evaluateRank($ancestorId);
+        }
+    }
+
+    /**
+     * Hard gate (2026-11-14): a gold / silver stock line can never be billed below
+     * weight × rate + its making and wastage, nor — in a GST branch — without its GST.
+     *
+     * Live bill INV-B200-0110 was saved at the bare metal price (1 g gold ₹13,210 instead of
+     * ₹14,286.62) because the screen lost the charges on the way; whoever calls this service,
+     * such a bill is refused now. Charges = CatalogProduct::charges() (product %, else the Charge
+     * Brackets slab). A customized-order piece is exempt: its price is frozen on the order line.
+     */
+    protected function assertMetalLinesCarryCharges(array $cart, ?\App\Models\Branch $branch): void
+    {
+        $gstBranch = ! in_array($branch?->tax_regime, ['vat', 'none'], true);
+        foreach ($cart as $line) {
+            if (empty($line['catalog_product_id']) || ! empty($line['order_line_id'])) {
+                continue;
+            }
+            $cp = CatalogProduct::find($line['catalog_product_id']);
+            if (! $cp || ! in_array($cp->material, ['gold', 'silver'], true) || $cp->is_custom_order) {
+                continue;
+            }
+            $weight = (float) ($line['weight'] ?? 0);
+            $base = round($weight * (float) ($line['rate'] ?? 0), 2);
+            if ($base <= 0) {
+                continue;
+            }
+            $name = \App\Support\Translatable::pick($cp->name) ?: $cp->code;
+            $charges = $cp->charges($weight);
+            abort_if($charges['source'] === 'none', 422,
+                "\"{$name}\" has no making / wastage charge on the product and no Charge Bracket for its weight — set it before billing.");
+
+            $net = (float) ($line['net_total'] ?? 0);
+            $minNet = round($base * (1 + ($charges['making_pct'] + $charges['wastage_pct']) / 100), 2);
+            abort_if($net + 1 < $minNet, 422, sprintf(
+                'Bill refused: "%s" is billed at ₹%s but its metal value with making and wastage is ₹%s. Reload the Sales page and add the item again.',
+                $name, \App\Support\Money::group($net), \App\Support\Money::group($minNet)));
+
+            if ($gstBranch && (float) $cp->gst_pct > 0) {
+                $minGst = round($net * (float) $cp->gst_pct / 100, 2);
+                abort_if((float) ($line['grand_total'] ?? 0) - $net + 1 < $minGst, 422, sprintf(
+                    'Bill refused: "%s" carries no GST (₹%s due). Reload the Sales page and add the item again.',
+                    $name, \App\Support\Money::group($minGst)));
+            }
         }
     }
 

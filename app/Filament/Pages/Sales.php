@@ -364,13 +364,17 @@ class Sales extends Page implements HasForms
                                     'wastage_charge_pct' => $get('wastage_charge_pct'),
                                     'hallmark_charge' => $get('hallmark_charge'), 'gst_pct' => $get('gst_pct'),
                                 ])['grand'], precision: 2)),
-                            // hidden charge carriers (prefilled from product)
-                            TextInput::make('unit_weight')->hidden(),
-                            TextInput::make('material')->hidden(),
-                            TextInput::make('making_charge_pct')->hidden(),
-                            TextInput::make('wastage_charge_pct')->hidden(),
-                            TextInput::make('hallmark_charge')->hidden(),
-                            TextInput::make('gst_pct')->hidden(),
+                            // Charge carriers (prefilled from the product). They MUST be Hidden
+                            // fields, not TextInput->hidden(): a field hidden that way is left out
+                            // of the saved form state, so the bill was raised WITHOUT making,
+                            // wastage and GST while the screen showed them (live bill
+                            // INV-B200-0110, 1 g gold ₹13,210 flat instead of ₹14,286.62 — 2026-11-14).
+                            Hidden::make('unit_weight'),
+                            Hidden::make('material'),
+                            Hidden::make('making_charge_pct'),
+                            Hidden::make('wastage_charge_pct'),
+                            Hidden::make('hallmark_charge'),
+                            Hidden::make('gst_pct'),
                         ]),
                 ]),
 
@@ -495,6 +499,33 @@ class Sales extends Page implements HasForms
                 ? 'This bill is ₹' . Number::format($threshold) . '+ and the PAN is not verified (Rule 114B). Saving anyway.'
                 : 'PAN is not verified. Saving anyway.';
             Notification::make()->title('PAN not verified')->body($body)->warning()->send();
+        }
+
+        // The charges of a stock item are read from the CATALOGUE here, never trusted from the
+        // form: a bill must carry its making, wastage and GST whatever the browser sent back
+        // (2026-11-14: they were lost on the way and bills were saved at the bare metal price).
+        // A customized-order piece keeps the prices frozen on its order line.
+        foreach ($data['cart'] as $k => $l) {
+            $cp = empty($l['order_line_id']) && ! empty($l['catalog_product_id']) ? CatalogProduct::find($l['catalog_product_id']) : null;
+            if (! $cp) {
+                continue;
+            }
+            if ($cp->lacksCharges((float) ($l['weight'] ?? 0))) {
+                Notification::make()->title('Item has no making / wastage charge')
+                    ->body('"' . (\App\Support\Translatable::pick($cp->name) ?: $cp->code) . '" has no making or wastage on the product and no Charge Bracket for its weight. Ask Head Office to set it before billing.')
+                    ->danger()->persistent()->send();
+
+                return;
+            }
+            $charges = $cp->charges((float) ($l['weight'] ?? 0));
+            $data['cart'][$k] = array_merge($l, [
+                'material' => $cp->material,
+                'unit_weight' => $cp->material === 'cash' ? null : $cp->default_weight,
+                'making_charge_pct' => $cp->material === 'cash' ? 0 : $charges['making_pct'],
+                'wastage_charge_pct' => $cp->material === 'cash' ? 0 : $charges['wastage_pct'],
+                'hallmark_charge' => $cp->material === 'cash' ? 0 : $cp->hallmark_charge,
+                'gst_pct' => $cp->material === 'cash' ? 0 : $cp->gst_pct,
+            ]);
         }
 
         // enrich cart lines with computed net/grand for the service
@@ -966,8 +997,10 @@ class Sales extends Page implements HasForms
         $rate = self::pageRate();
         $set('material', $p->material);
         $set('purity', $p->default_purity);
-        $set('making_charge_pct', $p->making_charge_pct);
-        $set('wastage_charge_pct', $p->wastage_charge_pct);
+        // the product's own making + wastage; the Charge Brackets slab when it carries none
+        $charges = $p->charges();
+        $set('making_charge_pct', $charges['making_pct']);
+        $set('wastage_charge_pct', $charges['wastage_pct']);
         $set('hallmark_charge', $p->hallmark_charge);
         $set('gst_pct', $p->gst_pct);
 

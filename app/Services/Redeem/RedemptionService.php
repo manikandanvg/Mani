@@ -117,6 +117,9 @@ class RedemptionService
             ->all();
     }
 
+    /** What a QR may be redeemed for (board 2026-11-14) — cash stock is never redeemable. */
+    public const REDEEMABLE_MATERIALS = ['gold', 'silver'];
+
     /** Price one Mode-B line from a catalog product at the live rate (a normal sale). */
     public function priceLine(CatalogProduct $cp, float $unitWeight, float $quantity, ?LiveRate $rate = null): array
     {
@@ -124,8 +127,13 @@ class RedemptionService
         $perGram = $cp->material === 'silver' ? (float) ($rate->silver ?? 0) : (float) ($rate->gold ?? 0);
         $ratePerPiece = $cp->material === 'vessel' ? $unitWeight : round($unitWeight * $perGram, 2);
         $amount = round($quantity * $ratePerPiece, 2);
-        $making = round($amount * (float) $cp->making_charge_pct / 100, 2);
-        $wastage = round($amount * (float) $cp->wastage_charge_pct / 100, 2);
+        // the product's own making + wastage; the Charge Brackets slab when it carries none —
+        // the same rule as billing (CatalogProduct::charges). Never a metal item with no charge.
+        $charges = $cp->charges($unitWeight);
+        abort_if($cp->lacksCharges($unitWeight), 422,
+            '"' . self::lineLabel($cp) . '" has no making / wastage charge on the product and no Charge Bracket for its weight — set it before redeeming.');
+        $making = round($amount * $charges['making_pct'] / 100, 2);
+        $wastage = round($amount * $charges['wastage_pct'] / 100, 2);
 
         return $this->normaliseLine($cp,
             description: $this->lineLabel($cp, $unitWeight),
@@ -245,6 +253,13 @@ class RedemptionService
                         (float) ($l['unit_weight'] ?? 0), (float) $l['quantity'], $rate))
                     ->all();
             abort_if(empty($lines), 422, 'Add at least one item to redeem.');
+            // Board 2026-11-14: a QR is redeemed for GOLD and SILVER items only — never cash (or any
+            // other stock), at every branch, Head Office included.
+            // (Mode A is the customer's own gold / silver purchase bill — nothing is picked there.)
+            foreach ($modeA ? [] : $lines as $l) {
+                abort_unless(in_array($l['material'] ?? null, self::REDEEMABLE_MATERIALS, true), 422,
+                    'A QR can be redeemed for gold and silver items only — "' . ($l['description'] ?? 'this item') . '" is not allowed.');
+            }
 
             $taxable = round(array_sum(array_column($lines, 'taxable')), 2);
             $gst = round(array_sum(array_column($lines, 'gst')), 2);
