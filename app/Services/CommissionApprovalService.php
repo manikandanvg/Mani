@@ -135,9 +135,10 @@ class CommissionApprovalService
             ->with(['branch', 'referenceMember'])
             ->where('com_type_id', $com)
             ->where('status', '!=', 'paid')
-            // legacy history (₹4.78 cr of "passed" rows) was settled in legacy; the dealer's unpaid
-            // balance is paid by hand on Commissions → Pending Billing Margin (user 2026-11-02)
-            ->where('source', '!=', ResellerCommission::SOURCE_LEGACY)
+            // Board 2026-11-14: the old system paid every margin up to 22-10-2026; of the imported
+            // rows only 23-10 → 31-10-2026 are owed, and they are approved here like the new
+            // system's own, with the same TDS and service charge (ResellerCommission::scopePayable).
+            ->payable()
             ->when($from, fn ($q) => $q->whereDate('bill_date', '>=', $from))
             ->when($to, fn ($q) => $q->whereDate('bill_date', '<=', $to))
             ->orderBy('bill_date');
@@ -451,6 +452,11 @@ class CommissionApprovalService
         if ($row->status === 'paid') {
             return false;
         }
+        // An old-system margin (23-10 → 31-10-2026) is real money owed to a dealer: with nobody to
+        // credit, it stays in the queue — it is never marked paid into thin air.
+        if ($row->source === ResellerCommission::SOURCE_LEGACY && ! $row->payeeMember()) {
+            return false;
+        }
 
         $ok = DB::transaction(function () use ($row, $paidOn) {
             if (! $this->claim($row)) {
@@ -544,9 +550,7 @@ class CommissionApprovalService
     /** Resolve a reseller margin's payee: branch → distributor login → mapped member. */
     protected function distributorMemberId(ResellerCommission $row): ?int
     {
-        $branch = $row->branch;
-
-        return $branch?->distributorUser?->memberAccount?->id;
+        return $row->payeeMember()?->id;
     }
 
     /** Post to the single member wallet (separate balance buckets), creating it if absent. */

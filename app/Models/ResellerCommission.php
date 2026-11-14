@@ -47,7 +47,7 @@ class ResellerCommission extends Model
      * Margins EARNED by this member: the rows of the branch(es) whose distributor login is this
      * member — the same payee CommissionApprovalService credits. reference_member_id is the buyer,
      * so listing by it showed the dealer's margin in the customer's app (complaint 2026-11-13).
-     * Imported legacy history (settled in legacy) is left out.
+     * Old-system history already paid there (up to LEGACY_PAID_UPTO) is left out.
      */
     public function scopeEarnedBy($query, Member $member)
     {
@@ -58,7 +58,48 @@ class ResellerCommission extends Model
             ->whereHas('roles', fn ($q) => $q->where('name', 'distributor'))
             ->pluck('branch_id');
 
-        return $query->whereIn('branch_id', $branchIds)
-            ->where(fn ($q) => $q->whereNull('source')->orWhere('source', '!=', self::SOURCE_LEGACY));
+        // Same rule as payeeMember(): an old-system row belongs to the mapped ID written on it;
+        // every other row to the billing branch's distributor login.
+        $viaBranch = fn ($q) => $q->whereIn('branch_id', $branchIds);
+        $noKnownMappedId = fn ($q) => $q->whereNull('mapped_uid')->orWhere('mapped_uid', '')
+            ->orWhereNotExists(fn ($s) => $s->selectRaw('1')->from('members')->whereColumn('members.member_code', 'reseller_commissions.mapped_uid'));
+
+        return $query->payable()->where(fn ($q) => $q
+            ->where(fn ($new) => $new->where(fn ($s) => $s->whereNull('source')->orWhere('source', '!=', self::SOURCE_LEGACY))->where($viaBranch))
+            ->orWhere(fn ($old) => $old->where('source', self::SOURCE_LEGACY)->where(fn ($who) => $who
+                ->where('mapped_uid', $member->member_code)
+                ->orWhere(fn ($fallback) => $fallback->where($viaBranch)->where($noKnownMappedId)))));
+    }
+
+    /**
+     * Who is paid this margin — the dealer's mapped ID:
+     *   an old-system row   the mapped ID the old system wrote on it (tbl_reseller_com.mappeduid);
+     *                       when that names no distributor here, the billing branch's login;
+     *   every other row     the billing branch's distributor login → its member account.
+     */
+    public function payeeMember(): ?Member
+    {
+        if ($this->source === self::SOURCE_LEGACY && filled($this->mapped_uid)
+            && ($mapped = Member::where('member_code', $this->mapped_uid)->first())) {
+            return $mapped;
+        }
+
+        return $this->branch?->distributorUser?->memberAccount;
+    }
+
+    /**
+     * Lord's board 2026-11-14: the old system PAID every billing margin up to 22-10-2026 (its
+     * last payout run, tbl_digi_waout trid 386, 18–22 Oct) without ever marking the rows paid.
+     * So of the imported rows only 23-10-2026 → 31-10-2026 are still owed; they are paid through
+     * Commission Approval like the new system's own margins, with the same TDS and service charge.
+     */
+    public const LEGACY_PAID_UPTO = '2026-10-22';
+
+    /** Rows the new system pays or has paid: its own, and the old system's from 23-10-2026 on. */
+    public function scopePayable($query)
+    {
+        return $query->where(fn ($q) => $q->whereNull('source')
+            ->orWhere('source', '!=', self::SOURCE_LEGACY)
+            ->orWhereDate('bill_date', '>', self::LEGACY_PAID_UPTO));
     }
 }

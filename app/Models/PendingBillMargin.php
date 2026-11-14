@@ -23,6 +23,9 @@ class PendingBillMargin extends Model
 
     public const STATUS_REJECTED = 'rejected';
 
+    /** Board 2026-11-14: the old system had already paid it (up to 22-10-2026) — never payable here. */
+    public const STATUS_CLOSED = 'closed';
+
     protected $casts = [
         'amount' => 'decimal:2',
         'decided_at' => 'datetime',
