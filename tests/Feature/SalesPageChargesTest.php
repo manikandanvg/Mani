@@ -28,6 +28,12 @@ class SalesPageChargesTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+        config(['features.metal_charge_fallback' => true]);   // the production rule is what these tests are about
+    }
+
     public function test_a_gold_bill_is_saved_with_its_making_wastage_and_gst(): void
     {
         $this->seed(DatabaseSeeder::class);

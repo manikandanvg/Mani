@@ -62,6 +62,9 @@ class CatalogProduct extends Model
         if ($making + $wastage > 0) {
             return ['making_pct' => $making, 'wastage_pct' => $wastage, 'source' => 'product'];
         }
+        if (! config('features.metal_charge_fallback', true)) {
+            return ['making_pct' => 0.0, 'wastage_pct' => 0.0, 'source' => 'product'];   // switched off: as entered
+        }
         if (in_array($this->material, ['gold', 'silver'], true)) {
             $grams = (float) $grams > 0 ? (float) $grams : $this->unitWeight();
             $slab = app(\App\Services\Charges\ChargeResolver::class)->forWeight($this->material, $grams);

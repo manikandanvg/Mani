@@ -15,4 +15,10 @@ return [
     // point a branch at another dealer. Set HQ_ONLY_SOURCING=false to bring the dealer
     // supply chain (board matrix 2026-08-26) back.
     'hq_only_sourcing' => (bool) env('HQ_ONLY_SOURCING', true),
+
+    // User 2026-11-14: a gold / silver item whose product carries NO making + wastage takes the
+    // Charge Brackets slab for its weight, and is refused at billing / redemption when there is
+    // no slab either. Off = the product's own percentages are used exactly as entered, zero
+    // included (the behaviour before 14 Nov 2026).
+    'metal_charge_fallback' => (bool) env('METAL_CHARGE_FALLBACK', true),
 ];
