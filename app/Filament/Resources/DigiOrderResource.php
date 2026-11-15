@@ -71,7 +71,8 @@ class DigiOrderResource extends BaseResource
                     ->sortable(),
                 Tables\Columns\TextColumn::make('value')
                     ->numeric()
-                    ->sortable(),
+                    ->sortable()
+                    ->summarize(Tables\Columns\Summarizers\Sum::make()->label('Total')->baseMoney()),
                 Tables\Columns\TextColumn::make('rate_on_date')
                     ->numeric()
                     ->sortable(),

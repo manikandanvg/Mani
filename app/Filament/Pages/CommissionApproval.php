@@ -171,8 +171,43 @@ class CommissionApproval extends Page implements HasForms, HasTable
                     ->action(fn (Collection $records) => $this->approveSelected($records))
                     ->deselectRecordsAfterCompletion(),
             ])
+            // User 2026-11-15: the footer total. The rows are one-per-beneficiary aggregates, so the
+            // ordinary column totals cannot work here — this adds up the entries behind ALL pages.
+            ->contentFooter(fn () => view('filament.tables.approval-totals', ['cells' => $this->footerTotals()]))
             ->emptyStateHeading('No commissions to approve')
             ->emptyStateDescription('Adjust the type or date range above.');
+    }
+
+    /**
+     * Totals of everything awaiting approval for the chosen type / dates / schemes:
+     * beneficiaries, entries, the gross — and for CBC what approval will do with it.
+     *
+     * @return array<string, string>
+     */
+    protected function footerTotals(): array
+    {
+        $m = fn ($v) => '₹ ' . \App\Support\Money::group((float) $v);
+        $t = $this->approvalQuery()->reorder()->toBase()
+            ->selectRaw("COUNT(DISTINCT {$this->groupColumn()}) AS payees, COUNT(*) AS entries, COALESCE(SUM({$this->amountColumn()}), 0) AS amount")
+            ->first();
+
+        $cells = [
+            $this->groupColumn() === 'branch_id' ? 'Branches' : 'Beneficiaries' => number_format((int) ($t->payees ?? 0)),
+            'Entries' => number_format((int) ($t->entries ?? 0)),
+            $this->isCbc() ? 'Coupon worth' : 'Total amount' => $m($t->amount ?? 0),
+        ];
+
+        if ($this->isCbc()) {
+            $split = CommissionApprovalService::cbcSplitTotals($this->approvalQuery());
+            $cells += [
+                'TDS' => $m($split['tds']),
+                'Service charge' => $m($split['service']),
+                'Retained by HQ' => $m($split['coupon']),
+                'To cash wallet' => $m($split['cash']),
+            ];
+        }
+
+        return $cells;
     }
 
     /** Grouping key per stream: members earn IC/GAP/CBC; branches earn the margins. */

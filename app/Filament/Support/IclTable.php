@@ -34,7 +34,7 @@ class IclTable extends Table
     protected static ?\WeakMap $moneyColumns = null;
 
     /** Amount-looking column names that get a total even without ->baseMoney(). */
-    protected const MONEY_NAME = '/(^|_)(amount|total|worth|tds|charge|com_value|cash_worth|grand_total|net_amount)$/';
+    protected const MONEY_NAME = '/(^|_)(amount|total|worth|tds|charge|com_value|cash_worth|grand_total|net_amount|gross)$/';
 
     public static function markMoney(object $column): void
     {

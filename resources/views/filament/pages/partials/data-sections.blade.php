@@ -45,6 +45,35 @@
                 });
                 const empty = this.$refs.tbody.querySelector('tr[data-empty]');
                 if (empty) empty.style.display = this.filtered === 0 ? '' : 'none';
+                this.totals(list);
+            },
+            // Footer total of every AMOUNT column, over the rows the search leaves (all pages, not
+            // just the 10 on screen). A column counts as an amount when each filled cell reads like
+            // money — 1,23,456.00 — and its heading is not a rate, price, percentage or running balance.
+            totals(list) {
+                const foot = this.$refs.autofoot;
+                if (!foot) return;
+                const heads = Array.from(this.$el.querySelectorAll('thead th')).map(th => th.textContent.trim());
+                const money = /^[₹]?\s?-?\d[\d,]*\.\d{2}$/;
+                const skip = /rate|price|balance|%|per\s|pct|level|purity|weight|gram/i;
+                let any = false;
+                const cells = heads.map((h, i) => {
+                    if (i === 0 || skip.test(h)) return '';
+                    let sum = 0, n = 0, ok = true;
+                    for (const tr of list) {
+                        const t = (tr.children[i]?.textContent ?? '').trim();
+                        if (t === '' || t === '—') continue;
+                        if (!money.test(t)) { ok = false; break; }
+                        sum += parseFloat(t.replace(/[₹,\s]/g, '')); n++;
+                    }
+                    if (!ok || n === 0) return '';
+                    any = true;
+                    return sum.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                });
+                foot.style.display = any && list.length > 1 ? '' : 'none';
+                Array.from(foot.children).forEach((td, i) => {
+                    td.textContent = i === 0 ? '{{ __('Total') }}' + (this.q ? ' ({{ __('filtered') }})' : '') : (cells[i] || '');
+                });
             },
             get pages() { return Math.max(1, Math.ceil(this.filtered / this.per)); },
             get fromRow() { return this.filtered === 0 ? 0 : (this.page - 1) * this.per + 1; },
@@ -137,7 +166,18 @@
                                 </td>
                             </tr>
                         </tbody>
-                        {{-- Footer total (board 2026-11-15): stays put while the rows sort / page. --}}
+                        {{-- Footer total (board 2026-11-15): stays put while the rows sort / page. A section
+                             that brings its own totals keeps them; every other table gets the
+                             automatic one, recalculated whenever the search box changes. --}}
+                        @if (empty($section['totals']))
+                            <tfoot>
+                                <tr x-ref="autofoot" style="display:none" class="border-t-2 border-gray-300 dark:border-white/20">
+                                    @foreach ($section['columns'] as $col)
+                                        <td class="whitespace-nowrap px-3 py-2 font-bold text-gray-900 dark:text-white"></td>
+                                    @endforeach
+                                </tr>
+                            </tfoot>
+                        @endif
                         @if (! empty($section['totals']))
                             <tfoot>
                                 <tr class="border-t-2 border-gray-300 dark:border-white/20">

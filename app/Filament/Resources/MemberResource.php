@@ -287,7 +287,10 @@ class MemberResource extends BaseResource
                     ->formatStateUsing(fn ($state) => Money::inr((float) $state))
                     ->placeholder(Money::inr(0))
                     ->alignEnd()
-                    ->sortable(query: fn (Builder $query, string $direction) => $query->orderBy($cash(), $direction)),
+                    ->sortable(query: fn (Builder $query, string $direction) => $query->orderBy($cash(), $direction))
+                    // footer total (board 2026-11-15) — follows the filters and the search like every other
+                    ->summarize(Tables\Columns\Summarizers\Sum::make()->label('Total')
+                        ->formatStateUsing(fn ($state) => Money::inr((float) $state))),
                 Tables\Columns\TextColumn::make('email')
                     ->sortable()->toggleable(),
                 Tables\Columns\TextColumn::make('dob')

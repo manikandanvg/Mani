@@ -92,6 +92,12 @@ class MemberContractResource extends BaseResource
                 Tables\Columns\TextColumn::make('settlement_amount')
                     ->label('Settlement')
                     ->state(fn (MemberContract $r) => ($r->settlements->sum('amount') + (float) ($r->rdSettlement?->worth ?? 0)) ?: null)
+                    ->summarize(Tables\Columns\Summarizers\Summarizer::make()->label('Total settled')
+                        ->using(fn (\Illuminate\Database\Query\Builder $query) => '₹' . \App\Support\Money::group(
+                            (float) \Illuminate\Support\Facades\DB::table('contract_settlements')
+                                ->whereIn('member_contract_id', $query->clone()->select('id'))->sum('amount')
+                            + (float) \Illuminate\Support\Facades\DB::table('rd_settlements')
+                                ->whereIn('member_contract_id', $query->clone()->select('id'))->sum('worth'))))
                     ->description(fn (MemberContract $r) => match (true) {
                         (bool) $r->rdSettlement => ucfirst($r->rdSettlement->metal) . ' QR · ' . $r->rdSettlement->dues_paid . '/' . $r->rdSettlement->dues_total . ' dues'
                             . ($r->rdSettlement->coins_missing ? ' · ' . $r->rdSettlement->coins_missing . ' coin(s) not returned' : ''),
