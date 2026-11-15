@@ -807,29 +807,112 @@ class BranchOrderService
         ]);
     }
 
-    public function reject(BranchOrderRequest $request, ?int $approverId = null): void
+    /**
+     * $reason (board 2026-11-15): why the order is refused — kept on the order, written to the
+     * activity log and sent to the dealer by push + inbox.
+     */
+    public function reject(BranchOrderRequest $request, ?int $approverId = null, ?string $reason = null): void
     {
         abort_unless($request->status === 'pending', 422, 'Only pending requests can be rejected.');
         if (! $request->isCustomize()) {
             $this->assertMayDecide($request, $approverId ?? auth()->id());
         }
+        $reason = filled($reason) ? mb_substr(trim((string) $reason), 0, 500) : null;
         $request->update([
             'status' => 'rejected',
             'approved_by' => $approverId ?? auth()->id(),
             'approved_at' => Carbon::now(),
+            'decision_note' => $reason,
         ]);
 
-        // Balances charged at submission come back on rejection: the branch wallet for a
-        // digi-cash stock order (whole total) or a customised order's wallet share, and the
-        // cash-stock share of a customised order.
+        $refunded = $this->refundPayment($request, $approverId ?? auth()->id());
+
+        \App\Services\Activity\ActivityLogger::log('orders', 'rejected',
+            'Order ' . $request->request_no . ' rejected' . ($reason ? ': ' . $reason : ''), [
+                'subject' => $request, 'status' => 'denied',
+                'details' => ['order' => $request->request_no, 'branch_id' => $request->branch_id, 'reason' => $reason,
+                    'grand_total' => (float) $request->grand_total, 'refunded' => $refunded],
+            ]);
+
+        \App\Services\Push\Notifier::to(
+            Branch::find($request->branch_id)?->distributorUser?->memberAccount,
+            'order',
+            'Stock order rejected — ' . $request->request_no,
+            'Head Office rejected your stock order of ₹' . \App\Support\Money::group((float) $request->grand_total)
+                . ($reason ? '. Reason: ' . $reason : '')
+                . ($refunded ? '. Your payment has been refunded.' : '.'),
+            route: '/stock-orders/' . $request->id,
+            data: array_filter(['reason' => $reason]),
+        );
+    }
+
+    /**
+     * May the ordering branch withdraw this order itself? User 2026-11-15: ONLY a stock request
+     * typed on the Order Form, while it is still PENDING (before approval / transit / delivery)
+     * — the dealer keyed a wrong figure (10,000 cash typed as 1,00,00,000) and must be able to
+     * withdraw it and submit a new one. Never an old-system order, a redemption restock or a
+     * customised order. There is NO refund on a cancel, so an order that already took money from
+     * the branch wallet (digi cash) is not cancellable here — Head Office rejects that one,
+     * which returns the money.
+     */
+    public static function cancellableBy(BranchOrderRequest $request, ?User $user): bool
+    {
+        if (! $user || $request->status !== 'pending' || $request->source !== self::SOURCE_ORDER_FORM
+            || $request->payment_type === 'digi_cash') {
+            return false;
+        }
+
+        return $user->isDistributor() && $user->branch_id && (int) $user->branch_id === (int) $request->branch_id;
+    }
+
+    /**
+     * The ordering dealer cancels its own Order Form request before approval (user 2026-11-15).
+     * Nothing is refunded and nothing moves: the request is withdrawn and leaves Head Office's
+     * Order Requests list (the row is kept as "cancelled" for the dealer and the activity log).
+     */
+    public function cancel(BranchOrderRequest $request, ?User $user = null, ?string $reason = null): void
+    {
+        $user ??= auth()->user();
+        $reason = filled($reason) ? mb_substr(trim((string) $reason), 0, 500) : null;
+
+        DB::transaction(function () use ($request, $user, $reason) {
+            $request = BranchOrderRequest::whereKey($request->id)->lockForUpdate()->firstOrFail();
+            abort_unless($request->status === 'pending', 422, 'This order was already decided — it can no longer be cancelled.');
+            abort_unless(self::cancellableBy($request, $user), 403, 'Only a pending Order Form stock request can be cancelled, by the branch that placed it.');
+
+            $request->update([
+                'status' => 'cancelled',
+                'cancelled_by' => $user->id,
+                'cancelled_at' => Carbon::now(),
+                'decision_note' => $reason,
+            ]);
+        });
+
+        \App\Services\Activity\ActivityLogger::log('orders', 'cancelled',
+            'Order ' . $request->request_no . ' cancelled by the ordering branch' . ($reason ? ': ' . $reason : ''), [
+                'subject' => $request,
+                'details' => ['order' => $request->request_no, 'branch_id' => $request->branch_id, 'reason' => $reason,
+                    'grand_total' => (float) $request->grand_total],
+            ]);
+    }
+
+    /**
+     * Give back what an order charged at submission — on REJECTION only (a dealer's own cancel
+     * refunds nothing): the branch wallet for a digi-cash stock order (whole total) or a customised
+     * order's wallet share, and the cash-stock share of a customised order. Returns whether
+     * anything was refunded.
+     */
+    protected function refundPayment(BranchOrderRequest $request, ?int $actorId): bool
+    {
         $walletRefund = $request->isCustomize()
             ? (float) $request->pay_wallet
             : ($request->payment_type === 'digi_cash' ? (float) $request->grand_total : 0.0);
         if ($walletRefund > 0) {
             Branch::where('id', $request->branch_id)->increment('digi_cash_balance', $walletRefund);
         }
-        if ($request->isCustomize() && (float) $request->pay_cash > 0) {
-            $this->creditCashStock($request->branch_id, (float) $request->pay_cash, $request->id, $approverId ?? auth()->id());
+        $cashRefund = $request->isCustomize() ? (float) $request->pay_cash : 0.0;
+        if ($cashRefund > 0) {
+            $this->creditCashStock($request->branch_id, $cashRefund, $request->id, $actorId);
         }
 
         // Coins not yet collected are simply not collected; already-collected coins stay
@@ -838,14 +921,7 @@ class BranchOrderService
             app(SalesReturnService::class)->cancel($sr);
         }
 
-        \App\Services\Push\Notifier::to(
-            Branch::find($request->branch_id)?->distributorUser?->memberAccount,
-            'order',
-            'Stock order rejected — ' . $request->request_no,
-            'Head Office rejected your stock order of ₹' . \App\Support\Money::group((float) $request->grand_total)
-                . ($walletRefund > 0 || (float) $request->pay_cash > 0 ? '. Your payment has been refunded.' : '.'),
-            route: '/stock-orders/' . $request->id,
-        );
+        return $walletRefund > 0 || $cashRefund > 0;
     }
 
     /** Server-side price of one line from the catalog product + live rate. Cash = rupee value. */

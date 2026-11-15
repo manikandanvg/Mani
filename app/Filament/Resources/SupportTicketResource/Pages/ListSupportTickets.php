@@ -18,6 +18,17 @@ class ListSupportTickets extends ListRecords
         ];
     }
 
+    /** Head Office sees this page as "Distributors Ticket" (board 2026-11-15). */
+    public function getTitle(): string
+    {
+        return SupportTicketResource::forDealer() ? __('Tickets') : __('Distributors Ticket');
+    }
+
+    public function getBreadcrumb(): ?string
+    {
+        return $this->getTitle();
+    }
+
     public function getTabs(): array
     {
         return [

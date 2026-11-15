@@ -140,7 +140,7 @@ class CustomizeOrderService
         }
 
         DB::transaction(function () use ($order, $user, $note) {
-            app(BranchOrderService::class)->reject($order, $user?->id);   // refunds cash stock + wallet, cancels coins
+            app(BranchOrderService::class)->reject($order, $user?->id, $note);   // refunds cash stock + wallet, cancels coins; reason logged + pushed
             $this->log($order, BranchOrderEvent::REJECTED, $this->isHq($user) ? static::hqBranchId() : (int) $order->current_branch_id, null, $note, [], $user?->id);
         });
     }

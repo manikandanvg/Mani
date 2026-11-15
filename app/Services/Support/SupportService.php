@@ -51,12 +51,17 @@ class SupportService
     }
 
     /** Append an HQ reply and notify the thread owner (inbox + push). */
-    public function supportReply(SupportThread $thread, string $body, ?int $supportUserId = null): SupportMessage
+    /**
+     * $html (board 2026-11-15): the desk's rich-text version of the reply, shown in the panel.
+     * $body stays the plain text — what the app and the push notification show.
+     */
+    public function supportReply(SupportThread $thread, string $body, ?int $supportUserId = null, ?string $html = null): SupportMessage
     {
         $message = $thread->messages()->create([
             'sender' => 'support',
             'support_user_id' => $supportUserId,
             'body' => $body,
+            'body_html' => filled($html) ? $html : null,
             'source' => 'app',
         ]);
 

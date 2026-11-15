@@ -40,19 +40,23 @@ class BondResource extends BaseResource
      * print contracts and send QRs, but never edit or delete. Enforced here (not just
      * hidden buttons) so direct URLs are rejected too.
      */
+    /**
+     * Board 2026-11-15: nobody edits or deletes a contract from this list — Head Office
+     * included. A wrong bill is cancelled from Manage Sales, which reverses everything.
+     */
     public static function canEdit($record): bool
     {
-        return ! (auth()->user()?->isDistributor() ?? true);
+        return false;
     }
 
     public static function canDelete($record): bool
     {
-        return ! (auth()->user()?->isDistributor() ?? true);
+        return false;
     }
 
     public static function canDeleteAny(): bool
     {
-        return ! (auth()->user()?->isDistributor() ?? true);
+        return false;
     }
 
     public static function form(Form $form): Form
@@ -118,10 +122,14 @@ class BondResource extends BaseResource
             // Surface soonest-to-expire bonds first for renewal awareness.
             ->defaultSort('bond_date', 'asc')
             ->columns([
+                // User 2026-11-15: the contract number, first on the row (copyable, searchable).
+                Tables\Columns\TextColumn::make('memberContract.contract_no')->label('Contract No')
+                    ->searchable()->copyable()->placeholder('—')->weight('bold'),
                 Tables\Columns\TextColumn::make('invoice_no')->label('Invoice')->searchable()->sortable(),
                 Tables\Columns\TextColumn::make('member.name')->label('Distributor')->searchable()
                     ->description(fn (Bond $r) => $r->member?->member_code),
-                Tables\Columns\TextColumn::make('plan.code')->label('Scheme')->sortable(),
+                Tables\Columns\TextColumn::make('plan.code')->label('Scheme')->sortable()
+                    ->description(fn (Bond $r) => \App\Support\Translatable::pick($r->plan?->name)),
                 Tables\Columns\TextColumn::make('value')->baseMoney()->sortable(),
                 Tables\Columns\TextColumn::make('bond_date')->label('Start')->date()->sortable(),
                 Tables\Columns\TextColumn::make('expires_on')
@@ -150,6 +158,10 @@ class BondResource extends BaseResource
                 Tables\Filters\SelectFilter::make('status')
                     ->options(['active' => 'Active', 'closed' => 'Closed', 'cancelled' => 'Cancelled'])
                     ->default('active'),
+                Tables\Filters\SelectFilter::make('plan_id')->label('Scheme')
+                    ->options(fn () => \App\Models\Plan::orderBy('code')->get()
+                        ->mapWithKeys(fn ($p) => [$p->id => trim($p->code . ' — ' . (\App\Support\Translatable::pick($p->name) ?? ''))])->all())
+                    ->searchable(),
             ])
             ->actions([
                 Tables\Actions\Action::make('contract')
@@ -204,45 +216,9 @@ class BondResource extends BaseResource
                                 : 'Scan to redeem at any Lord Jeweller dealer. An OTP to the registered mobile is required to complete redemption.',
                         ]);
                     }),
-                Tables\Actions\Action::make('whatsapp')
-                    ->label('Send WhatsApp')
-                    ->icon('heroicon-o-paper-airplane')
-                    ->color('success')
-                    ->visible(fn (Bond $record) => (bool) $record->plan?->is_redeem)
-                    ->requiresConfirmation()
-                    ->modalDescription(fn (Bond $record) => 'Send the contract PDF and redeemable QR to '
-                        . optional($record->member)->name . ' (' . optional($record->member)->phone . ') via WhatsApp?')
-                    ->action(function (Bond $record) {
-                        if (! optional($record->member)->phone) {
-                            \Filament\Notifications\Notification::make()->title('Distributor has no phone number')->warning()->send();
-
-                            return;
-                        }
-                        $svc = app(\App\Services\Qr\RedeemableQrService::class);
-                        $qr = $svc->forBond($record);
-                        if (! $qr) {
-                            \Filament\Notifications\Notification::make()
-                                ->title('No QR minted yet')
-                                ->body('This plan issues its single gold QR at the FIRST RENEWAL — collect a due first.')
-                                ->warning()->send();
-
-                            return;
-                        }
-                        $res = $svc->deliver($qr);
-
-                        \Filament\Notifications\Notification::make()
-                            ->title($res['ok'] ? 'Contract & QR sent on WhatsApp' : 'WhatsApp send failed')
-                            ->body($res['message'] ?? '')
-                            ->status($res['ok'] ? 'success' : 'warning')
-                            ->send();
-                    }),
-                Tables\Actions\EditAction::make(),
+                // Board 2026-11-15: Send WhatsApp, Edit and bulk delete are removed from Contracts.
             ])
-            ->bulkActions([
-                Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
-                ]),
-            ]);
+            ->bulkActions([]);
     }
 
     public static function getRelations(): array

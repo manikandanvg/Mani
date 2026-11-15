@@ -133,7 +133,7 @@ class WalletWithdrawalResource extends BaseResource
                     ->multiple()
                     ->default(WalletWithdrawal::OPEN),
                 Tables\Filters\SelectFilter::make('branch_id')->label('Branch')
-                    ->options(fn () => Branch::query()->orderBy('name')->pluck('name', 'id')->all())
+                    ->options(fn () => Branch::fullOptions())
                     ->searchable()
                     ->visible($hq),
                 Tables\Filters\Filter::make('requested')

@@ -21,6 +21,7 @@ class RdSettlement extends Model
         'coin_price' => 'decimal:2',
         'deduction' => 'decimal:2',
         'worth' => 'decimal:2',
+        'rule_worth' => 'decimal:2',
     ];
 
     public function contract() { return $this->belongsTo(MemberContract::class, 'member_contract_id'); }

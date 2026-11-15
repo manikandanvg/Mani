@@ -45,6 +45,7 @@ class RdEntryResource extends BaseResource
             ->columns([
                 Tables\Columns\TextColumn::make('paid_on')->label('Date')->date()->sortable(),
                 Tables\Columns\TextColumn::make('bond_id')->label('Bond')->sortable(),
+                Tables\Columns\TextColumn::make('bond.invoice_no')->label('Contract / invoice')->searchable()->toggleable(),
                 Tables\Columns\TextColumn::make('member.name')->label('Distributor')->searchable()
                     ->description(fn (RdEntry $r) => $r->member?->member_code),
                 Tables\Columns\TextColumn::make('due_count')->label('Due #')->badge()->sortable(),
@@ -63,6 +64,17 @@ class RdEntryResource extends BaseResource
                     ->query(fn ($query, array $data) => $query
                         ->when($data['from'] ?? null, fn ($q, $d) => $q->whereDate('paid_on', '>=', $d))
                         ->when($data['until'] ?? null, fn ($q, $d) => $q->whereDate('paid_on', '<=', $d))),
+            ])
+            // Board 2026-11-15: the contract as it stands AFTER this collection (the PDF is rebuilt
+            // each time it is opened, so it always carries every due paid so far).
+            ->actions([
+                Tables\Actions\Action::make('contract')
+                    ->label('View contract')
+                    ->icon('heroicon-o-document-text')
+                    ->color('gray')
+                    ->visible(fn (RdEntry $r) => $r->bond_id !== null)
+                    ->url(fn (RdEntry $r) => route('contract.pdf', $r->bond_id))
+                    ->openUrlInNewTab(),
             ]);
     }
 

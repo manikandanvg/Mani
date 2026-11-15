@@ -56,7 +56,7 @@ class StaffResource extends BaseResource
                 Forms\Components\TextInput::make('email')->email()->required()->unique(ignoreRecord: true),
                 Forms\Components\TextInput::make('phone')->tel()->maxLength(20),
                 // User 2026-11-02: 1,180 branches share the name "LORD JEWELLER" — show
-                // "NAME (city / phone / in-charge)" and search any of those fields server-side.
+                // "NAME (in-charge / city / phone)" and search any of those fields server-side.
                 Forms\Components\Select::make('branch_id')
                     ->label('Branch')
                     ->searchable()
@@ -64,11 +64,28 @@ class StaffResource extends BaseResource
                     ->getSearchResultsUsing(fn (string $search) => Branch::pickOptions($search))
                     ->getOptionLabelUsing(fn ($value) => Branch::find($value)?->pickLabel())
                     ->options(fn () => Branch::pickOptions(null, 50))
-                    ->helperText('Shown as name (city / phone / in-charge) so the right branch is picked.'),
+                    ->helperText('Shown as name (in-charge / city / phone) so the right branch is picked.'),
                 Forms\Components\Select::make('status')
                     ->options(['active' => 'Active', 'inactive' => 'Inactive'])
                     ->default('active')
                     ->required(),
+                // Board 2026-11-15 ("how to update the map id of the branch?"): the MAPPED ID is the
+                // distributor account this branch login belongs to. The branch's bill margin and
+                // dealer commissions are paid to it, and its app receives the branch's notifications.
+                Forms\Components\Select::make('member_code')
+                    ->label('Mapped ID (distributor of this branch login)')
+                    ->searchable()
+                    ->searchPrompt('Type a distributor code, name or phone…')
+                    ->getSearchResultsUsing(fn (string $search) => \App\Models\Member::query()
+                        ->where(fn ($w) => $w->where('member_code', 'like', "%{$search}%")
+                            ->orWhere('name', 'like', "%{$search}%")->orWhere('phone', 'like', "%{$search}%"))
+                        ->orderBy('member_code')->limit(30)->get()
+                        ->mapWithKeys(fn ($m) => [$m->member_code => $m->member_code . ' — ' . $m->name . ($m->phone ? ' · ' . $m->phone : '')])->all())
+                    ->getOptionLabelUsing(fn ($value) => ($m = \App\Models\Member::where('member_code', $value)->first())
+                        ? $m->member_code . ' — ' . $m->name : $value)
+                    ->visible(fn () => (bool) auth()->user()?->isSuperAdmin())
+                    ->helperText('Head Office only. Bill margin and dealer commissions of this branch are paid to this ID. Margins already approved stay with the ID they were paid to.')
+                    ->columnSpanFull(),
             ]),
             Forms\Components\Section::make('Access')->columns(2)->schema([
                 Forms\Components\Select::make('roles')

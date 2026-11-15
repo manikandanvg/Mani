@@ -26,7 +26,21 @@ trait ExportsSections
             $this->lookup();
         }
 
-        return $this->sections;
+        // Road maps and footer totals export as ordinary rows.
+        return array_map(function (array $s) {
+            if (! empty($s['timeline'])) {
+                $s['columns'] = [__('Step'), __('Date'), __('Branch / source'), __('Detail'), __('Status')];
+                $s['rows'] = array_map(fn ($t) => [
+                    $t['title'] ?? '', $t['when'] ?? '', $t['where'] ?? '', $t['note'] ?? '',
+                    ($t['done'] ?? true) ? __('Done') : __('Not yet'),
+                ], $s['timeline']);
+            }
+            if (! empty($s['totals']) && ! empty($s['columns'])) {
+                $s['rows'][] = $s['totals'];
+            }
+
+            return $s;
+        }, $this->sections);
     }
 
     public function exportCsv()

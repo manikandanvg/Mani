@@ -94,7 +94,7 @@ class StockTransferResource extends BaseResource
 
     protected static function branchOptions(): array
     {
-        return Branch::query()->orderBy('name')->pluck('name', 'id')->all();
+        return Branch::fullOptions();
     }
 
     protected static function productOptions(): array

@@ -236,7 +236,14 @@ class RdCollection extends Page implements HasForms
         Notification::make()
             ->success()
             ->title('Collection saved')
-            ->body($label . ' for ₹' . \App\Support\Money::group((float) $entry->value) . ' recorded.')
+            ->body($label . ' for ₹' . \App\Support\Money::group((float) $entry->value) . ' recorded.'
+                . ($bond?->plan?->is_contract ? ' The updated contract was sent to the saver (app notification + inbox).' : ''))
+            // Board 2026-11-15: open the contract as it now stands, straight from the confirmation.
+            ->actions($bond?->plan?->is_contract ? [
+                \Filament\Notifications\Actions\Action::make('contract')->label('View updated contract')
+                    ->url(route('contract.pdf', $bond->id), shouldOpenInNewTab: true)->button(),
+            ] : [])
+            ->persistent()
             ->send();
 
         $this->form->fill([

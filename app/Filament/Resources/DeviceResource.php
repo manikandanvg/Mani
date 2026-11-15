@@ -61,7 +61,7 @@ class DeviceResource extends BaseResource
                     ->placeholder('Leave to the box')
                     ->helperText('Applied on the box\'s next heartbeat (within a minute). Staff can still adjust locally by touch pad or voice.'),
                 Forms\Components\Select::make('branch_id')->label('Branch')
-                    ->options(fn () => Branch::orderBy('name')->pluck('name', 'id'))
+                    ->options(fn () => Branch::fullOptions())
                     ->searchable()
                     ->helperText('Attendance taps and payment announcements bind to this branch.'),
                 Forms\Components\Select::make('status')

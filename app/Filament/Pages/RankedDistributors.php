@@ -100,7 +100,7 @@ class RankedDistributors extends Page implements HasTable
                     ->options(fn () => Rank::where('depth', '>=', 1)->orderBy('depth')->get()
                         ->mapWithKeys(fn (Rank $r) => [$r->id => RankChangeResource::rankLabel($r)])->all()),
                 Tables\Filters\SelectFilter::make('branch_id')->label('Branch')
-                    ->options(fn () => \App\Models\Branch::query()->orderBy('name')->pluck('name', 'id')->all())
+                    ->options(fn () => \App\Models\Branch::fullOptions())
                     ->searchable(),
             ])
             ->actions([

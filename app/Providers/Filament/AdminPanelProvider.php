@@ -69,6 +69,8 @@ class AdminPanelProvider extends PanelProvider
                 'panels::body.end',
                 fn (): \Illuminate\Support\HtmlString => new \Illuminate\Support\HtmlString(
                     '<script src="' . asset('js/enter-as-tab.js') . '" defer></script>'
+                    // floating horizontal scrollbar + drag-to-scroll on wide tables (board 2026-11-15)
+                    . '<script src="' . asset('js/table-scroll.js') . '?v=' . @filemtime(public_path('js/table-scroll.js')) . '" defer></script>'
                 )
             )
             // "View as Dealer" banner — shown while a super-admin is impersonating a distributor.

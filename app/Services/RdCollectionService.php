@@ -220,7 +220,7 @@ class RdCollectionService
         }
 
         $this->pendingQrId = app(\App\Services\Qr\RedeemableQrService::class)
-            ->mintSettlementQr($bond, $quote['total'], round((float) $plan->rd_qr_grams * $quote['units'], 4), 'gold', true)->id;
+            ->mintSettlementQr($bond, $quote['total'], round((float) $plan->rd_qr_grams * $quote['units'], 4), 'gold', true, 'renewal')->id;
     }
 
     /**
@@ -248,12 +248,9 @@ class RdCollectionService
         }
 
         try {
-            if ($qrId && ($qr = \App\Models\RedeemableQr::find($qrId))) {
-                app(\App\Services\Qr\RedeemableQrService::class)->deliver($qr);   // contract + QR
-
-                return;
-            }
             // Board 2026-08-11: acknowledgements go push+inbox (WhatsApp = OTP only).
+            // Board 2026-11-15: ALWAYS — also when this renewal minted a gold QR (it used to skip
+            // the contract push then). Tapping the notification opens the updated contract.
             $bond = Bond::with('member', 'plan')->find($bondId);
             if ($bond?->member && $bond->plan?->is_contract) {
                 \App\Services\Push\Notifier::to($bond->member, 'rd',
@@ -265,6 +262,11 @@ class RdCollectionService
                         'contract_url' => app(\App\Services\Contract\ContractService::class)->store($bond),
                     ],
                 );
+            }
+            if ($qrId && ($qr = \App\Models\RedeemableQr::find($qrId))) {
+                // QR only: the "contract updated" notification above already carries the contract —
+                // deliver()'s own contract push would be a second one for the same renewal.
+                app(\App\Services\Qr\RedeemableQrService::class)->deliver($qr, false);
             }
         } catch (\Throwable $e) {
             \Illuminate\Support\Facades\Log::warning('Gold Saving renewal document send failed: ' . $e->getMessage());

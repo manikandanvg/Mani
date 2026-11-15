@@ -12,8 +12,6 @@ class EditBond extends EditRecord
 
     protected function getHeaderActions(): array
     {
-        return [
-            Actions\DeleteAction::make(),
-        ];
+        return [];   // board 2026-11-15: a contract is never deleted from the panel
     }
 }

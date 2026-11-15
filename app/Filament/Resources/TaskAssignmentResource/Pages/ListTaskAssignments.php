@@ -42,7 +42,7 @@ class ListTaskAssignments extends ListRecords
                     Forms\Components\Select::make('branch_id')->label('Branch')
                         ->visible(fn (Forms\Get $get) => $get('subject_type') === 'branch')
                         ->required(fn (Forms\Get $get) => $get('subject_type') === 'branch')
-                        ->options(fn () => Branch::where('is_active', true)->orderBy('name')->pluck('name', 'id'))->searchable(),
+                        ->options(fn () => Branch::fullOptions(true))->searchable(),
                     Forms\Components\Select::make('task_type_id')->label('Task type')
                         ->options(fn (Forms\Get $get) => TaskType::where('is_active', true)
                             ->where('scope', $get('subject_type') === 'branch' ? 'branch' : 'employee')->orderBy('sort')->pluck('name', 'id'))

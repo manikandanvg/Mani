@@ -93,6 +93,11 @@ class BranchOrderResource extends BaseResource
         $query = parent::getEloquentQuery()->with(['branch', 'salesReturn', 'member', 'currentBranch', 'lines', 'approver.branch', 'urnSiblings']);
         $user = auth()->user();
 
+        // User 2026-11-15: a request the dealer cancelled is simply gone from Head Office's list.
+        if ($user && ! $user->isDistributor()) {
+            $query->where(fn (Builder $q) => $q->where('status', '!=', 'cancelled')->orWhereNull('cancelled_by'));
+        }
+
         if ($user && $user->isDistributor() && $user->branch_id) {
             $mine = (int) $user->branch_id;
             // Own orders, orders placed with me, orders currently with me, and every
@@ -127,7 +132,10 @@ class BranchOrderResource extends BaseResource
                     ->placeholder('—')->searchable()->toggleable(),
                 Tables\Columns\TextColumn::make('created_at')->label('Date')->dateTime()->sortable(),
                 Tables\Columns\TextColumn::make('branch.name')->label('Branch')->searchable()->toggleable(),
-                Tables\Columns\TextColumn::make('branch.phone')->label('Contact No')->placeholder('—')->searchable()->toggleable(),
+                // Board 2026-11-15: click the number to copy it.
+                Tables\Columns\TextColumn::make('branch.phone')->label('Contact No')->placeholder('—')->searchable()->toggleable()
+                    ->copyable()->copyMessage('Phone number copied')->icon('heroicon-m-clipboard-document')->iconPosition('after')
+                    ->tooltip('Click to copy'),
                 Tables\Columns\TextColumn::make('currentBranch.name')->label('Now at')->placeholder('—')->toggleable()
                     ->description(fn (BranchOrderRequest $r) => $r->isCustomize() && $r->current_branch_id ? match ($r->status) {
                         'pending' => 'awaiting forward / accept', 'approved', 'in_transit' => 'holding the pieces', 'delivered' => 'ready to bill', default => null,
@@ -152,7 +160,11 @@ class BranchOrderResource extends BaseResource
                     ->color(fn ($state) => match ($state) {
                         'approved', 'delivered', 'billed' => 'success', 'in_transit' => 'info',
                         'rejected', 'cancelled' => 'danger', default => 'warning',
-                    }),
+                    })
+                    // the reason Head Office gave / the dealer typed (board 2026-11-15)
+                    ->description(fn (BranchOrderRequest $r) => in_array($r->status, ['rejected', 'cancelled'], true) && filled($r->decision_note)
+                        ? \Illuminate\Support\Str::limit((string) $r->decision_note, 60) : null)
+                    ->tooltip(fn (BranchOrderRequest $r) => in_array($r->status, ['rejected', 'cancelled'], true) ? $r->decision_note : null),
                 Tables\Columns\TextColumn::make('requester.name')->label('By')->toggleable(),
                 // User 2026-11-11: who approved / rejected — a dealer login is flagged.
                 Tables\Columns\TextColumn::make('approver.name')->label('Decided by')->placeholder('—')->toggleable()
@@ -233,19 +245,38 @@ class BranchOrderResource extends BaseResource
                         }
                         Notification::make()->success()->title($r->request_no . ' approved')->send();
                     }),
+                // Board 2026-11-15: a rejection must say WHY — the reason is kept on the order,
+                // written to the activity log and pushed to the dealer (app + inbox).
                 Tables\Actions\Action::make('reject')
-                    ->icon('heroicon-m-x-circle')->color('danger')->requiresConfirmation()
+                    ->icon('heroicon-m-x-circle')->color('danger')
+                    ->modalHeading(fn (BranchOrderRequest $r) => 'Reject ' . $r->request_no)
+                    ->modalDescription('The dealer is told the reason by app notification, and any payment charged for this order is refunded.')
+                    ->form([Forms\Components\Textarea::make('reason')->label('Reason for rejecting')->rows(3)->required()->maxLength(500)])
+                    ->modalSubmitActionLabel('Reject order')
                     ->visible(fn (BranchOrderRequest $r) => $r->status === 'pending' && ! $r->isCustomize() && static::canDecide($r))
-                    ->action(function (BranchOrderRequest $r) {
+                    ->action(function (BranchOrderRequest $r, array $data) {
                         try {
-                            app(BranchOrderService::class)->reject($r);
+                            app(BranchOrderService::class)->reject($r, null, $data['reason'] ?? null);
                         } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
                             Notification::make()->danger()->title('Cannot reject')->body($e->getMessage())->send();
 
                             return;
                         }
-                        Notification::make()->warning()->title($r->request_no . ' rejected')->send();
+                        Notification::make()->warning()->title($r->request_no . ' rejected')->body('The dealer has been notified with the reason.')->send();
                     }),
+                // User 2026-11-15: ONLY an Order Form stock request, still pending — for a figure typed
+                // wrongly. No refund; no old-system, redemption or customised order.
+                Tables\Actions\Action::make('cancel_order')
+                    ->label('Cancel')
+                    ->icon('heroicon-m-no-symbol')->color('danger')
+                    ->modalHeading(fn (BranchOrderRequest $r) => 'Cancel ' . $r->request_no . '?')
+                    ->modalDescription('Use this when the request was entered wrongly. It is removed from Head Office before approval — then place a new, correct request from the Order Form.')
+                    ->form([Forms\Components\Textarea::make('reason')->label('Reason (optional)')->rows(2)->maxLength(500)])
+                    ->modalSubmitActionLabel('Cancel order')
+                    ->visible(fn (BranchOrderRequest $r) => BranchOrderService::cancellableBy($r, auth()->user()))
+                    ->action(fn (BranchOrderRequest $r, array $data) => static::notify(
+                        fn () => app(BranchOrderService::class)->cancel($r, auth()->user(), $data['reason'] ?? null),
+                        $r->request_no . ' cancelled')),
 
                 // ── Customized orders travel the ladder (board 2026-08-27) ──
                 Tables\Actions\Action::make('forward')
@@ -380,6 +411,10 @@ class BranchOrderResource extends BaseResource
                 Infolists\Components\TextEntry::make('approver.name')->label('Decided by')->placeholder('—')
                     ->formatStateUsing(fn ($state, BranchOrderRequest $r) => $state . ($r->decidedByDealer() ? ' (NON-HQ dealer)' : ' (Head Office)'))
                     ->color(fn (BranchOrderRequest $r) => $r->decidedByDealer() ? 'danger' : null),
+                Infolists\Components\TextEntry::make('decision_note')
+                    ->label(fn (BranchOrderRequest $r) => $r->status === 'cancelled' ? 'Cancellation reason' : 'Rejection reason')
+                    ->color('danger')->columnSpan(2)
+                    ->visible(fn (BranchOrderRequest $r) => in_array($r->status, ['rejected', 'cancelled'], true) && filled($r->decision_note)),
                 Infolists\Components\TextEntry::make('payment_remarks')->columnSpan(2)->placeholder('—'),
                 Infolists\Components\TextEntry::make('currentBranch.name')->label('Now at')->placeholder('—')
                     ->visible(fn (BranchOrderRequest $r) => $r->isCustomize()),

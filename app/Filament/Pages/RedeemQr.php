@@ -82,7 +82,7 @@ class RedeemQr extends Page implements HasForms
                             ->required(),
                         Select::make('branch_id')
                             ->label('Redeeming branch')
-                            ->options(fn () => Branch::orderBy('name')->pluck('name', 'id'))
+                            ->options(fn () => Branch::fullOptions())
                             ->searchable()
                             ->disabled(fn () => $this->ctx !== null || $this->isDistributor())
                             ->dehydrated()   // keep the value in state even when disabled

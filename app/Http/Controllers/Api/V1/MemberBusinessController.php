@@ -164,6 +164,9 @@ class MemberBusinessController extends Controller
                     'from' => $r->contract?->plan?->code,
                     'note' => $r->note,
                     'paid_on' => optional($r->paid_on)->toDateString(),
+                    // board 2026-11-15: a settlement is a wallet credit or a redeemable gold QR
+                    'mode' => $r->mode ?: 'wallet',
+                    'qr_id' => $r->redeemable_qr_id,
                 ]),
             'RESELLER' => $this->resellerQuery($member)
                 ->when($marginType !== false, fn ($q) => $q->where('com_type_id', $marginType))
@@ -478,7 +481,7 @@ class MemberBusinessController extends Controller
             // Settlements are paid the moment they are entered, so total = paid; the
             // app pairs this with wallet.cash_balance ("accumulated wallet").
             'settlement' => (function () use ($member) {
-                $sum = round((float) \App\Models\ContractSettlement::where('member_id', $member->id)->sum('amount'), 2);
+                $sum = round((float) \App\Models\ContractSettlement::where('member_id', $member->id)->where('mode', 'wallet')->sum('amount'), 2);
 
                 return ['total' => $sum, 'paid' => $sum, 'pending' => 0.0,
                     'count' => (int) \App\Models\ContractSettlement::where('member_id', $member->id)->count()];

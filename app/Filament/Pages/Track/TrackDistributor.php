@@ -86,53 +86,42 @@ class TrackDistributor extends TrackPage
             ], fn ($v) => $v !== null)];
         }
 
-        $contracts = \App\Models\MemberContract::with('plan')
+        $contracts = \App\Models\MemberContract::with(['plan', 'branch'])
             ->where('member_id', $member->id)->latest('start_date')->limit(15)->get();
         $this->sections[] = ['heading' => __('Contracts'),
-            'columns' => [__('Contract #'), __('Scheme'), __('Amount'), __('Start'), __('End'), __('Status')],
+            'columns' => [__('Contract #'), __('Scheme'), __('Amount'), __('Start'), __('End'), __('Status'), __('Branch')],
             'rows' => $contracts->map(fn ($c) => [
-                $c->contract_no, $c->plan?->code, $this->money($c->amount),
-                $this->dmy($c->start_date), $this->dmy($c->end_date), ucfirst((string) $c->status),
+                $c->contract_no, trim($c->plan?->code . ' — ' . (Translatable::pick($c->plan?->name) ?? '')), $this->money($c->amount),
+                $this->dmy($c->start_date), $this->dmy($c->end_date), ucfirst((string) $c->status), $c->branch?->name,
             ])->all()];
 
-        $rd = RdEntry::where('member_id', $member->id)->latest('paid_on')->limit(10)->get();
+        $rd = RdEntry::with('branch')->where('member_id', $member->id)->latest('paid_on')->limit(10)->get();
         $this->sections[] = ['heading' => __('Recent Gold Saving collections'),
-            'columns' => [__('Paid on'), __('Amount'), __('Instalment #'), __('Bond')],
+            'columns' => [__('Paid on'), __('Amount'), __('Instalment #'), __('Bond'), __('Collected at')],
             'rows' => $rd->map(fn ($r) => [
-                $this->dmy($r->paid_on), $this->money($r->value), (string) $r->due_count, (string) $r->bond_id,
+                $this->dmy($r->paid_on), $this->money($r->value), (string) $r->due_count, (string) $r->bond_id, $r->branch?->name,
             ])->all()];
 
-        $qrs = RedeemableQr::where('member_id', $member->id)->latest()->limit(10)->get();
+        $qrs = RedeemableQr::with(['branch', 'redeemBranch'])->where('member_id', $member->id)->latest()->limit(15)->get();
         $this->sections[] = ['heading' => __('Redeemable QRs'),
-            'columns' => [__('QR code'), __('Mode'), __('Gram worth'), __('Cash worth'), __('Status'), __('Sent')],
+            'columns' => [__('QR code'), __('Type'), __('Metal'), __('Gram worth'), __('Cash worth'), __('Status'), __('Generated at'), __('Redeemed at')],
             'rows' => $qrs->map(fn ($r) => [
-                $r->qr_code, strtoupper((string) $r->qr_mode), number_format((float) $r->gram_worth, 4),
-                $this->money($r->cash_worth), ucfirst((string) $r->status), $r->qr_sent ? __('Yes') : __('No'),
+                $r->qr_code, TrackQr::kindLabel($r), strtoupper((string) $r->qr_mode), number_format((float) $r->gram_worth, 4),
+                $this->money($r->cash_worth), ucfirst((string) $r->status),
+                trim(($r->branch?->name ?? '—') . ' · ' . $this->dmy($r->created_at)),
+                $r->redeemed_at ? trim(($r->redeemBranch?->name ?? '—') . ' · ' . $r->redeemed_at->format('d M Y')) : null,
             ])->all()];
 
-        $streams = CommissionLedger::where('member_id', $member->id)
-            ->select('type',
-                DB::raw('COUNT(*) c'), DB::raw('SUM(amount) gross'), DB::raw('SUM(tds) tds'),
-                DB::raw('SUM(service_charge) svc'), DB::raw('SUM(COALESCE(net_amount, 0)) net'))
-            ->groupBy('type')->get();
-        $cbc = CbcEntry::where('member_id', $member->id)
-            ->select(DB::raw('COUNT(*) c'), DB::raw('SUM(worth) gross'))->first();
-        $rows = $streams->map(fn ($s) => [
-            $s->type, (string) $s->c, $this->money($s->gross), $this->money($s->tds),
-            $this->money($s->svc), $this->money($s->net),
-        ])->all();
-        if ($cbc && $cbc->c > 0) {
-            $rows[] = ['CBC', (string) $cbc->c, $this->money($cbc->gross), '—', '—', '—'];
-        }
-        $this->sections[] = ['heading' => __('Earnings summary'),
-            'columns' => [__('Stream'), __('Entries'), __('Gross'), __('TDS'), __('Service'), __('Net paid')],
-            'rows' => $rows];
+        // Board 2026-11-15: every kind of commission — IC, CBC, level income, margins — booked,
+        // paid and pending, then each transaction with its date and the branch it came from.
+        $this->sections[] = CommissionTrail::summarySection($member);
+        $this->sections[] = CommissionTrail::transactionsSection($member, null, null, 100);
 
-        $sales = SalesInvoice::where('customer_member_id', $member->id)->latest('date')->limit(10)->get();
+        $sales = SalesInvoice::with('branch')->where('customer_member_id', $member->id)->latest('date')->limit(10)->get();
         $this->sections[] = ['heading' => __('Recent purchases (sales invoices)'),
-            'columns' => [__('Invoice #'), __('Date'), __('Grand total'), __('Payment')],
+            'columns' => [__('Invoice #'), __('Date'), __('Billed at'), __('Grand total'), __('Payment')],
             'rows' => $sales->map(fn ($s) => [
-                $s->invoice_no, $this->dmy($s->date), $this->money($s->grand_total), strtoupper((string) $s->payment_type),
+                $s->invoice_no, $this->dmy($s->date), $s->branch?->name, $this->money($s->grand_total), strtoupper((string) $s->payment_type),
             ])->all()];
     }
 }

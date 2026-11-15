@@ -61,10 +61,33 @@ class SupportTicketResource extends BaseResource
 
     protected static ?string $navigationIcon = 'heroicon-o-ticket';
 
-    /** Two nav entries backed by the same list page, split by the status tab. */
+    /** Is the viewer a dealer login (raises / follows its own tickets)? */
+    public static function forDealer(): bool
+    {
+        return (bool) auth()->user()?->isDistributor();
+    }
+
+    /**
+     * Board 2026-11-15: "Open Tickets" / "Closed Tickets" are the DEALER's two entries. Head
+     * Office and the support desk get ONE entry — "Distributors Ticket" — and switch between
+     * open and closed with the tabs on the page.
+     */
     public static function getNavigationItems(): array
     {
         $visible = fn (): bool => static::shouldRegisterNavigation();
+
+        if (! static::forDealer()) {
+            return [
+                NavigationItem::make(__('Distributors Ticket'))
+                    ->group(static::getNavigationGroup())
+                    ->icon('heroicon-o-ticket')
+                    ->sort(1)
+                    ->url(static::getUrl('index'))
+                    ->badge(fn () => ($n = SupportTicket::where('status', 'open')->count()) > 0 ? (string) $n : null)
+                    ->isActiveWhen(fn (): bool => request()->routeIs(static::getRouteBaseName() . '.*'))
+                    ->visible($visible),
+            ];
+        }
 
         return [
             NavigationItem::make(__('Open Tickets'))
@@ -72,7 +95,7 @@ class SupportTicketResource extends BaseResource
                 ->icon('heroicon-o-ticket')
                 ->sort(1)
                 ->url(static::getUrl('index', ['activeTab' => 'open']))
-                ->badge(fn () => ($n = SupportTicket::where('status', 'open')->count()) > 0 ? (string) $n : null)
+                ->badge(fn () => ($n = static::getEloquentQuery()->where('status', 'open')->count()) > 0 ? (string) $n : null)
                 ->isActiveWhen(fn (): bool => request()->routeIs(static::getRouteBaseName() . '.*')
                     && request()->query('activeTab', 'open') !== 'closed')
                 ->visible($visible),
@@ -108,6 +131,8 @@ class SupportTicketResource extends BaseResource
                     ->getOptionLabelUsing(fn ($value) => ($m = Member::find($value)) ? "{$m->member_code} — {$m->name}" : null)
                     ->searchable()->preload(false),
                 Forms\Components\Select::make('branch_id')->relationship('branch', 'name')->native(false)
+                    ->getOptionLabelFromRecordUsing(fn (\App\Models\Branch $record) => $record->pickLabel())
+                    ->searchable(['name', 'incharge', 'city', 'phone'])
                     ->default(fn () => auth()->user()?->isDistributor() ? auth()->user()->branch_id : null)
                     ->disabled(fn () => (bool) auth()->user()?->isDistributor())
                     ->dehydrated(),
@@ -162,7 +187,11 @@ class SupportTicketResource extends BaseResource
             ->columns([
                 Tables\Columns\TextColumn::make('ticket_no')->label('Ticket #')->searchable()->sortable(),
                 Tables\Columns\TextColumn::make('subject')->searchable()->limit(45)->wrap(),
-                Tables\Columns\TextColumn::make('member.member_code')->label('Distributor')->searchable()->toggleable(),
+                Tables\Columns\TextColumn::make('member.member_code')->label('Distributor')->searchable()->toggleable()
+                    ->description(fn (SupportTicket $r) => $r->member?->name),
+                Tables\Columns\TextColumn::make('branch.name')->label('Branch')->toggleable()
+                    ->visible(fn () => ! static::forDealer())
+                    ->description(fn (SupportTicket $r) => trim(($r->branch?->city ?? '') . ' ' . ($r->branch?->phone ?? '')) ?: null),
                 Tables\Columns\TextColumn::make('category')
                     ->formatStateUsing(fn (?string $state) => SupportTicket::CATEGORIES[$state] ?? $state)
                     ->toggleable(),

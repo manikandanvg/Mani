@@ -137,7 +137,7 @@ class BranchPayoutRequestResource extends BaseResource
                         return [__('Status') . ': ' . collect(BranchPayoutRequest::STATUSES)->only($values)->map(fn ($label) => __($label))->join(', ', ' & ')];
                     }),
                 Tables\Filters\SelectFilter::make('branch_id')->label('Branch')
-                    ->options(fn () => Branch::query()->orderBy('name')->pluck('name', 'id')->all())
+                    ->options(fn () => Branch::fullOptions())
                     ->searchable()
                     ->visible($hq),
                 Tables\Filters\Filter::make('requested')

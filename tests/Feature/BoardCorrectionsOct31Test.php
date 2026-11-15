@@ -69,7 +69,9 @@ class BoardCorrectionsOct31Test extends TestCase
 
         $this->actingAs($this->admin);
         $this->assertTrue(MemberResource::canEdit($member));
-        $this->assertTrue(MemberResource::canDeleteAny());
+        // Board 2026-11-15: the delete option is hidden on the Distributor List for everyone.
+        $this->assertFalse(MemberResource::canDeleteAny());
+        $this->assertFalse(MemberResource::canDelete($member));
 
         $this->actingAs($this->staff('manager'));
         $this->assertTrue(MemberResource::canViewAny(), 'HQ staff still see the list');

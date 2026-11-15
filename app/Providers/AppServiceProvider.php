@@ -46,6 +46,10 @@ class AppServiceProvider extends ServiceProvider
         });
         $this->app->singleton(\App\Services\Translation\TranslationManager::class);
 
+        // Board 2026-11-15: every data table is an IclTable — no row click, search on every text
+        // column, footer totals on amounts, generic filters, full-name branch dropdowns.
+        $this->app->bind(\Filament\Tables\Table::class, \App\Filament\Support\IclTable::class);
+
         // Geocoder driver, swappable via config('services.geocode.driver').
         $this->app->bind(\App\Services\Geocode\Geocoder::class, fn () => match (config('services.geocode.driver')) {
             'google' => new \App\Services\Geocode\GoogleGeocoder,
@@ -147,6 +151,8 @@ class AppServiceProvider extends ServiceProvider
 
         \Filament\Tables\Columns\TextColumn::macro('baseMoney', function () use ($format) {
             /** @var \Filament\Tables\Columns\TextColumn $this */
+            \App\Filament\Support\IclTable::markMoney($this);   // gets a footer total (board 2026-11-15)
+
             return $this->formatStateUsing($format)->alignEnd();
         });
 

@@ -132,7 +132,7 @@ class Sales extends Page implements HasForms
                         DatePicker::make('bill_date')->label('Bill date')
                             ->native(false)->displayFormat('d M Y')
                             ->default(fn () => now()->toDateString())
-                            ->minDate(fn () => now()->subDays(self::BACKDATE_DAYS)->toDateString())
+                            // board 2026-11-15: once unlocked with the password, ANY past date may be billed
                             ->maxDate(fn () => now()->toDateString())
                             ->required()
                             ->visible(fn () => self::canBackdate())
@@ -148,7 +148,7 @@ class Sales extends Page implements HasForms
                             })
                             ->suffixActions($this->billDateActions())
                             ->helperText(fn () => $this->billDateUnlocked
-                                ? 'Unlocked with the admin password: a previous date may be set (up to ' . self::BACKDATE_DAYS . ' days back).'
+                                ? 'Unlocked with the admin password: any previous date may be set.'
                                 : 'Protected: fixed to today. Picking another date asks for the admin password.'),
                     ]),
 
@@ -403,8 +403,11 @@ class Sales extends Page implements HasForms
 
     // ---------------- actions ----------------
 
-    /** How far back HQ may date a bill. */
-    public const BACKDATE_DAYS = 31;
+    /**
+     * Was the back-dating window (31 days). Board 2026-11-15: with the admin password the bill
+     * may carry ANY past date, so no window applies any more; kept only for old references.
+     */
+    public const BACKDATE_DAYS = 0;
 
     /** The bill date stays locked to today until the admin pass-phrase is entered (user 2026-11-01). */
     public bool $billDateUnlocked = false;
@@ -472,10 +475,14 @@ class Sales extends Page implements HasForms
         $today = now()->toDateString();
         $billDate = self::canBackdate() && $this->billDateUnlocked && ! empty($data['bill_date'])
             ? \Illuminate\Support\Carbon::parse($data['bill_date'])->toDateString() : $today;
-        if ($billDate > $today || $billDate < now()->subDays(self::BACKDATE_DAYS)->toDateString()) {
-            Notification::make()->title('Bill date out of range')->body('Pick a date between ' . now()->subDays(self::BACKDATE_DAYS)->format('d M Y') . ' and today.')->warning()->send();
+        if ($billDate > $today) {
+            Notification::make()->title('Bill date out of range')->body('A bill cannot carry a future date — pick today or any earlier date.')->warning()->send();
 
             return;
+        }
+        if ($billDate !== $today) {
+            \App\Services\Activity\ActivityLogger::log('billing', 'bill_backdated', 'Bill dated ' . \Illuminate\Support\Carbon::parse($billDate)->format('d M Y')
+                . ' raised by ' . (auth()->user()?->name ?? 'admin') . ' (bill date unlocked with the admin password)');
         }
         $data['bill_date'] = $billDate;
         $totals = self::totals($data['cart'] ?? []);

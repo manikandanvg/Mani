@@ -86,12 +86,18 @@
 /* Badges: pill + faint shadow for the premium feel */
 .fi-badge { box-shadow: 0 1px 2px rgba(43, 26, 26, .08); }
 
-/* Page content fades/eases in on load */
+/* Page content fades in on load — OPACITY ONLY.
+   Board 2026-11-15 ("popup opens at the top, I must scroll up to see it"): this animation used
+   to end on transform: translateY(0) and, with fill-mode `both`, kept that transform on the
+   page for good. Any transform makes an element the containing block of its position:fixed
+   children, so every popup was centred on the whole (long) PAGE instead of on the screen —
+   scrolled down, it opened out of sight above. Never put transform / filter / perspective /
+   will-change on .fi-main, .fi-page or anything that wraps a table or a form. */
 @keyframes lord-fade-in {
-    from { opacity: 0; transform: translateY(6px); }
-    to { opacity: 1; transform: translateY(0); }
+    from { opacity: 0; }
+    to { opacity: 1; }
 }
-.fi-main > * { animation: lord-fade-in .35s var(--lord-ease) both; }
+.fi-main > * { animation: lord-fade-in .35s var(--lord-ease) backwards; transform: none !important; }
 
 /* Inputs: subtle focus glow in brand crimson */
 .fi-input:focus-within { box-shadow: 0 0 0 3px rgba(171, 34, 47, .12); }
@@ -226,3 +232,29 @@ html, body { -webkit-text-size-adjust: 100%; }
     .fi-btn { padding-left: .75rem; padding-right: .75rem; }
     .fi-header-heading { font-size: 1.1rem !important; }
 }
+
+/* ── Data tables (board 2026-11-15) ─────────────────────────────────────────────────
+   Floating horizontal scrollbar (public/js/table-scroll.js) + drag-to-scroll, and rows
+   that no longer open on click (IclTable) so they must not look clickable either. */
+.icl-float-scroll {
+    position: fixed; bottom: 0; z-index: 30; display: none;
+    height: 16px; overflow-x: auto; overflow-y: hidden;
+    background: rgba(255, 255, 255, .92); border-top: 1px solid rgba(0, 0, 0, .12);
+    box-shadow: 0 -2px 8px rgba(0, 0, 0, .08);
+}
+.dark .icl-float-scroll { background: rgba(24, 24, 27, .92); border-top-color: rgba(255, 255, 255, .15); }
+.icl-float-scroll > div { height: 1px; }
+.fi-ta-content, .icl-scroll-x { cursor: grab; }
+.fi-ta-content a, .fi-ta-content button, .fi-ta-content input, .fi-ta-content select, .fi-ta-content label { cursor: pointer; }
+.fi-ta-content.icl-dragging, .icl-scroll-x.icl-dragging { cursor: grabbing; user-select: none; }
+.fi-ta-content.icl-dragging * { cursor: grabbing !important; }
+.icl-scroll-x { overflow-x: auto; }
+@media print { .icl-float-scroll { display: none !important; } }
+
+/* Support chat bubbles: formatted (rich-text) replies */
+.icl-chat-bubble p { margin: 0 0 .35rem; }
+.icl-chat-bubble p:last-child { margin-bottom: 0; }
+.icl-chat-bubble ul { list-style: disc; padding-left: 1.2rem; margin: .2rem 0; }
+.icl-chat-bubble ol { list-style: decimal; padding-left: 1.2rem; margin: .2rem 0; }
+.icl-chat-bubble a { text-decoration: underline; color: inherit; }
+.icl-chat-bubble blockquote { border-left: 3px solid currentColor; padding-left: .6rem; opacity: .9; margin: .2rem 0; }

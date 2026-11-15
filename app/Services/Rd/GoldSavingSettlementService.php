@@ -96,15 +96,48 @@ class GoldSavingSettlementService
         ];
     }
 
-    public function settle(MemberContract $contract, int $branchId, ?int $coinsReturned = null, ?string $note = null, ?int $userId = null, ?Carbon $today = null): RdSettlement
+    /**
+     * Every due paid on the bond, oldest first — the joining bill, then each collection — for
+     * the settlement popup (board 2026-11-15: "show the due paid sum amount").
+     *
+     * @return array<int, array{no: int, date: ?string, amount: float, branch: ?string}>
+     */
+    public function dues(MemberContract $contract): array
+    {
+        $bond = $contract->bond;
+        if (! $bond) {
+            return [];
+        }
+        $rows = [[
+            'no' => 1, 'date' => $bond->bond_date ? Carbon::parse($bond->bond_date)->format('d M Y') : null,
+            'amount' => GoldSavingRules::firstDue($bond), 'branch' => $bond->branch?->name,
+        ]];
+        foreach (RdEntry::with('branch')->where('bond_id', $bond->id)->orderBy('paid_on')->orderBy('id')->get() as $e) {
+            $rows[] = ['no' => (int) $e->due_count ?: count($rows) + 1, 'date' => $e->paid_on ? Carbon::parse($e->paid_on)->format('d M Y') : null,
+                'amount' => (float) $e->value, 'branch' => $e->branch?->name];
+        }
+
+        return $rows;
+    }
+
+    /**
+     * $approvedWorth (board 2026-11-15): the amount Head Office approves on the form. The QR is
+     * issued for it; the rule's own figure is kept beside it (rule_worth). Null = the rule amount.
+     */
+    public function settle(MemberContract $contract, int $branchId, ?int $coinsReturned = null, ?string $note = null, ?int $userId = null, ?Carbon $today = null, ?float $approvedWorth = null): RdSettlement
     {
         $today ??= Carbon::today();
 
-        $row = DB::transaction(function () use ($contract, $branchId, $coinsReturned, $note, $userId, $today) {
+        $row = DB::transaction(function () use ($contract, $branchId, $coinsReturned, $note, $userId, $today, $approvedWorth) {
             $contract = MemberContract::with(['plan', 'bond.plan'])->whereKey($contract->id)->lockForUpdate()->firstOrFail();
             abort_unless(self::canSettle($contract, $today), 422, 'This Gold Saving contract cannot be settled: it has not expired, or it is already settled.');
 
             $q = $this->quote($contract, $coinsReturned);
+            $ruleWorth = $q['worth'];
+            if ($approvedWorth !== null) {
+                abort_if($approvedWorth <= 0, 422, 'The approved settlement amount must be greater than zero.');
+                $q['worth'] = round($approvedWorth, 2);
+            }
             abort_if($q['worth'] <= 0, 422, 'Nothing to settle: the coins not returned are worth more than the dues paid.');
             $bond = $contract->bond;
             $plan = $contract->plan;
@@ -129,7 +162,7 @@ class GoldSavingSettlementService
                 'first_due' => $q['first_due'], 'paid_total' => $q['paid_total'], 'bonus' => $q['bonus'],
                 'coins_given' => $q['coins_given'], 'coins_cancelled' => $q['coins_cancelled'],
                 'coins_returned' => $q['coins_returned'], 'coins_missing' => $q['coins_missing'],
-                'coin_price' => $q['coin_price'], 'deduction' => $q['deduction'], 'worth' => $q['worth'],
+                'coin_price' => $q['coin_price'], 'deduction' => $q['deduction'], 'worth' => $q['worth'], 'rule_worth' => $ruleWorth,
                 'metal' => $q['metal'], 'redeemable_qr_id' => $qr->id, 'settled_on' => $today->toDateString(),
                 'note' => $note ? mb_substr($note, 0, 255) : null, 'created_by' => $userId,
             ]);

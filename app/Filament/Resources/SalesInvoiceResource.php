@@ -27,6 +27,13 @@ class SalesInvoiceResource extends BaseResource
 
     protected static ?string $navigationIcon = 'heroicon-o-document-text';
 
+    // Board 2026-11-15: the register of bills is called "Manage Sales".
+    protected static ?string $navigationLabel = 'Manage Sales';
+
+    protected static ?string $pluralModelLabel = 'Manage Sales';
+
+    protected static ?string $modelLabel = 'Sale';
+
     /**
      * Board 2026-10-31 (8 / 16): a sales invoice is never edited and never deleted. It can
      * only be CANCELLED (super admin), which restores stock and reverses every activity of

@@ -62,7 +62,7 @@ class StockTracking extends Page implements HasForms
     {
         return $form->statePath('data')->columns(3)->schema([
             Forms\Components\Select::make('branch_id')->label('Branch')
-                ->options(fn () => Branch::where('is_active', true)->orderBy('name')->pluck('name', 'id'))
+                ->options(fn () => Branch::fullOptions(true))
                 ->disabled(fn () => (bool) auth()->user()?->isDistributor())->dehydrated()
                 ->searchable()->live(),
             Forms\Components\Select::make('month')->options(\App\Filament\Resources\TaskAssignmentResource::monthOptions())->live()->native(false),

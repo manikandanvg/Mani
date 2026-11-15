@@ -126,8 +126,10 @@ class PlanResource extends BaseResource
                 Forms\Components\Section::make('Settlement')->columns(3)->schema([
                     Forms\Components\TextInput::make('settlement_cycle_months')->label('Cycle (months)')->numeric()
                         ->helperText('Months from contract start to the settlement event; blank = never settles'),
+                    Forms\Components\TextInput::make('settlement_alloc_pct')->label('Settlement allocation %')->numeric()
+                        ->helperText('Share of the BILL the settlement is worked on (board 2026-11-15): Retailer 50, Wholesaler 30, Sub Dealer 75, G12 Forward 100'),
                     Forms\Components\TextInput::make('settlement_qr_pct')->label('QR worth %')->numeric()
-                        ->helperText('Settlement gold-QR worth as % of the contract amount'),
+                        ->helperText('Settlement gold-QR worth as % of that allocation: ₹1,00,000 × 50 % × 72 % = ₹36,000'),
                     Forms\Components\TextInput::make('settlement_bonus_months')->label('Gold Saving bonus months')->numeric()->default(0)
                         ->helperText('G11 Gold Saving: QR = paid total + bonus months × monthly'),
                     Forms\Components\Toggle::make('settlement_close')->label('Close contract at settlement'),

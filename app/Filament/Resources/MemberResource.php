@@ -46,14 +46,15 @@ class MemberResource extends BaseResource
         return (bool) auth()->user()?->isSuperAdmin();
     }
 
+    /** Board 2026-11-15: a distributor is never deleted from the list — the option is gone for every login. */
     public static function canDelete($record): bool
     {
-        return (bool) auth()->user()?->isSuperAdmin();
+        return false;
     }
 
     public static function canDeleteAny(): bool
     {
-        return (bool) auth()->user()?->isSuperAdmin();
+        return false;
     }
 
     public static function canCreate(): bool
@@ -445,11 +446,7 @@ class MemberResource extends BaseResource
             ->actions([
                 Tables\Actions\EditAction::make()->visible(fn () => (bool) auth()->user()?->isSuperAdmin()),
             ])
-            ->bulkActions([
-                Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
-                ])->visible(fn () => (bool) auth()->user()?->isSuperAdmin()),
-            ]);
+            ->bulkActions([]);   // board 2026-11-15: no delete on the Distributor List
     }
 
     public static function getRelations(): array

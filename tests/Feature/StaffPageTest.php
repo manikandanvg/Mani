@@ -14,7 +14,7 @@ use Tests\TestCase;
 
 /**
  * User 2026-11-02: Staff list shows the phone; the branch dropdown on edit shows
- * "NAME (city / phone / in-charge)" and is searchable on any of those parts, because
+ * "NAME (in-charge / city / phone)" and is searchable on any of those parts, because
  * 1,180 legacy branches share the name "LORD JEWELLER".
  */
 class StaffPageTest extends TestCase
@@ -33,8 +33,8 @@ class StaffPageTest extends TestCase
         $staff->assignRole('distributor');
         app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
 
-        $this->assertSame('LORD JEWELLER (Madurai / 9000000001 / Bala)', $a->pickLabel());
-        $this->assertSame([$b->id => 'LORD JEWELLER (Salem / 9000000002 / Ganesan)'], Branch::pickOptions('salem'));
+        $this->assertSame('LORD JEWELLER (Bala / Madurai / 9000000001)', $a->pickLabel());
+        $this->assertSame([$b->id => 'LORD JEWELLER (Ganesan / Salem / 9000000002)'], Branch::pickOptions('salem'));
         $this->assertSame([$a->id => $a->pickLabel()], Branch::pickOptions('Bala'));
         $this->assertSame([$a->id => $a->pickLabel()], Branch::pickOptions('0000001'));
 
@@ -48,8 +48,8 @@ class StaffPageTest extends TestCase
 
         Livewire::test(EditStaff::class, ['record' => $staff->id])
             ->assertFormFieldExists('branch_id', 'form', fn (\Filament\Forms\Components\Select $f) => $f->isSearchable()
-                && $f->getOptionLabel() === 'LORD JEWELLER (Salem / 9000000002 / Ganesan)'
-                && $f->getSearchResults('madurai') === [$a->id => 'LORD JEWELLER (Madurai / 9000000001 / Bala)'])
+                && $f->getOptionLabel() === 'LORD JEWELLER (Ganesan / Salem / 9000000002)'
+                && $f->getSearchResults('madurai') === [$a->id => 'LORD JEWELLER (Bala / Madurai / 9000000001)'])
             ->fillForm(['branch_id' => $a->id])
             ->call('save')
             ->assertHasNoFormErrors();
@@ -106,7 +106,7 @@ class StaffPageTest extends TestCase
         $this->assertMatchesRegularExpression('/Password: (\S+)/', $body);
         preg_match('/Password: (\S+)/', $body, $m);
         $password = $m[1];
-        $this->assertStringContainsString('LORD JEWELLER (SIVAKASI / 9000000001 / Bala)', $body);
+        $this->assertStringContainsString('LORD JEWELLER (Bala / SIVAKASI / 9000000001)', $body);
         $this->assertStringContainsString('murugan@test.local', $body);
         $this->assertStringContainsString('/admin/login', $body);
 

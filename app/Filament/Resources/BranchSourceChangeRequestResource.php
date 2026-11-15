@@ -63,7 +63,7 @@ class BranchSourceChangeRequestResource extends BaseResource
         return $form->schema([
             Forms\Components\Select::make('branch_id')
                 ->label('Branch')
-                ->options(fn () => Branch::orderBy('name')->pluck('name', 'id'))
+                ->options(fn () => Branch::fullOptions())
                 ->default(fn () => auth()->user()?->branch_id)
                 ->disabled($isDistributor)       // a distributor can only request for their own branch
                 ->dehydrated()                   // …but still submit the value

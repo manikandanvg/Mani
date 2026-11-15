@@ -20,7 +20,11 @@
                             {{ $isSupport ? 'HQ' : \App\Filament\Resources\SupportThreadResource::ownerLabel($this->record) }}
                             · {{ optional($m->created_at)->timezone(config('app.timezone'))->format('d M, h:i A') }}
                         </div>
-                        {!! nl2br(e($m->body)) !!}
+                        @if ($isSupport && filled($m->body_html))
+                            {!! \App\Livewire\SupportChatPanel::clean($m->body_html) !!}
+                        @else
+                            {!! nl2br(e($m->body)) !!}
+                        @endif
                     </div>
                 </div>
             @empty

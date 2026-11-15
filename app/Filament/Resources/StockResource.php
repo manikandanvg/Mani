@@ -97,7 +97,7 @@ class StockResource extends BaseResource
             ->filters([
                 Tables\Filters\SelectFilter::make('branch_id')
                     ->label('Branch')
-                    ->options(fn () => Branch::orderBy('name')->pluck('name', 'id'))
+                    ->options(fn () => Branch::fullOptions())
                     // HQ logins open on THEIR OWN (HQ) stock by default (board
                     // 2026-08-10); switch or clear the filter to inspect any branch.
                     // Dealers are BranchScoped anyway, so no default for them.

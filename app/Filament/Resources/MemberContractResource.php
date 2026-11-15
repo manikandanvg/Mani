@@ -54,7 +54,7 @@ class MemberContractResource extends BaseResource
 
     public static function getEloquentQuery(): Builder
     {
-        $query = parent::getEloquentQuery()->with(['member', 'plan', 'branch', 'settlements', 'rdSettlement']);
+        $query = parent::getEloquentQuery()->with(['member', 'plan', 'branch', 'bond', 'settlements', 'rdSettlement']);
 
         // Branch scope: a distributor login sees only its own branch's contracts.
         $user = auth()->user();
@@ -92,10 +92,14 @@ class MemberContractResource extends BaseResource
                 Tables\Columns\TextColumn::make('settlement_amount')
                     ->label('Settlement')
                     ->state(fn (MemberContract $r) => ($r->settlements->sum('amount') + (float) ($r->rdSettlement?->worth ?? 0)) ?: null)
-                    ->description(fn (MemberContract $r) => $r->rdSettlement
-                        ? ucfirst($r->rdSettlement->metal) . ' QR · ' . $r->rdSettlement->dues_paid . '/' . $r->rdSettlement->dues_total . ' dues'
-                            . ($r->rdSettlement->coins_missing ? ' · ' . $r->rdSettlement->coins_missing . ' coin(s) not returned' : '')
-                        : null)
+                    ->description(fn (MemberContract $r) => match (true) {
+                        (bool) $r->rdSettlement => ucfirst($r->rdSettlement->metal) . ' QR · ' . $r->rdSettlement->dues_paid . '/' . $r->rdSettlement->dues_total . ' dues'
+                            . ($r->rdSettlement->coins_missing ? ' · ' . $r->rdSettlement->coins_missing . ' coin(s) not returned' : ''),
+                        $r->settlements->contains('mode', 'gold_qr') => 'Gold QR (redeemable) · '
+                            . $r->settlements->map(fn ($s) => $s->stage ?: 'settled')->implode(' + '),
+                        $r->settlements->isNotEmpty() => 'Cash wallet',
+                        default => null,
+                    })
                     ->formatStateUsing(fn ($state) => $state ? '₹' . \App\Support\Money::group((float) $state) : null)
                     ->placeholder(fn (MemberContract $r) => $r->isExpired() ? __('Expired — not settled') : '—')
                     ->color('success'),
@@ -107,6 +111,7 @@ class MemberContractResource extends BaseResource
                     ->label('Show')
                     ->options([
                         'closed' => 'Closed / expired contracts',
+                        'due' => 'Settlement due (12th month / end)',
                         'matured' => 'Matured (needs decision)',
                         'active' => 'Running contracts',
                         'all' => 'All contracts',
@@ -116,6 +121,7 @@ class MemberContractResource extends BaseResource
                     ->query(fn (Builder $query, array $data) => match ($data['value'] ?? 'closed') {
                         'closed' => $query->where(fn ($w) => $w->whereIn('status', ['closed', 'matured'])
                             ->orWhereDate('end_date', '<', now()->toDateString())),
+                        'due' => static::settlementDue($query),
                         'matured' => $query->where('status', 'matured'),
                         'active' => $query->where('status', 'active')->whereDate('end_date', '>=', now()->toDateString()),
                         default => $query,
@@ -127,9 +133,14 @@ class MemberContractResource extends BaseResource
                         ->where(fn ($w) => $w->where('status', 'matured')
                             ->orWhere(fn ($x) => $x->where('status', '!=', 'closed')->whereDate('end_date', '<', now()->toDateString())))
                         ->whereDoesntHave('settlements')),
+                // Board 2026-11-15: the scheme by NAME (the code alone says nothing), and the branch
+                // by its full name — searchable on name / in-charge / city / phone.
                 Tables\Filters\SelectFilter::make('plan_id')
                     ->label('Scheme')
-                    ->relationship('plan', 'code'),
+                    ->options(fn () => \App\Models\Plan::orderBy('code')->get()
+                        ->mapWithKeys(fn ($p) => [$p->id => trim($p->code . ' — ' . (Translatable::pick($p->name) ?? ''))])->all())
+                    ->searchable(),
+                \App\Filament\Support\CommonFilters::branch('branch_id', false),
             ])
             ->actions([
                 Tables\Actions\Action::make('pdf')
@@ -159,6 +170,7 @@ class MemberContractResource extends BaseResource
                     ])
                     ->visible(fn (MemberContract $record) => ! auth()->user()?->isDistributor()
                         && ! \App\Services\Rd\GoldSavingSettlementService::isGoldSaving($record)   // Gold Saving settles by QR, below
+                        && ! \App\Services\ContractSettlementService::settlesByQr($record)          // Retailer / Wholesaler / Sub Dealer / G12: gold QR, below
                         && \App\Services\ContractSettlementService::canGenerate($record))
                     ->action(function (MemberContract $record, array $data) {
                         try {
@@ -174,6 +186,55 @@ class MemberContractResource extends BaseResource
                             ->title('Settlement credited')
                             ->body('₹' . \App\Support\Money::group((float) $row->amount) . ' added to '
                                 . ($record->member?->name ?? 'the distributor') . "'s wallet.")
+                            ->send();
+                    }),
+                // Lord's board 2026-11-15 — Retailer / Wholesaler / Sub Dealer / G12 Forward settle
+                // with a REDEEMABLE GOLD QR worth bill × allocation % × settlement %.
+                Tables\Actions\Action::make('settle_gold_qr')
+                    ->label('Settle by Gold QR')
+                    ->icon('heroicon-o-qr-code')
+                    ->color('warning')
+                    ->modalHeading(fn (MemberContract $record) => 'Settle by Gold QR — ' . $record->contract_no)
+                    ->modalWidth('lg')
+                    ->form(fn (MemberContract $record) => [
+                        Forms\Components\Placeholder::make('summary')->label('')
+                            ->content(fn () => self::qrSettlementSummary($record)),
+                        // User 2026-11-15: the admin decides — interim or final — and when.
+                        Forms\Components\Radio::make('stage')
+                            ->label('Which settlement are you issuing?')
+                            ->options(fn () => \App\Services\ContractSettlementService::stageOptions($record))
+                            ->descriptions([
+                                'interim' => 'The contract keeps running. The final settlement can be issued later — even the next day.',
+                                'final' => 'Closes the contract and its bond. Nothing more can be settled on it afterwards.',
+                            ])
+                            ->default(fn () => \App\Services\ContractSettlementService::suggestedStage($record))
+                            ->required(),
+                        Forms\Components\TextInput::make('amount')
+                            ->label('Approved settlement amount (₹)')
+                            ->numeric()->minValue(0.01)->required()->prefix('₹')
+                            ->default(fn () => \App\Services\ContractSettlementService::rule($record)['worth'] ?? null)
+                            ->helperText('Pre-filled with the scheme rule. The gold QR is issued for the amount approved here, at the gold price of the day.'),
+                        Forms\Components\TextInput::make('note')->label('Note (optional)')->maxLength(255),
+                    ])
+                    ->modalSubmitActionLabel('Approve & issue Gold QR')
+                    ->visible(fn (MemberContract $record) => ! auth()->user()?->isDistributor()
+                        && ! \App\Services\Rd\GoldSavingSettlementService::isGoldSaving($record)
+                        && \App\Services\ContractSettlementService::settlesByQr($record)
+                        && \App\Services\ContractSettlementService::canGenerate($record))
+                    ->action(function (MemberContract $record, array $data) {
+                        try {
+                            $row = app(\App\Services\ContractSettlementService::class)
+                                ->generateQr($record, (float) $data['amount'], $data['note'] ?? null, auth()->id(), stage: $data['stage'] ?? null);
+                        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
+                            \Filament\Notifications\Notification::make()->danger()
+                                ->title('Could not settle')->body($e->getMessage())->send();
+
+                            return;
+                        }
+                        \Filament\Notifications\Notification::make()->success()
+                            ->title($row->stage === 'final' ? 'Final settlement issued — contract closed' : 'Interim settlement issued')
+                            ->body('Redeemable gold QR worth ₹' . \App\Support\Money::group((float) $row->amount)
+                                . ' issued to ' . ($record->member?->name ?? 'the distributor') . '.')
                             ->send();
                     }),
                 // Lord's board 2026-11-13 — Gold Saving: after the scheme date, the saver hands the
@@ -194,13 +255,21 @@ class MemberContractResource extends BaseResource
                             ->maxValue(fn () => app(\App\Services\Rd\GoldSavingSettlementService::class)->quote($record)['coins_redeemed'])
                             ->visible(fn () => app(\App\Services\Rd\GoldSavingSettlementService::class)->quote($record)['coins_redeemed'] > 0)
                             ->helperText('Every coin not handed back is deducted at today\'s 100 mg price. QRs never redeemed are cancelled automatically.'),
-                        Forms\Components\Select::make('branch_id')
-                            ->label('Branch settling (takes the coins into its stock)')
-                            ->options(fn () => \App\Models\Branch::where('is_active', true)->orderBy('name')->pluck('name', 'id'))
-                            ->default(fn () => auth()->user()?->branch_id ?: \App\Models\Branch::where('level', 'hq')->value('id'))
-                            ->searchable()->required(),
+                        \App\Filament\Support\CommonFilters::branchSelect(
+                            Forms\Components\Select::make('branch_id')
+                                ->label('Branch settling (takes the coins into its stock)')
+                                ->default(fn () => auth()->user()?->branch_id ?: \App\Models\Branch::where('level', 'hq')->value('id'))
+                                ->required(),
+                            fn ($q) => $q->where('is_active', true)),
+                        // Board 2026-11-15: the QR is issued for the amount the admin APPROVES.
+                        Forms\Components\TextInput::make('approved_worth')
+                            ->label('Approved settlement amount (₹)')
+                            ->numeric()->minValue(0.01)->prefix('₹')
+                            ->placeholder(fn (Forms\Get $get) => (string) (self::goldSavingWorth($record, $get('coins_returned')) ?? ''))
+                            ->helperText('Leave empty to approve the amount worked out above. The gold / silver QR is issued for the approved amount.'),
                         Forms\Components\TextInput::make('note')->label('Note (optional)')->maxLength(255),
                     ])
+                    ->modalSubmitActionLabel('Approve & issue QR')
                     ->visible(fn (MemberContract $record) => ! auth()->user()?->isDistributor()
                         && \App\Services\Rd\GoldSavingSettlementService::canSettle($record))
                     ->action(function (MemberContract $record, array $data) {
@@ -208,7 +277,8 @@ class MemberContractResource extends BaseResource
                             $row = app(\App\Services\Rd\GoldSavingSettlementService::class)->settle(
                                 $record, (int) $data['branch_id'],
                                 isset($data['coins_returned']) && $data['coins_returned'] !== '' ? (int) $data['coins_returned'] : null,
-                                $data['note'] ?? null, auth()->id());
+                                $data['note'] ?? null, auth()->id(),
+                                approvedWorth: filled($data['approved_worth'] ?? null) ? (float) $data['approved_worth'] : null);
                         } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
                             \Filament\Notifications\Notification::make()->danger()
                                 ->title('Could not settle')->body($e->getMessage())->send();
@@ -223,6 +293,36 @@ class MemberContractResource extends BaseResource
                     }),
             ])
             ->bulkActions([]);
+    }
+
+    /**
+     * Gold-QR contracts with a settlement waiting (user 2026-11-15): the interim one once the
+     * scheme's cycle (12th month) has passed and nothing was settled, or the final one once the
+     * contract has ended and fewer settlements exist than its settlement dates.
+     */
+    protected static function settlementDue(Builder $query): Builder
+    {
+        $today = now();
+        $plans = \App\Models\Plan::whereNotNull('settlement_qr_pct')->whereNotNull('settlement_alloc_pct')->where('type', '!=', 'rd')->get();
+
+        return $query->where('status', '!=', 'cancelled')->where(function (Builder $w) use ($plans, $today) {
+            $w->whereRaw('1 = 0');
+            foreach ($plans as $plan) {
+                $cycle = (int) $plan->settlement_cycle_months;
+                $w->orWhere(function (Builder $p) use ($plan, $cycle, $today) {
+                    $p->where('plan_id', $plan->id)->where(function (Builder $d) use ($cycle, $today) {
+                        // final: ended, and still short of a settlement (2 dates when the cycle is shorter than the contract)
+                        $d->where(fn (Builder $f) => $f->whereDate('end_date', '<=', $today->toDateString())
+                            ->whereDoesntHave('settlements', fn (Builder $s) => $s->where('stage', 'final')));
+                        if ($cycle > 0) {
+                            // interim: the cycle has passed, nothing settled yet
+                            $d->orWhere(fn (Builder $i) => $i->whereDate('start_date', '<=', $today->copy()->subMonthsNoOverflow($cycle)->toDateString())
+                                ->doesntHave('settlements'));
+                        }
+                    });
+                });
+            }
+        });
     }
 
     /** The settlement worked out for the modal: dues, coins, deduction, and what is given. */
@@ -242,6 +342,59 @@ class MemberContractResource extends BaseResource
             ['100 mg coins given', $q['coins_given'] . ' (' . $q['coins_cancelled'] . ' never redeemed — QR will be cancelled; ' . $q['coins_redeemed'] . ' to hand back)'],
             ['Coins not returned', $q['coins_missing'] . ($q['coins_missing'] ? ' × ' . $m($q['coin_price']) . ' = − ' . $m($q['deduction']) : '')],
             ['Settlement', strtoupper($q['metal']) . ' QR worth ' . $m($q['worth'])],
+        ];
+        $html = '<div class="grid grid-cols-2 gap-2 text-sm">';
+        foreach ($rows as [$k, $v]) {
+            $html .= '<div class="text-gray-500">' . e($k) . '</div><div class="font-semibold">' . e($v) . '</div>';
+        }
+        $html .= '</div>';
+
+        // Board 2026-11-15: every due paid, with the sum.
+        $dues = app(\App\Services\Rd\GoldSavingSettlementService::class)->dues($record);
+        $html .= '<div class="mt-4 text-sm font-semibold">Dues paid</div>'
+            . '<div class="icl-scroll-x" style="max-height:15rem;overflow-y:auto"><table class="w-full text-sm" style="margin-top:.25rem">'
+            . '<thead><tr class="text-left text-gray-500"><th class="py-1 pr-3">#</th><th class="py-1 pr-3">Paid on</th><th class="py-1 pr-3">Branch</th><th class="py-1 text-right">Amount</th></tr></thead><tbody>';
+        foreach ($dues as $i => $d) {
+            $html .= '<tr class="border-t border-gray-100 dark:border-white/10"><td class="py-1 pr-3">' . ($i + 1) . '</td><td class="py-1 pr-3">' . e($d['date'] ?? '—')
+                . '</td><td class="py-1 pr-3">' . e($d['branch'] ?? '—') . '</td><td class="py-1 text-right">' . e($m((float) $d['amount'])) . '</td></tr>';
+        }
+        $html .= '</tbody><tfoot><tr class="border-t-2 border-gray-300 font-bold"><td class="py-1 pr-3" colspan="3">Sum of ' . count($dues) . ' due(s) paid</td>'
+            . '<td class="py-1 text-right">' . e($m((float) array_sum(array_column($dues, 'amount')))) . '</td></tr></tfoot></table></div>';
+
+        return new \Illuminate\Support\HtmlString($html);
+    }
+
+    /** The rule amount for the "approved amount" box placeholder. */
+    protected static function goldSavingWorth(MemberContract $record, $coinsReturned): ?float
+    {
+        try {
+            return (float) app(\App\Services\Rd\GoldSavingSettlementService::class)
+                ->quote($record, $coinsReturned === null || $coinsReturned === '' ? null : (int) $coinsReturned)['worth'];
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /** Bill → allocation → settlement %, as the board wrote it (2026-11-15). */
+    protected static function qrSettlementSummary(MemberContract $record): \Illuminate\Support\HtmlString
+    {
+        $r = \App\Services\ContractSettlementService::rule($record);
+        if (! $r) {
+            return new \Illuminate\Support\HtmlString('<span class="text-sm text-danger-600">This scheme has no gold-QR settlement rule.</span>');
+        }
+        $m = fn (float $v) => '₹' . \App\Support\Money::group($v);
+        $p = fn (float $v) => rtrim(rtrim(number_format($v, 3), '0'), '.') . ' %';
+        $rows = [
+            ['Distributor', ($record->member?->name ?? '—') . ' · ' . ($record->member?->member_code ?? '')],
+            ['Scheme', trim(($record->plan?->code ?? '') . ' — ' . (Translatable::pick($record->plan?->name) ?? ''))],
+            ['Contract / bill value', $m($r['bill'])],
+            ['Allocation', $p($r['alloc_pct']) . ' = ' . $m($r['allocation'])],
+            ['Settlement', $p($r['qr_pct']) . ' of the allocation = ' . $m($r['worth'])],
+            ['Given as', 'GOLD QR (redeemable) worth ' . $m($r['worth'])],
+            ['Usual settlement dates (guide)', collect(\App\Services\ContractSettlementService::milestones($record))->map->format('d M Y')->implode('  ·  ')],
+            ['Already settled', $record->settlements->isEmpty() ? 'nothing yet'
+                : $record->settlements->map(fn ($s) => ucfirst((string) ($s->stage ?: 'settlement')) . ' ₹' . \App\Support\Money::group((float) $s->amount)
+                    . ' on ' . $s->paid_on?->format('d M Y'))->implode(', ')],
         ];
         $html = '<div class="grid grid-cols-2 gap-2 text-sm">';
         foreach ($rows as [$k, $v]) {

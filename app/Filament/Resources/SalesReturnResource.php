@@ -69,7 +69,7 @@ class SalesReturnResource extends BaseResource
         return $form->schema([
             Forms\Components\Section::make('Customer return')->columns(2)->schema([
                 Forms\Components\Select::make('branch_id')->label('Branch')
-                    ->options(fn () => Branch::where('is_active', true)->orderBy('name')->pluck('name', 'id'))
+                    ->options(fn () => Branch::fullOptions(true))
                     ->default(fn () => auth()->user()?->branch_id)
                     ->visible(fn () => static::isHq())
                     ->searchable()->required(),

@@ -115,7 +115,7 @@ class ActivityLogResource extends BaseResource
                         ->limit(50)->get()->mapWithKeys(fn ($m) => [$m->id => "{$m->name} ({$m->member_code})"])->all())
                     ->getOptionLabelUsing(fn ($value) => ($m = Member::find($value)) ? "{$m->name} ({$m->member_code})" : null),
                 Tables\Filters\SelectFilter::make('branch_id')->label('Branch')
-                    ->options(fn () => Branch::orderBy('name')->pluck('name', 'id'))->searchable(),
+                    ->options(fn () => Branch::fullOptions())->searchable(),
                 Tables\Filters\Filter::make('action_text')->label('Action contains')
                     ->form([Forms\Components\TextInput::make('action')->label('Action contains')])
                     ->query(fn (Builder $query, array $data) => $query->when($data['action'] ?? null, fn ($q, $v) => $q->where('action', 'like', "%{$v}%")))

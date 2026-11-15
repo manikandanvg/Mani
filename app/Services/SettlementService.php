@@ -49,7 +49,10 @@ class SettlementService
             ->where('source', '!=', MemberContract::SOURCE_LEGACY)
             // Gold Saving (type rd) is never auto-settled either (board 2026-11-13): the saver
             // hands the coins back first — GoldSavingSettlementService, on the Settlements page.
-            ->whereHas('plan', fn ($q) => $q->whereNotNull('settlement_cycle_months')->where('type', '!=', 'rd'))
+            // Retailer / Wholesaler / Sub Dealer / G12 Forward (settlement_alloc_pct set) are settled
+            // by Head Office by hand too (user 2026-11-15) — "Settle by Gold QR", interim and final.
+            ->whereHas('plan', fn ($q) => $q->whereNotNull('settlement_cycle_months')->where('type', '!=', 'rd')
+                ->whereNull('settlement_alloc_pct'))
             ->orderBy('id')
             ->chunkById(100, function ($contracts) use ($today, &$count) {
                 foreach ($contracts as $contract) {
@@ -117,15 +120,10 @@ class SettlementService
             return round($paid + (int) $plan->settlement_bonus_months * $monthly, 2);
         }
 
-        if ($plan->settlement_qr_pct !== null) {
-            // "Contract amount" for settlement = the allocation_cont share of the billed
-            // value (item 9); plans without a split settle on the full amount.
-            $base = (float) $contract->amount;
-            if ((float) $plan->allocation_cont > 0) {
-                $base = round($base * (float) $plan->allocation_cont / 100, 2);
-            }
-
-            return round($base * (float) $plan->settlement_qr_pct / 100, 2);
+        // Percentage plans: bill × settlement allocation % × QR % (board 2026-11-15) — one rule
+        // for this engine and the Settlements page (ContractSettlementService::rule).
+        if ($rule = ContractSettlementService::rule($contract)) {
+            return $rule['worth'];
         }
 
         return 0.0;

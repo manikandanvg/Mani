@@ -64,7 +64,7 @@ class BranchAttendanceResource extends BaseResource
             ])
             ->filters([
                 Tables\Filters\SelectFilter::make('branch_id')->label('Branch')
-                    ->options(fn () => \App\Models\Branch::query()->orderBy('name')->pluck('name', 'id')->all())
+                    ->options(fn () => \App\Models\Branch::fullOptions())
                     ->searchable()
                     ->visible($hq),
                 Tables\Filters\SelectFilter::make('state')->label('Status')

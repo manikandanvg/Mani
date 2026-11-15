@@ -20,6 +20,7 @@ class ContractSettlement extends Model
 
     protected $casts = [
         'amount' => 'decimal:2',
+        'rule_amount' => 'decimal:2',
         'paid_on' => 'date',
     ];
 
@@ -27,4 +28,6 @@ class ContractSettlement extends Model
     public function member() { return $this->belongsTo(Member::class); }
     public function bond() { return $this->belongsTo(Bond::class); }
     public function creator() { return $this->belongsTo(User::class, 'created_by'); }
+    /** The redeemable gold QR this settlement was paid with (mode gold_qr, board 2026-11-15). */
+    public function qr() { return $this->belongsTo(RedeemableQr::class, 'redeemable_qr_id'); }
 }

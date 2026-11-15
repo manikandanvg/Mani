@@ -67,6 +67,28 @@
             </dl>
         @endif
 
+        {{-- Road map (board 2026-11-15): billed → contract → redeemed → restocked, each with its date and branch. --}}
+        @if (! empty($section['timeline']))
+            <ol class="{{ empty($section['kv']) ? '' : 'mt-4' }}" style="position:relative;margin-left:.6rem;border-left:2px solid rgba(171,34,47,.25);">
+                @foreach ($section['timeline'] as $step)
+                    @php $done = $step['done'] ?? true; @endphp
+                    <li style="position:relative;padding:0 0 1.1rem 1.4rem;">
+                        <span style="position:absolute;left:-9px;top:2px;width:16px;height:16px;border-radius:9999px;border:2px solid #ab222f;background:{{ $done ? '#ab222f' : '#fff' }};"></span>
+                        <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                            <span class="text-sm font-semibold {{ $done ? 'text-gray-900 dark:text-white' : 'text-gray-400' }}">{{ $step['title'] ?? '' }}</span>
+                            <span class="text-xs text-gray-500 dark:text-gray-400">{{ $step['when'] ?? ($done ? '' : __('not yet')) }}</span>
+                            @if (! empty($step['where']))
+                                <span class="text-xs font-medium" style="color:#ab222f">{{ $step['where'] }}</span>
+                            @endif
+                        </div>
+                        @if (! empty($step['note']))
+                            <div class="mt-0.5 text-xs text-gray-600 dark:text-gray-300">{{ $step['note'] }}</div>
+                        @endif
+                    </li>
+                @endforeach
+            </ol>
+        @endif
+
         @if (! empty($section['columns']))
             <div class="{{ empty($section['kv']) ? '' : 'mt-4' }}" x-data="lordDataTable()">
                 @if (count($section['rows'] ?? []) > 5)
@@ -87,7 +109,7 @@
                     </div>
                 @endif
 
-                <div class="overflow-x-auto">
+                <div class="overflow-x-auto icl-scroll-x">
                     <table class="w-full text-sm">
                         <thead>
                             <tr class="border-b border-gray-200 dark:border-white/10">
@@ -115,6 +137,16 @@
                                 </td>
                             </tr>
                         </tbody>
+                        {{-- Footer total (board 2026-11-15): stays put while the rows sort / page. --}}
+                        @if (! empty($section['totals']))
+                            <tfoot>
+                                <tr class="border-t-2 border-gray-300 dark:border-white/20">
+                                    @foreach ($section['totals'] as $cell)
+                                        <td class="whitespace-nowrap px-3 py-2 font-bold text-gray-900 dark:text-white">{{ $cell }}</td>
+                                    @endforeach
+                                </tr>
+                            </tfoot>
+                        @endif
                     </table>
                 </div>
 

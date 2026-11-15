@@ -20,6 +20,9 @@ use Filament\Widgets\ChartWidget;
  */
 class SalesRenewalChart extends ChartWidget
 {
+    // Board 2026-11-15: the hover popup and the axis show Indian rupee grouping (₹1,23,45,678.00).
+    use Concerns\IndianChartMoney;
+
     protected static ?string $heading = 'Sales & Gold Saving renewal trend';
 
     protected static ?int $sort = 10;   // board 2026-08-09: all stat widgets first, trend chart last

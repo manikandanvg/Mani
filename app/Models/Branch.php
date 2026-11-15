@@ -264,14 +264,30 @@ class Branch extends Model
     }
 
     /**
-     * Dropdown label that tells 1,180 "LORD JEWELLER" rows apart (user 2026-11-02):
-     * "NAME (city / phone / in-charge)" — blank parts are dropped.
+     * The FULL branch name used in every dropdown (board 2026-11-15):
+     * "Branch name (in-charge / city / phone)" — blank parts are dropped. It is what tells
+     * 1,180 "LORD JEWELLER" rows apart (user 2026-11-02).
      */
     public function pickLabel(): string
     {
-        $parts = array_filter([trim((string) $this->city), trim((string) $this->phone), trim((string) $this->incharge)]);
+        $parts = array_filter([trim((string) $this->incharge), trim((string) $this->city), trim((string) $this->phone)]);
 
         return trim((string) $this->name) . ($parts ? ' (' . implode(' / ', $parts) . ')' : '');
+    }
+
+    /**
+     * [id => full name] of every branch, for a form dropdown (board 2026-11-15: every branch
+     * dropdown is searchable on the full name). Kept for the request — a page may hold several.
+     */
+    public static function fullOptions(bool $activeOnly = false): array
+    {
+        static $cache = [];
+
+        return $cache[(int) $activeOnly] ??= static::query()
+            ->when($activeOnly, fn ($q) => $q->where('is_active', true))
+            ->orderBy('name')->orderBy('city')
+            ->get(['id', 'name', 'incharge', 'city', 'phone'])
+            ->mapWithKeys(fn (self $b) => [$b->id => $b->pickLabel()])->all();
     }
 
     /** Options for a searchable branch select: matches name, city, phone or in-charge. */
