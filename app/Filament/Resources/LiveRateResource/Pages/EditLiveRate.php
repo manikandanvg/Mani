@@ -20,6 +20,14 @@ class EditLiveRate extends EditRecord
         ];
     }
 
+    /** User 2026-11-16: editing a rate = setting the price NOW — "Effective at" opens on the current date and time. */
+    protected function mutateFormDataBeforeFill(array $data): array
+    {
+        $data['effective_at'] = now()->toDateTimeString();
+
+        return $data;
+    }
+
     protected function beforeSave(): void
     {
         $r = $this->getRecord();

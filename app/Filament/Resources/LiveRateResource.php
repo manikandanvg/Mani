@@ -79,7 +79,7 @@ class LiveRateResource extends BaseResource
                     Forms\Components\TextInput::make('diamond')->label('Diamond /g')->required()->numeric()->default(0),
                     Forms\Components\Toggle::make('is_override')->label('Admin override')->default(true)
                         ->helperText('Marks this as an admin-set price (overrides the API).'),
-                    Forms\Components\DateTimePicker::make('effective_at')->default(now())->required(),
+                    Forms\Components\DateTimePicker::make('effective_at')->default(fn () => now())->required(),
                     Forms\Components\Hidden::make('updated_by')->default(fn () => auth()->id()),
                 ]),
             ]);
