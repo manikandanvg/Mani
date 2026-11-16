@@ -68,7 +68,7 @@ class LegacyLinkRestockOrders extends Command
         $trimIds = [];        // redemption_lines that belong to a sibling invoice of the same sale
         $trimmedInvoices = 0;
         foreach ($rawLines as $invoiceId => $lines) {
-            $valid = $this->validLines($lines, (float) ($taxable[$invoiceId] ?? 0));
+            $valid = static::validLines($lines, (float) ($taxable[$invoiceId] ?? 0));
             if ($valid === null) {
                 $invalidCart[$invoiceId] = true;
 
@@ -86,7 +86,7 @@ class LegacyLinkRestockOrders extends Command
             $invoiceLines[$invoiceId] = $valid;
             foreach ($valid as $l) {
                 $key = (int) $l->catalog_product_id;
-                $invoiceCarts[$invoiceId][$key] = ($invoiceCarts[$invoiceId][$key] ?? 0) + $this->pieces($l);
+                $invoiceCarts[$invoiceId][$key] = ($invoiceCarts[$invoiceId][$key] ?? 0) + static::pieces($l);
             }
         }
         // User 2026-11-16: trim them — an old redemption invoice keeps only the lines that make its total.
@@ -453,13 +453,13 @@ class LegacyLinkRestockOrders extends Command
                     if (abs((float) $inv->grand_total - (float) $o->grand_total) > 0.5) {
                         $why[] = 'request value ≠ invoice value (' . number_format((float) $inv->grand_total, 2) . ')';
                     }
-                    $valid = $this->validLines(($invLines[$inv->id] ?? collect())->all(), (float) $inv->taxable_total);
+                    $valid = static::validLines(($invLines[$inv->id] ?? collect())->all(), (float) $inv->taxable_total);
                     if ($valid === null) {
                         $why[] = 'invoice ' . $inv->invoice_no . ' lines do not add up (cart not checked)';
                     } else {
                         $invCart = [];
                         foreach ($valid as $l) {
-                            $invCart[(int) $l->catalog_product_id] = ($invCart[(int) $l->catalog_product_id] ?? 0) + $this->pieces($l);
+                            $invCart[(int) $l->catalog_product_id] = ($invCart[(int) $l->catalog_product_id] ?? 0) + static::pieces($l);
                         }
                         ksort($cart);
                         ksort($invCart);
@@ -493,7 +493,7 @@ class LegacyLinkRestockOrders extends Command
     }
 
     /** Pieces on a redemption line — lines imported before 2026-11-13 (no HSN) keep the count in unit_weight. */
-    protected function pieces(object $line): float
+    public static function pieces(object $line): float
     {
         return $line->hsn_code === null && (float) $line->unit_weight > 0 && (float) $line->quantity <= 0
             ? (float) $line->unit_weight
@@ -507,10 +507,10 @@ class LegacyLinkRestockOrders extends Command
      *
      * @return array<int, object>|null
      */
-    protected function validLines(array $lines, float $taxable): ?array
+    public static function validLines(array $lines, float $taxable): ?array
     {
         foreach ($lines as $l) {
-            if (! $l->catalog_product_id || $this->pieces($l) <= 0) {
+            if (! $l->catalog_product_id || static::pieces($l) <= 0) {
                 return null;
             }
         }
@@ -532,7 +532,7 @@ class LegacyLinkRestockOrders extends Command
                     $sum += $total($lines[$b]);
                     $pick[] = $lines[$b];
                     $key = (int) $lines[$b]->catalog_product_id;
-                    $cart[$key] = ($cart[$key] ?? 0) + $this->pieces($lines[$b]);
+                    $cart[$key] = ($cart[$key] ?? 0) + static::pieces($lines[$b]);
                 }
             }
             if (abs($sum - $taxable) <= 1) {
@@ -575,7 +575,7 @@ class LegacyLinkRestockOrders extends Command
     {
         $batch = [];
         foreach ($lines as $l) {
-            $pieces = $this->pieces($l);
+            $pieces = static::pieces($l);
             if (! $l->catalog_product_id || $pieces <= 0) {
                 continue;
             }
