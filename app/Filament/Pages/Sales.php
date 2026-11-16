@@ -133,7 +133,9 @@ class Sales extends Page implements HasForms
                             ->native(false)->displayFormat('d M Y')
                             ->default(fn () => now()->toDateString())
                             // board 2026-11-15: once unlocked with the password, ANY past date may be billed
-                            ->maxDate(fn () => now()->toDateString())
+                            // end of today, not midnight: the picker can hand back today's date WITH a
+                            // time of day, which "before or equal 2026-11-16" refused (user 2026-11-16)
+                            ->maxDate(fn () => now()->endOfDay())
                             ->required()
                             ->visible(fn () => self::canBackdate())
                             ->live()
@@ -466,6 +468,11 @@ class Sales extends Page implements HasForms
 
     public function generate(): void
     {
+        // A locked bill date is today's, whatever the picker holds — it must never stop a bill
+        // (user 2026-11-16: HQ could not bill at all on "must be a date before or equal to today").
+        if (! $this->billDateUnlocked) {
+            $this->data['bill_date'] = now()->toDateString();
+        }
         $data = $this->form->getState();
         // a new distributor is always placed under their referrer (hidden field, user 2026-11-05)
         if (($data['mode'] ?? 'new') === 'new') {
