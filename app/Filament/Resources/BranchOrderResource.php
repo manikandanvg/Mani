@@ -376,7 +376,7 @@ class BranchOrderResource extends BaseResource
                         default => 'gray',
                     }),
                 Infolists\Components\TextEntry::make('redemptionInvoice.invoice_no')->label('Redeem invoice')->placeholder('—')
-                    ->visible(fn (BranchOrderRequest $r) => $r->source === BranchOrderService::SOURCE_REDEMPTION),
+                    ->visible(fn (BranchOrderRequest $r) => $r->source === BranchOrderService::SOURCE_REDEMPTION || $r->redemption_invoice_id !== null),
                 Infolists\Components\TextEntry::make('branch.name')->label('Branch (buyer)'),
                 Infolists\Components\TextEntry::make('supplier')->label('Supplier')
                     ->state(fn (BranchOrderRequest $r) => $r->hasCashLine() ? 'Head Office' : ($r->branch?->orderSupplier()?->name ?? 'Head Office')),

@@ -44,10 +44,13 @@ class BranchOrderRequest extends Model
         return $this->belongsTo(Branch::class);
     }
 
-    /** For redemption-sourced requests, the redemption invoice this restock is for. */
+    /**
+     * The redemption invoice this restock order restores — a new-system "redemption" order or an
+     * old-system "legacy" one (linked by legacy:link-restock-orders). One order per invoice.
+     */
     public function redemptionInvoice()
     {
-        return $this->belongsTo(RedemptionInvoice::class, 'source_ref');
+        return $this->belongsTo(RedemptionInvoice::class, 'redemption_invoice_id');
     }
 
     public function requester()

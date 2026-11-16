@@ -121,8 +121,9 @@ class BranchOrderService
     public function createFromRedemption(RedemptionInvoice $invoice, ?int $userId = null): BranchOrderRequest
     {
         return DB::transaction(function () use ($invoice, $userId) {
-            $existing = BranchOrderRequest::where('source', self::SOURCE_REDEMPTION)
-                ->where('source_ref', $invoice->id)->first();
+            // one restock order per invoice — a new-system one or an old-system LEG- order
+            $existing = BranchOrderRequest::where('redemption_invoice_id', $invoice->id)
+                ->orWhere(fn ($q) => $q->where('source', self::SOURCE_REDEMPTION)->where('source_ref', $invoice->id))->first();
             abort_if($existing !== null, 422, 'A restock order (' . $existing?->request_no . ') was already raised for this redemption.');
 
             [$priced, $cross, $gst] = $this->priceRedemptionLines($invoice);
@@ -132,6 +133,7 @@ class BranchOrderService
                 'request_no' => $this->nextRequestNo(),
                 'source' => self::SOURCE_REDEMPTION,
                 'source_ref' => $invoice->id,
+                'redemption_invoice_id' => $invoice->id,
                 'branch_id' => $invoice->branch_id,
                 'requested_by' => $userId ?? auth()->id(),
                 'no_of_items' => count($priced),
@@ -704,8 +706,19 @@ class BranchOrderService
                     continue;
                 }
                 $weight = (float) $line->weight;
-                // Order lines are priced in grams (cash = ₹); STOCK moves in pieces.
-                $pieces = CatalogProduct::find($line->catalog_product_id)?->piecesFromWeight($weight) ?? $weight;
+                $unitRate = (float) $line->rate;
+                $cp = CatalogProduct::find($line->catalog_product_id);
+                if ($request->source === self::SOURCE_LEGACY && $cp && $cp->material !== 'cash') {
+                    // An old-system order line counts PIECES at a per-piece price ("100 mg Gold" × 6
+                    // at ₹1,273 = six coins, not 6 g): the stock rises by exactly that count
+                    // (user 2026-11-16). Grams / per-gram rate are derived for the transfer maths.
+                    $pieces = $weight;
+                    $weight = $cp->gramsFromPieces($pieces);
+                    $unitRate = $weight > 0 ? round($unitRate * $pieces / $weight, 2) : $unitRate;
+                } else {
+                    // Order lines are priced in grams (cash = ₹); STOCK moves in pieces.
+                    $pieces = $cp?->piecesFromWeight($weight) ?? $weight;
+                }
 
                 // Buyer receives the goods.
                 $stock = Stock::firstOrCreate(
@@ -713,8 +726,8 @@ class BranchOrderService
                     ['quantity' => 0]
                 );
                 $stock->increment('quantity', $pieces);
-                if ((float) $line->rate > 0) {
-                    $stock->update(['last_rate' => $line->rate]);
+                if ($unitRate > 0) {
+                    $stock->update(['last_rate' => $unitRate]);
                 }
                 StockMovement::create([
                     'branch_id' => $buyerId,
@@ -731,7 +744,7 @@ class BranchOrderService
                 // Seller (source branch) ships the goods + earns the stock-transfer commission.
                 // Cash is money, not transferable goods — skip it.
                 if ($seller && $line->material !== 'cash') {
-                    $this->shipFromSeller($seller, $buyerId, $line, $weight, $pieces, $request->id, $today, $approverId);
+                    $this->shipFromSeller($seller, $buyerId, $line, $weight, $pieces, $request->id, $today, $approverId, $unitRate);
                 }
             }
 
@@ -774,7 +787,7 @@ class BranchOrderService
     }
 
     /** Deduct the line from the seller's stock, log the move, and book the transfer + commission. */
-    protected function shipFromSeller($seller, int $buyerId, BranchOrderLine $line, float $weight, float $pieces, int $orderId, string $today, ?int $approverId): void
+    protected function shipFromSeller($seller, int $buyerId, BranchOrderLine $line, float $weight, float $pieces, int $orderId, string $today, ?int $approverId, ?float $unitRate = null): void
     {
         $sellerStock = Stock::firstOrCreate(
             ['branch_id' => $seller->id, 'catalog_product_id' => $line->catalog_product_id],
@@ -801,7 +814,7 @@ class BranchOrderService
             'catalog_product_id' => $line->catalog_product_id,
             'weight' => $isVessel ? 0 : $weight,
             'quantity' => $isVessel ? $weight : 0,
-            'unit_rate' => (float) $line->rate,
+            'unit_rate' => $unitRate ?? (float) $line->rate,
             'transfer_date' => $today,
             'created_by' => $approverId,
         ]);

@@ -56,9 +56,20 @@ class LegacyImportRedemptions extends Command
         $batchInv = [];
         $batchLines = [];   // invoice_no => [lines]
 
+        // User 2026-11-16: a redemption with no cart whose restock order (still PENDING in the old
+        // system) has no cart either is a mistaken redemption of the first build, fixed by hand
+        // then — legacy:link-restock-orders removes those invoices; never import them again.
+        $cartlessOrder = $legacy->table('tbl_brorderrequest as o')->where('o.status', 'PENDING')->where('o.paymode', 'REDEEM')
+            ->whereNotExists(fn ($q) => $q->from('tbl_br_purchase_cart as c')->whereColumn('c.pono', 'o.transid')->whereIn('c.route', ['BO', 'RO']))
+            ->pluck('o.stockflag')->map(fn ($v) => (int) $v)->flip()->all();
+
         foreach ($rows as $r) {
             $no = (string) (int) $r->estid;
             if (isset($existing[$no])) {
+                $skipped++;
+                continue;
+            }
+            if (isset($cartlessOrder[(int) $r->estid]) && ($carts->get((string) $r->invno) ?? collect())->isEmpty()) {
                 $skipped++;
                 continue;
             }

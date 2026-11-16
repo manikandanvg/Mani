@@ -54,7 +54,9 @@ class RedemptionInvoiceResource extends BaseResource
         return $table
             ->defaultSort('invoice_date', 'desc')
             ->columns([
-                Tables\Columns\TextColumn::make('invoice_no')->label('Invoice')->searchable()->sortable(),
+                // the old system's invoice number (Reference no) finds the invoice too (user 2026-11-16)
+                Tables\Columns\TextColumn::make('invoice_no')->label('Invoice')->searchable(['invoice_no', 'reference_no'])->sortable()
+                    ->description(fn (RedemptionInvoice $r) => $r->legacy_restock !== null && filled($r->reference_no) ? 'Ref ' . $r->reference_no : null),
                 Tables\Columns\TextColumn::make('invoice_date')->label('Date')->date()->sortable(),
                 Tables\Columns\TextColumn::make('member.name')->label('Distributor')->searchable()
                     ->description(fn ($record) => $record->member?->member_code),
@@ -79,6 +81,10 @@ class RedemptionInvoiceResource extends BaseResource
                 \App\Filament\Support\CommonFilters::dateRange('invoice_date', 'Invoiced'),
                 Tables\Filters\SelectFilter::make('payment_mode')
                     ->options(['pending' => 'Pending', 'passed' => 'Passed', 'paid' => 'Paid', 'cash' => 'Cash']),
+                // User 2026-11-16: which invoices still wait for their stock — same wording as the Restock badge.
+                Tables\Filters\SelectFilter::make('restock_stage')->label('Stock stage')
+                    ->options(['not_raised' => 'Not raised', 'pending' => 'Pending', 'restocked' => 'Re-Stocked', 'rejected' => 'Rejected / Cancelled'])
+                    ->query(fn (Builder $query, array $data) => static::applyRestockStage($query, $data['value'] ?? null)),
             ])
             ->actions([
                 Tables\Actions\Action::make('pdf')
@@ -194,6 +200,24 @@ class RedemptionInvoiceResource extends BaseResource
         return new \Illuminate\Support\HtmlString($html);
     }
 
+    /** The "Stock stage" filter — the same buckets restockState() shows on the badge. */
+    public static function applyRestockStage(Builder $query, ?string $stage): Builder
+    {
+        $done = ['approved', 'in_transit', 'delivered', 'billed'];
+        $legacyDone = fn (Builder $q) => $q->whereIn('legacy_restock', ['ordered', 'approved']);
+        $customized = fn (Builder $q) => $q->whereHas('lines.catalogProduct', fn (Builder $p) => $p->where('is_custom_order', true));
+
+        return match ($stage) {
+            'pending' => $query->whereHas('restockOrder', fn (Builder $o) => $o->where('status', 'pending')),
+            'rejected' => $query->whereHas('restockOrder', fn (Builder $o) => $o->whereIn('status', ['rejected', 'cancelled'])),
+            'restocked' => $query->where(fn (Builder $q) => $q
+                ->whereHas('restockOrder', fn (Builder $o) => $o->whereIn('status', $done))
+                ->orWhere(fn (Builder $l) => $l->whereDoesntHave('restockOrder')->where($legacyDone)->whereNot($customized))),
+            'not_raised' => $query->whereDoesntHave('restockOrder')->whereNot($legacyDone)->whereNot($customized),
+            default => $query,
+        };
+    }
+
     /** Badge text for the restock column. */
     protected static function restockState(RedemptionInvoice $record): string
     {
@@ -208,6 +232,8 @@ class RedemptionInvoiceResource extends BaseResource
             'approved' => 'Re-Stocked',
             'pending' => 'Pending',
             'rejected' => 'Rejected',
+            'cancelled' => 'Cancelled',
+            'in_transit', 'delivered', 'billed' => 'Re-Stocked',
             default => 'Not raised',
         };
     }

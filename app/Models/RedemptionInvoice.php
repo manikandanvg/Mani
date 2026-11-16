@@ -34,11 +34,13 @@ class RedemptionInvoice extends Model
     public function lines() { return $this->hasMany(RedemptionLine::class); }
     public function qr() { return $this->belongsTo(RedeemableQr::class, 'redeemable_qr_id'); }
 
-    /** The branch restock order raised for this redemption (if any). */
+    /**
+     * The branch restock order raised for this redemption (if any) — raised here, or carried over
+     * from the old system as a LEG- order (user 2026-11-16). Never more than one.
+     */
     public function restockOrder()
     {
-        return $this->hasOne(BranchOrderRequest::class, 'source_ref')
-            ->where('source', BranchOrderService::SOURCE_REDEMPTION);
+        return $this->hasOne(BranchOrderRequest::class, 'redemption_invoice_id');
     }
     public function bond() { return $this->belongsTo(Bond::class); }
     public function member() { return $this->belongsTo(Member::class); }
