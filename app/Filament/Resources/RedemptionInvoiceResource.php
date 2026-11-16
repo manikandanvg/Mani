@@ -213,7 +213,10 @@ class RedemptionInvoiceResource extends BaseResource
             'restocked' => $query->where(fn (Builder $q) => $q
                 ->whereHas('restockOrder', fn (Builder $o) => $o->whereIn('status', $done))
                 ->orWhere(fn (Builder $l) => $l->whereDoesntHave('restockOrder')->where($legacyDone)->whereNot($customized))),
-            'not_raised' => $query->whereDoesntHave('restockOrder')->whereNot($legacyDone)->whereNot($customized),
+            // legacy_restock is NULL on a new-system invoice — "NOT IN (…)" alone would drop those rows
+            'not_raised' => $query->whereDoesntHave('restockOrder')
+                ->where(fn (Builder $q) => $q->whereNull('legacy_restock')->orWhereNotIn('legacy_restock', ['ordered', 'approved']))
+                ->whereNot($customized),
             default => $query,
         };
     }

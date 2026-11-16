@@ -110,7 +110,12 @@ class LegacyOrderApprovePiecesTest extends TestCase
             'invoice_no' => '4465', 'invoice_date' => '2026-10-31', 'branch_id' => $branch->id,
             'payment_mode' => 'passed', 'legacy_restock' => 'approved', 'taxable_total' => 1000, 'grand_total' => 1030,
         ]);
-        $this->assertSame([$notRaised->id], $stage('not_raised'));
+        // a new-system invoice (no legacy_restock at all) with no order yet is "Not raised" too
+        $newSystem = \App\Models\RedemptionInvoice::create([
+            'invoice_no' => 'RDM-TEST-0001', 'invoice_date' => '2026-11-16', 'branch_id' => $branch->id,
+            'payment_mode' => 'pending', 'taxable_total' => 1000, 'grand_total' => 1030,
+        ]);
+        $this->assertSame([$notRaised->id, $newSystem->id], $stage('not_raised'));
         $this->assertSame([$doneInLegacy->id], $stage('restocked'));
 
         // no second restock order from the invoice screen …
