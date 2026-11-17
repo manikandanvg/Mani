@@ -99,29 +99,44 @@ class UtilityController extends Controller
             return response()->json(['message' => 'Live gold rate unavailable — try again shortly.'], 422);
         }
 
-        $allocPct = (float) $plan->allocation_bv;
-        $invoiceAlloc = round($amount * $allocPct / 100, 2);
+        // Same split as the bill itself (complaint 2026-11-17: a Sub Dealer ₹1,00,000 showed
+        // invoice ₹75,000 / contract ₹25,000 — the retired allocation_bv — while billing hands
+        // over ₹25,000 of gold and keeps ₹75,000 on the contract). Plan::goodsShare() is the
+        // very share RedeemableQrService mints the gold QR for; a scheme with no gold QR
+        // (contract-only) puts the whole amount on the contract.
+        $goodsPct = $plan->is_redeem ? $plan->goodsShare() : 0.0;
+        $invoiceAlloc = round($amount * $goodsPct / 100, 2);
         $contractAlloc = round($amount - $invoiceAlloc, 2);
 
-        // Strip 3% GST, then the weight-bracket making+wastage, to reach real metal.
-        $net = $invoiceAlloc * 100 / 103;
-        $approxGrams = $net / $goldRate;
-        // same slab rule as the QR conversion (a weight between two slabs takes the next one up)
-        $slab = app(\App\Services\Charges\ChargeResolver::class)->forWeight('gold', $approxGrams);
-        $chargePct = $slab['making_pct'] + $slab['wastage_pct'];
-        $metalValue = $net * 100 / (100 + $chargePct);
-        $grams = $metalValue / $goldRate;
+        // Gold the invoice share buys — the billing conversion (GST out, then the weight
+        // slab's making + wastage out); a 100 mg Gold Saving plan gives its fixed pieces.
+        $charges = app(\App\Services\Charges\ChargeResolver::class);
+        $chargePct = 0.0;
+        if ((float) $plan->rd_qr_grams > 0) {
+            $pieces = (int) (\App\Services\Rd\GoldSavingRules::joining($plan, $amount, $goldRate)['pieces'] ?? 0);
+            $grams = round((float) $plan->rd_qr_grams * $pieces, 4);
+        } else {
+            $conv = $charges->cashToGold($invoiceAlloc * 100 / 103, $goldRate);
+            $grams = $conv['net_grams'];
+            $chargePct = $conv['making_pct'] + $conv['wastage_pct'];
+        }
 
-        $cbcTotal = round($amount * ((float) $plan->cbc_value) / 100, 2);
+        // The coupon is bill × CBC % EVERY month for cbc_count months (legacy way to bill).
+        $cbcMonthly = (int) $plan->cbc_count > 0 ? round($amount * ((float) $plan->cbc_value) / 100, 2) : 0.0;
+        $cbcTotal = round($cbcMonthly * (int) $plan->cbc_count, 2);
 
         return response()->json([
             'plan' => ['code' => $plan->code, 'name' => Translatable::pick($plan->name) ?: $plan->code],
             'gold_rate' => $goldRate,
             'amount' => $amount,
-            'gold_grams' => round($grams, 2),
+            'gold_grams' => round($grams, 4),
             'invoice_allocation' => $invoiceAlloc,
             'contract_allocation' => $contractAlloc,
+            'invoice_allocation_pct' => $goodsPct,
+            'contract_allocation_pct' => round(100 - $goodsPct, 3),
             'charges_pct' => $chargePct,
+            'cbc_monthly' => $cbcMonthly,
+            'cbc_months' => (int) $plan->cbc_count,
             'cbc_total' => $cbcTotal,
             // Item 2a (board 2026-08-12): the same benefit lines the CONTRACT
             // prints, computed for this amount — plan-code semantics mirror
@@ -135,6 +150,7 @@ class UtilityController extends Controller
     {
         $code = (int) preg_replace('/\D/', '', (string) ($plan->code ?? ''));
         $inr = fn (float $n) => \App\Support\Money::inr($n);
+        $pct = fn (float $n) => rtrim(rtrim(number_format($n, 2), '0'), '.');
 
         // RD savings plans — monthly amount × validity + bonus months.
         if (($plan->type ?? null) === 'rd' || in_array($code, [200, 208, 209], true)) {
@@ -166,15 +182,20 @@ class UtilityController extends Controller
                 ['label' => 'Interior (10%)', 'value' => $inr($amount * 0.10)],
                 ['label' => 'Refundable Deposit (10%)', 'value' => $inr($amount * 0.10)],
             ],
+            // any other scheme that hands over gold for part of the bill (Sub Dealer 25 / 75)
+            $plan->is_redeem && $plan->goodsShare() < 100 => [
+                ['label' => 'SPOT 916 HUID Gold Coins (or) Bar : ' . $pct($plan->goodsShare()) . '%', 'value' => $inr($amount * $plan->goodsShare() / 100)],
+                ['label' => (int) ($plan->validity_months ?: 12) . ' months Contract : ' . $pct(100 - $plan->goodsShare()) . '%', 'value' => $inr($amount * (100 - $plan->goodsShare()) / 100)],
+            ],
             default => [
                 ['label' => 'Contract amount', 'value' => $inr($amount)],
                 ['label' => 'Validity', 'value' => (int) ($plan->validity_months ?: 12) . ' months'],
             ],
         };
 
-        // Monthly cashback line where the plan pays CBC.
+        // Monthly cashback line where the plan pays CBC — bill × CBC % each month, as billed.
         if ((float) $plan->cbc_value > 0 && (int) $plan->cbc_count > 0) {
-            $monthlyCbc = round($amount * (float) $plan->cbc_value / 100 / max(1, (int) $plan->cbc_count), 2);
+            $monthlyCbc = round($amount * (float) $plan->cbc_value / 100, 2);
             $rows[] = [
                 'label' => "Promotional Incentive (CBC) {$inr($monthlyCbc)} × {$plan->cbc_count} months",
                 'value' => $inr($monthlyCbc * (int) $plan->cbc_count),

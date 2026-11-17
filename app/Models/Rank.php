@@ -10,6 +10,7 @@ class Rank extends Model
 
     protected $casts = [
         'name' => 'array',           // translatable {en:.., ta:..}
+        'reward_title' => 'array',   // the award in words, translatable (board 2026-11-17)
         'tier_template' => 'array',
         'is_active' => 'boolean',
     ];

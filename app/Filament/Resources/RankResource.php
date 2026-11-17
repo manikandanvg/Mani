@@ -51,10 +51,23 @@ class RankResource extends BaseResource
                     ->required()
                     ->numeric()
                     ->default(0.00),
+                // Board 2026-11-17: the award of the stage in words (old system: "Reward & Award" —
+                // car, tour, international tour …), its rupee value, and the monthly office rent
+                // the stage is entitled to. Paying one is registered under Report → Expenses.
+                Translatable::fieldset('reward_title', 'TBP Award', requiredDefault: false),
                 Forms\Components\TextInput::make('reward_amount')
                     ->label('TBP Reward Amount')
+                    ->helperText('Rupee value of the award above — what the company spends when a distributor reaches this stage (one time). Not credited to any wallet; it is the budget the Expenses page fills in for a "TBP Reward / Award" expense.')
                     ->required()
                     ->numeric()
+                    ->prefix('₹')
+                    ->default(0.00),
+                Forms\Components\TextInput::make('monthly_rent')
+                    ->label('Monthly Office Rent')
+                    ->helperText('Office rent the company pays every month for a distributor holding this stage. Filled in on the Expenses page for an "Office Rent" expense.')
+                    ->required()
+                    ->numeric()
+                    ->prefix('₹')
                     ->default(0.00),
                 Forms\Components\TagsInput::make('tier_template')
                     ->helperText('Top-N downline Gross Business Volume thresholds for Turnover-based Salary qualification'),
@@ -81,8 +94,13 @@ class RankResource extends BaseResource
                     ->label('Target Business Volume')
                     ->numeric()
                     ->sortable(),
+                Translatable::column('reward_title', 'TBP Award')->placeholder('—')->wrap(),
                 Tables\Columns\TextColumn::make('reward_amount')
                     ->label('TBP Reward Amount')
+                    ->numeric()
+                    ->sortable(),
+                Tables\Columns\TextColumn::make('monthly_rent')
+                    ->label('Monthly Office Rent')
                     ->numeric()
                     ->sortable(),
                 Tables\Columns\IconColumn::make('is_active')

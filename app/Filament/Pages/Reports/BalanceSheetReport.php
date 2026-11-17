@@ -50,6 +50,7 @@ class BalanceSheetReport extends ReportPage
         'silver_ledger' => 'Silver Ledger',
         'receivables' => 'Receivables',
         'payables' => 'Payables',
+        'expenses' => 'Expense Register',
     ];
 
     public const BASIS_COST = 'cost';
@@ -287,6 +288,9 @@ class BalanceSheetReport extends ReportPage
         if ($want('payables')) {
             $this->sections[] = $this->payablesSection($f);
         }
+        if ($want('expenses') && $f['expenses']->isNotEmpty()) {
+            $this->sections[] = $this->expensesSection($f);
+        }
         $this->sections[] = $this->notesSection($f);
     }
 
@@ -365,10 +369,11 @@ class BalanceSheetReport extends ReportPage
         $schemeReceipts = (float) $sales->where('metal', 'cash')->sum('taxable');
 
         // Expense register rows → P&L lines by keyword; the rest lands in Other Expenses.
-        $exp = ['salaries' => 0.0, 'rent' => 0.0, 'electricity' => 0.0, 'bank_charges' => 0.0, 'marketing' => 0.0, 'insurance' => 0.0, 'repairs' => 0.0, 'professional_fees' => 0.0, 'other_expenses' => 0.0];
+        $exp = ['salaries' => 0.0, 'rent' => 0.0, 'electricity' => 0.0, 'bank_charges' => 0.0, 'marketing' => 0.0, 'insurance' => 0.0, 'repairs' => 0.0, 'professional_fees' => 0.0, 'rewards' => 0.0, 'other_expenses' => 0.0];
         foreach ($expenses as $e) {
             $t = strtolower($e->type.' '.$e->title);
-            $line = match (true) {
+            // the new system's expense register names its own line; the Lord DB rows go by keyword
+            $line = isset($e->line, $exp[$e->line]) ? $e->line : match (true) {
                 str_contains($t, 'salar') || str_contains($t, 'wage') => 'salaries',
                 str_contains($t, 'rent') => 'rent',
                 str_contains($t, 'electric') || str_contains($t, 'eb ') || str_contains($t, 'power') => 'electricity',
@@ -414,9 +419,10 @@ class BalanceSheetReport extends ReportPage
         $pl['depreciation'] = $m('depreciation');
         $pl['professional_fees'] = $exp['professional_fees'] + $m('professional_fees');
         $pl['commissions'] = $commissions;
+        $pl['rewards'] = $exp['rewards'];   // TBP awards given to distributors (car, tour …) — expense register
         $pl['other_expenses'] = $exp['other_expenses'] + $m('other_expenses');
         $pl['total_opex'] = $pl['salaries'] + $pl['rent'] + $pl['electricity'] + $pl['bank_charges'] + $pl['marketing'] + $pl['insurance']
-            + $pl['repairs'] + $pl['depreciation'] + $pl['professional_fees'] + (float) $commissions + $pl['other_expenses'];
+            + $pl['repairs'] + $pl['depreciation'] + $pl['professional_fees'] + (float) $commissions + $pl['rewards'] + $pl['other_expenses'];
         $pl['pbt'] = $pl['gross_profit'] - $pl['total_opex'];
         $pl['income_tax'] = $m('income_tax');
         $pl['net_profit'] = $pl['pbt'] - $pl['income_tax'];
@@ -612,6 +618,7 @@ class BalanceSheetReport extends ReportPage
             [__('Depreciation'), $pl['depreciation']],
             [__('Professional / Audit Fees'), $pl['professional_fees']],
             [__('Distributor Commissions'), $pl['commissions']],
+            [__('Distributor Rewards & Awards'), $pl['rewards']],
             [__('Other Expenses'), $pl['other_expenses']],
             [__('Total Operating Expenses'), $pl['total_opex']],
             [__('Profit Before Tax'), $pl['pbt']],
@@ -810,6 +817,28 @@ class BalanceSheetReport extends ReportPage
             'page_break' => true,
             'kv' => $kv,
             'columns' => [__('Date'), __('Supplier / Goldsmith'), __('Bill No'), __('Description'), __('Debit / Payment (₹)'), __('Credit / Purchase (₹)'), __('Balance (₹)'), __('Due Date'), __('Status')],
+            'rows' => $this->capRows($kv, $rows),
+        ];
+    }
+
+    /** The expense register behind the Profit & Loss expense lines (approved expenses in the period). */
+    protected function expensesSection(array $f): array
+    {
+        $kv = [__('Expenses in the period') => (string) $f['expenses']->count()];
+        foreach ($f['expenses']->groupBy('type') as $type => $rowsOfType) {
+            $kv[__((string) $type)] = $this->money((float) $rowsOfType->sum('amount'));
+        }
+        $kv[__('Total expenses')] = $this->money((float) $f['expenses']->sum('amount'));
+
+        $rows = $f['expenses']->map(fn ($e) => [
+            $this->dmy($e->date), $e->no ?? '—', __((string) $e->type), $e->title, $e->party ?? '—', $e->mode, $this->money($e->amount), $e->remarks,
+        ])->all();
+
+        return [
+            'heading' => __('Expense Register :from – :to', ['from' => $this->dmy($f['from']), 'to' => $this->dmy($f['to'])]),
+            'page_break' => true,
+            'kv' => $kv,
+            'columns' => [__('Date'), __('Expense No'), __('Category'), __('Paid for'), __('Paid to'), __('Mode'), __('Amount (₹)'), __('Remarks')],
             'rows' => $this->capRows($kv, $rows),
         ];
     }

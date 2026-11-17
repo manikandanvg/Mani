@@ -32,11 +32,19 @@ class NetworkService
         $this->trigger = 'recompute';
         try {
             $this->deactivateExpiredBonds($asOf);   // legacy bondallocation
-            $this->recomputePersonalBv();
-            $this->recomputeGroupBv();              // gbv + downline_count
-            $this->recomputeUnpureBv();
-            $this->recomputeUnpureGbv();
-            $this->recomputeRanks();
+            // ONE transaction, and every pass writes only the rows whose figure really changed
+            // (2026-11-17). The passes used to blank the column for all members and refill it
+            // one member at a time, so a run that was cut short (server time limit) left the
+            // distributors it had not reached yet at ZERO BV / GBV / TBP BV, and everyone saw
+            // zeros while it ran. Now a reader sees the old figures until the new ones are all
+            // in place, and an interrupted run changes nothing.
+            DB::transaction(function () {
+                $this->recomputePersonalBv();
+                $this->recomputeGroupBv();              // gbv + downline_count
+                $this->recomputeUnpureBv();
+                $this->recomputeUnpureGbv();
+                $this->recomputeRanks();
+            });
         } finally {
             $this->trigger = $was;
         }
@@ -132,8 +140,6 @@ class NetworkService
     {
         $plans = Plan::get()->keyBy('id');
 
-        DB::table('members')->update(['bv' => 0]);
-
         $rows = DB::table('bonds')
             ->select('member_id', 'plan_id', 'value', 'epin_value')
             ->where('status', 'active')
@@ -146,9 +152,27 @@ class NetworkService
             $totals[$r->member_id] = ($totals[$r->member_id] ?? 0) + $bill;
         }
 
-        foreach ($totals as $memberId => $total) {
-            DB::table('members')->where('id', $memberId)->update(['bv' => round($total, 2)]);
+        $this->writeMemberColumn('bv', $totals);
+    }
+
+    /**
+     * Set members.$column to $fresh[id] (0 for a member not listed), touching ONLY the rows
+     * whose stored figure differs - never a blanket reset. Returns how many rows changed.
+     *
+     * @param  array<int, float>  $fresh  member id => new figure
+     */
+    protected function writeMemberColumn(string $column, array $fresh): int
+    {
+        $changed = 0;
+        foreach (DB::table('members')->pluck($column, 'id') as $id => $stored) {
+            $new = round((float) ($fresh[$id] ?? 0), 2);
+            if (abs($new - (float) $stored) >= 0.005) {
+                DB::table('members')->where('id', $id)->update([$column => $new]);
+                $changed++;
+            }
         }
+
+        return $changed;
     }
 
     /**
@@ -159,8 +183,6 @@ class NetworkService
     public function recomputeUnpureBv(): void
     {
         $plans = Plan::get()->keyBy('id');
-
-        DB::table('members')->update(['unpure_bv' => 0]);
 
         $rows = DB::table('bonds')
             ->select('member_id', 'plan_id', 'value', 'epin_value')
@@ -176,9 +198,7 @@ class NetworkService
             $totals[$r->member_id] = ($totals[$r->member_id] ?? 0) + $unpure;
         }
 
-        foreach ($totals as $memberId => $total) {
-            DB::table('members')->where('id', $memberId)->update(['unpure_bv' => round($total, 2)]);
-        }
+        $this->writeMemberColumn('unpure_bv', $totals);
     }
 
     public function recomputeGroupBv(): void
@@ -197,37 +217,74 @@ class NetworkService
      */
     protected function rollUpSubtree(string $sourceCol, string $targetCol, bool $withCount = false): void
     {
-        $members = DB::table('members')->select('id', 'upline_id', $sourceCol)->get();
+        $members = DB::table('members')->select('id', 'upline_id', $sourceCol, $targetCol, 'downline_count')->get();
 
-        $children = [];          // upline_id => [child ids]
+        $children = [];          // upline id => [child ids]
         $value = [];             // id => source value
+        $stored = [];            // id => [target, downline_count] as they stand
         foreach ($members as $m) {
-            $children[$m->upline_id][] = $m->id;
-            $value[$m->id] = (float) $m->{$sourceCol};
+            if ($m->upline_id) {
+                $children[(int) $m->upline_id][] = (int) $m->id;
+            }
+            $value[(int) $m->id] = (float) $m->{$sourceCol};
+            $stored[(int) $m->id] = [(float) $m->{$targetCol}, (int) $m->downline_count];
         }
 
-        $sumCache = [];          // id => [sum, count]
-        $resolve = function ($id) use (&$resolve, &$children, &$value, &$sumCache) {
-            if (isset($sumCache[$id])) {
-                return $sumCache[$id];
-            }
-            $sum = 0.0;
-            $count = 0;
-            foreach ($children[$id] ?? [] as $childId) {
-                [$childSum, $childCount] = $resolve($childId);
-                $sum += $value[$childId] + $childSum;
-                $count += 1 + $childCount;
-            }
-            return $sumCache[$id] = [$sum, $count];
-        };
-
+        // children before parents, without recursion (a long chain cannot exhaust the stack,
+        // and an accidental upline loop cannot spin for ever)
+        $order = [];
+        $seen = [];
         foreach ($value as $id => $_) {
-            [$sum, $count] = $resolve($id);
-            $update = [$targetCol => round($sum, 2)];
-            if ($withCount) {
-                $update['downline_count'] = $count;
+            if (isset($seen[$id])) {
+                continue;
             }
-            DB::table('members')->where('id', $id)->update($update);
+            $stack = [[$id, false]];
+            while ($stack) {
+                [$node, $expanded] = array_pop($stack);
+                if ($expanded) {
+                    $order[] = $node;
+
+                    continue;
+                }
+                if (isset($seen[$node])) {
+                    continue;
+                }
+                $seen[$node] = true;
+                $stack[] = [$node, true];
+                foreach ($children[$node] ?? [] as $child) {
+                    if (! isset($seen[$child])) {
+                        $stack[] = [$child, false];
+                    }
+                }
+            }
+        }
+
+        $sum = [];
+        $count = [];
+        foreach ($order as $id) {
+            $s = 0.0;
+            $c = 0;
+            foreach ($children[$id] ?? [] as $child) {
+                $s += ($value[$child] ?? 0.0) + ($sum[$child] ?? 0.0);
+                $c += 1 + ($count[$child] ?? 0);
+            }
+            $sum[$id] = $s;
+            $count[$id] = $c;
+        }
+
+        // write only what changed
+        foreach ($stored as $id => [$wasSum, $wasCount]) {
+            $update = [];
+            $new = round($sum[$id] ?? 0.0, 2);
+            if (abs($new - $wasSum) >= 0.005) {
+                $update[$targetCol] = $new;
+            }
+            if ($withCount && ($count[$id] ?? 0) !== $wasCount) {
+                $update['downline_count'] = $count[$id] ?? 0;
+            }
+            if ($update) {
+                DB::table('members')->where('id', $id)->update($update);
+            }
         }
     }
 
@@ -249,8 +306,6 @@ class NetworkService
 
         // ranks BEFORE this run — so every shift (up or down) can be registered with the date
         $before = DB::table('members')->pluck('rank_id', 'id')->all();
-
-        Member::query()->update(['rank_id' => $memberRankId]);
 
         $all = DB::table('members')->select('id', 'upline_id', 'unpure_bv', 'unpure_gbv')->get();
 
@@ -284,11 +339,23 @@ class NetworkService
 
         $after = [];   // member id => new rank id (everyone not assigned holds the member rank)
         foreach ($assign as $rankId => $ids) {
-            foreach (array_chunk($ids, 500) as $chunk) {
-                DB::table('members')->whereIn('id', $chunk)->update(['rank_id' => $rankId]);
-            }
             foreach ($ids as $id) {
                 $after[$id] = (int) $rankId;
+            }
+        }
+
+        // move ONLY the members whose stage changed - nobody is dropped to the entry stage
+        // and re-raised while the run is in progress (2026-11-17)
+        $move = [];   // new rank id => [member ids]
+        foreach ($all as $m) {
+            $to = $after[$m->id] ?? (int) $memberRankId;
+            if (! isset($before[$m->id]) || (int) $before[$m->id] !== $to) {
+                $move[$to][] = $m->id;
+            }
+        }
+        foreach ($move as $rankId => $ids) {
+            foreach (array_chunk($ids, 500) as $chunk) {
+                DB::table('members')->whereIn('id', $chunk)->update(['rank_id' => $rankId]);
             }
         }
 

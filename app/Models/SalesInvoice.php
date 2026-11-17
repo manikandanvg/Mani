@@ -29,4 +29,16 @@ class SalesInvoice extends Model
     public function branch() { return $this->belongsTo(Branch::class); }
     public function plan() { return $this->belongsTo(Plan::class); }
     public function lines() { return $this->hasMany(SaleLine::class, 'invoice_id'); }
+
+    /** The bond (contract) this bill opened — they share the invoice number. */
+    public function bond() { return $this->hasOne(Bond::class, 'invoice_no', 'invoice_no'); }
+
+    /**
+     * Tax invoices raised when this bill's gold QR was redeemed (sale → bond → redemption).
+     * A bill redeemed in parts has several.
+     */
+    public function redemptionInvoices()
+    {
+        return $this->hasManyThrough(RedemptionInvoice::class, Bond::class, 'invoice_no', 'bond_id', 'invoice_no', 'id');
+    }
 }

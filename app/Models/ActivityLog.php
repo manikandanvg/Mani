@@ -41,6 +41,7 @@ class ActivityLog extends Model
         'support' => 'Support & tickets',
         'meetings' => 'Meetings & community',
         'payroll' => 'Attendance & payroll',
+        'accounts' => 'Expenses & accounts',
         'lbox' => 'L-BOX devices',
         'tasks' => 'Monthly tasks',
         'system' => 'System jobs & imports',

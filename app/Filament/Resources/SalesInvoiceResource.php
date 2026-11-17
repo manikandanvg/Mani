@@ -149,36 +149,53 @@ class SalesInvoiceResource extends BaseResource
                 Tables\Columns\TextColumn::make('date')
                     ->date()
                     ->sortable(),
-                Tables\Columns\TextColumn::make('customer_member_id')
-                    ->label('Distributor ID')
-                    ->numeric()
-                    ->sortable(),
+                // Board 2026-11-17: no internal Distributor ID; the name carries the user id,
+                // the contact number sits beside it, and the branch is named in full.
+                Tables\Columns\TextColumn::make('customer_name')
+                    ->label('Distributor')
+                    ->formatStateUsing(fn ($state, SalesInvoice $record) => trim((string) ($record->customer?->name ?: $state))
+                        . ($record->customer?->member_code ? ' (' . $record->customer->member_code . ')' : ''))
+                    ->searchable(query: fn (Builder $query, string $search) => $query->where(fn (Builder $w) => $w
+                        ->where('sales_invoices.customer_name', 'like', "%{$search}%")
+                        ->orWhereHas('customer', fn (Builder $m) => $m->where('member_code', 'like', "%{$search}%")
+                            ->orWhere('name', 'like', "%{$search}%")))),
+                Tables\Columns\TextColumn::make('customer.phone')
+                    ->label('Contact Number')
+                    // dealer logins see a distributor's phone masked (board 2026-10-31 item 19)
+                    ->formatStateUsing(fn ($state) => auth()->user()?->isDistributor() ? \App\Support\Mask::phone($state) : $state)
+                    ->placeholder('—')
+                    ->searchable(),
                 Tables\Columns\TextColumn::make('buyer_gst')->label('B2B / B2C')->badge()
                     ->getStateUsing(fn ($record) => $record->buyer_gst ? 'B2B' : 'B2C')
                     ->color(fn ($state) => $state === 'B2B' ? 'info' : 'gray')
                     ->tooltip(fn ($record) => $record->buyer_gst)
                     ->toggleable(),
-                Tables\Columns\TextColumn::make('customer_name')
-                    ->label('Distributor name')
-                    ->searchable(),
-                Tables\Columns\TextColumn::make('branch_id')
-                    ->numeric()
+                Tables\Columns\TextColumn::make('branch.name')
+                    ->label('Billing Branch')
+                    ->placeholder('—')
+                    ->wrap()
                     ->sortable(),
+                // Hidden by default (board 2026-11-17) — still one click away under the
+                // column toggle and always on the View popup.
                 Tables\Columns\TextColumn::make('cross_total')
                     ->numeric()
-                    ->sortable(),
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('discount')
                     ->numeric()
-                    ->sortable(),
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('net_total')
                     ->numeric()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('sgst')
                     ->numeric()
-                    ->sortable(),
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('cgst')
                     ->numeric()
-                    ->sortable(),
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('currency_code')
                     ->label('Ccy')->badge()->toggleable(),
                 Tables\Columns\TextColumn::make('grand_total')
@@ -195,6 +212,16 @@ class SalesInvoiceResource extends BaseResource
                     ->description(fn (SalesInvoice $r) => $r->status === 'cancelled' && $r->cancelled_at
                         ? 'Cancelled ' . $r->cancelled_at->format('d M Y') . ($r->cancel_reason ? ' — ' . $r->cancel_reason : '')
                         : null),
+                // The tax invoice(s) raised when this bill's gold QR was redeemed — each number
+                // opens its PDF. Empty = not redeemed yet.
+                Tables\Columns\TextColumn::make('redeemed_invoice')
+                    ->label('Redeemed invoice')
+                    ->state(fn (SalesInvoice $record) => $record->redemptionInvoices->pluck('invoice_no')->implode(', '))
+                    ->formatStateUsing(fn ($state, SalesInvoice $record) => new \Illuminate\Support\HtmlString(
+                        $record->redemptionInvoices->map(fn ($r) => '<a href="' . e(route('redemption.pdf', $r)) . '" target="_blank" rel="noopener"'
+                            . ' style="color:#ab222f;font-weight:600;text-decoration:underline;white-space:nowrap">'
+                            . e($r->invoice_no) . ' (PDF)</a>')->implode('<br>')))
+                    ->placeholder('Not redeemed'),
                 Tables\Columns\TextColumn::make('created_at')
                     ->dateTime()
                     ->sortable()
@@ -204,6 +231,7 @@ class SalesInvoiceResource extends BaseResource
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
+            ->modifyQueryUsing(fn (Builder $query) => $query->with(['customer', 'branch', 'plan', 'redemptionInvoices']))
             ->recordClasses(fn (SalesInvoice $r) => $r->status === 'cancelled' ? 'opacity-60 line-through' : null)
             ->filters([
                 Tables\Filters\SelectFilter::make('status')
@@ -218,6 +246,15 @@ class SalesInvoiceResource extends BaseResource
                     ->queries(
                         true: fn ($q) => $q->whereNotNull('buyer_gst'),
                         false: fn ($q) => $q->whereNull('buyer_gst'),
+                    ),
+                Tables\Filters\TernaryFilter::make('redeemed')
+                    ->label('Redeemed')
+                    ->placeholder('All')
+                    ->trueLabel('Redeemed')
+                    ->falseLabel('Not redeemed')
+                    ->queries(
+                        true: fn ($q) => $q->whereHas('redemptionInvoices'),
+                        false: fn ($q) => $q->whereDoesntHave('redemptionInvoices'),
                     ),
                 Tables\Filters\TernaryFilter::make('is_invoice')
                     ->label('Document')

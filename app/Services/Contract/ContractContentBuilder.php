@@ -44,6 +44,7 @@ class ContractContentBuilder
             $code === 201 => $this->dealership201($rec, $cbc, $sav, $tds),
             $code === 205 => $this->dealership205($rec, $cbc, $sav, $tds),
             $code === 202 => $this->dealership202($rec, $cbc, $sav, $tds),
+            $code === 213 => $this->subDealer($bond, $rec, $cbc),
             in_array($code, [203, 204, 207, 214], true) => $this->dealershipSplit($rec, $this->inr((float) ($plan->min_value ?? 0))),
             default => $this->generic($bond, $rec),
         };
@@ -133,6 +134,39 @@ class ContractContentBuilder
         return $h . $this->incomeBreakup24($cbc, $sav, $tds);
     }
 
+    // --- 213 Sub Dealer: SPOT gold share + contract share, dealership income + CBC break-up ---
+    // Port of the legacy Lscript::getforcont planid 213 branch (user 2026-11-17: the Sub Dealer
+    // contract printed only "Scheme / Contract Amount / Validity" - the generic body - and
+    // dropped the Promotional Incentive (CBC) benefit the old contract carried).
+    private function subDealer(Bond $bond, float $rec, float $cbc): string
+    {
+        $plan = $bond->plan;
+        $goldPct = $plan->goodsShare();                       // 25 % handed over as gold
+        $contPct = 100 - $goldPct;
+        $months = (int) ($plan->validity_months ?: 24);
+        $cbcMonths = (int) ($bond->cbc_count ?: $plan->cbc_count ?: 24);
+        // monthly coupon: what the bond carries, else bill x the plan's CBC % (legacy 10 %)
+        $cbc = $cbc > 0 ? $cbc : round($rec * ((float) $plan->cbc_value ?: 10.0) / 100, 2);
+        $tds = ($cbc / 2) * 0.20;
+        $sav = ($cbc / 2) - $tds;
+        $pct = fn (float $v) => rtrim(rtrim(number_format($v, 2, '.', ''), '0'), '.');
+
+        $rows = [];
+        if ($goldPct > 0 && $goldPct < 100) {
+            $rows[] = ['SPOT 916 HUID Gold Coins (or) Bar : ' . $pct($goldPct) . '%', $this->m($rec * $goldPct / 100)];
+        }
+        $rows[] = [$months . ' months Contract: ' . $pct($contPct) . '%', $this->m($rec * $contPct / 100)];
+
+        $h = $this->rows($rows);
+        $h .= $this->dealershipIncome([
+            'Monthly Self Sales Limit & Profit: 300 grams x Rs.100/- = Rs.30,000/- x 24 months — Total Rs.7,20,000/- + Rs.' . $this->n($rec * $goldPct / 100) . '/- worth Gold in Hand',
+            'Monthly Company Group sales profit: Rs.' . $this->n($cbc) . '/- x ' . $cbcMonths . ' months (Monthly income Rs.' . $this->n($cbc / 2) . '/- + savings Rs.' . $this->n($sav) . '/- + TDS/SC Rs.' . $this->n($tds) . '/-)',
+            'Promotional Incentive : 4% | Bonus Incentive : 1% | AD Onboarding : 1.5% (BM) | Gold Saving Monthly 10% / renewal 10%',
+        ]);
+
+        return $h . $this->incomeBreakup24($cbc, $sav, $tds);
+    }
+
     // --- 205: SPOT 70% + 24-month 30%, dealership income + break-up ---
     private function dealership205(float $rec, float $cbc, float $sav, float $tds): string
     {
@@ -201,7 +235,7 @@ class ContractContentBuilder
         ]);
     }
 
-    // --- fallback for plans without a bespoke template (e.g. P213 Sub Dealer, P212 G36) ---
+    // --- fallback for plans without a bespoke template (e.g. P212 G36) ---
     private function generic(Bond $bond, float $rec): string
     {
         $plan = $bond->plan;

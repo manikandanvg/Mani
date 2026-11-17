@@ -288,7 +288,22 @@ class NextAccountsSource implements AccountsSource
 
     public function expenses(Carbon $from, Carbon $to): Collection
     {
-        return collect();   // no expense register in the new system yet
+        // The expense register (board 2026-11-17): approved rows only. `line` names the
+        // Profit & Loss line of the auditor workbook the row belongs to.
+        return \App\Models\Expense::with('member')->where('status', \App\Models\Expense::APPROVED)
+            ->whereBetween('expense_date', [$from->toDateString(), $to->toDateString()])
+            ->orderBy('expense_date')->orderBy('id')->limit(5000)->get()
+            ->map(fn (\App\Models\Expense $e) => (object) [
+                'date' => $e->expense_date,
+                'no' => $e->expense_no,
+                'title' => (string) $e->title,
+                'type' => \App\Models\Expense::categoryLabel($e->category),
+                'line' => $e->ledgerLine(),
+                'amount' => (float) $e->amount,
+                'mode' => (string) (\App\Models\Expense::MODES[$e->payment_mode] ?? $e->payment_mode),
+                'party' => trim((string) ($e->member ? $e->member->name . ' (' . $e->member->member_code . ')' : $e->payee_name)),
+                'remarks' => trim((string) $e->remarks),
+            ]);
     }
 
     public function salaries(Carbon $from, Carbon $to): float
@@ -323,7 +338,7 @@ class NextAccountsSource implements AccountsSource
             'Running contracts (bonds) plus their Gold Saving installments are shown as Gold Saving Scheme / Customer Collections; pending redeemable QRs as Customer Advances.',
             'Every purchase bill is recorded as paid (cash / online / cheque) — the new system keeps no credit purchases, so Sundry Creditors is nil from this source. Approved dealer orders not fully paid are Dealer / Branch Receivables.',
             'Distributor commissions paid in the period (commission ledger, status paid) are shown as an operating expense; approved / pending ones as Other Payables.',
-            'Payroll (payslips gross) fills Employee Salaries; there is no expense register, so the other expense lines come from the manual inputs.',
+            'Payroll (payslips gross) fills Employee Salaries; approved rows of the Expenses register (Report → Expenses) fill the expense lines by category, plus the manual inputs.',
         ];
     }
 }

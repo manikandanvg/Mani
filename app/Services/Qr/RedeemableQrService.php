@@ -50,7 +50,7 @@ class RedeemableQrService
         $pieces = max(1, (int) $bond->rd_pieces);
         $cashWorth = match (true) {
             $plan && (float) $plan->rd_qr_grams > 0 => round(app(GoldQrPricing::class)->price($plan) * $pieces, 2),
-            $plan && (float) $plan->allocation_cont > 0 => round($grand * (float) $plan->allocation_cont / 100, 2),
+            (bool) $plan => round($grand * $plan->goodsShare() / 100, 2),
             default => $grand,
         };
         // Plan-defined piece weight wins (100 mg plan ⇒ 0.1000 g exactly). Otherwise the

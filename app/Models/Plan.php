@@ -116,6 +116,16 @@ class Plan extends Model
         return (float) $this->allocation_cont > 0 ? (float) $this->allocation_cont : 100.0;
     }
 
+    /**
+     * The % of a bill handed over as GOLD at billing — the worth of the gold QR
+     * (RedeemableQrService::forBond) and the "invoice allocation" of the app calculator.
+     * One rule for both, so the calculator can never disagree with the bill (2026-11-17).
+     */
+    public function goodsShare(): float
+    {
+        return (float) $this->allocation_cont > 0 ? (float) $this->allocation_cont : 100.0;
+    }
+
     /** Bond value (legacy bvalue) for a bill of $billValue. */
     public function bondValueFor(float $billValue): float
     {

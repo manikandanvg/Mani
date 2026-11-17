@@ -101,6 +101,16 @@ Route::get('/admin/order-attachments/{attachment}', [\App\Http\Controllers\Order
 Route::get('/admin/ticket-attachments/{ticket}/{index}', [\App\Http\Controllers\TicketAttachmentController::class, 'show'])
     ->whereNumber('index')->middleware(['web', 'auth'])->name('ticket.attachment');
 
+// Admin: open the bill / receipt of an expense (Head Office only) - private disk.
+Route::get('/admin/expense-attachments/{expense}/{index}', function (\App\Models\Expense $expense, int $index) {
+    abort_unless(auth()->check() && ! auth()->user()->isDistributor() && ! auth()->user()->isSupport(), 403);
+    $path = ((array) $expense->attachments)[$index] ?? null;
+    $disk = \Illuminate\Support\Facades\Storage::disk('local');
+    abort_unless($path && $disk->exists($path), 404, 'File not found on the server.');
+
+    return $disk->response($path);
+})->whereNumber('index')->middleware(['web', 'auth'])->name('expense.attachment');
+
 // Admin: open a Training Library file (auth-guarded; the app uses signed /api/v1/library/files).
 Route::get('/admin/library-files/{file}', function (\App\Models\DriveFile $file) {
     abort_unless(auth()->check() && ! auth()->user()->isDistributor(), 403);
