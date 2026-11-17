@@ -12,6 +12,9 @@ use Illuminate\Database\Eloquent\Model;
 class RedemptionInvoice extends Model
 {
     use \App\Models\Concerns\LogsActivity;
+    // soft-deleted = CANCELLED (a redemption made by mistake, undone by Head Office — 2026-11-17);
+    // the row and its number stay on record but drop out of every register.
+    use \Illuminate\Database\Eloquent\SoftDeletes;
 
     public const ACTIVITY_CATEGORY = 'redemption';
 

@@ -161,7 +161,8 @@ class ContractContentBuilder
         $h .= $this->dealershipIncome([
             'Monthly Self Sales Limit & Profit: 300 grams x Rs.100/- = Rs.30,000/- x 24 months — Total Rs.7,20,000/- + Rs.' . $this->n($rec * $goldPct / 100) . '/- worth Gold in Hand',
             'Monthly Company Group sales profit: Rs.' . $this->n($cbc) . '/- x ' . $cbcMonths . ' months (Monthly income Rs.' . $this->n($cbc / 2) . '/- + savings Rs.' . $this->n($sav) . '/- + TDS/SC Rs.' . $this->n($tds) . '/-)',
-            'Promotional Incentive : 4% | Bonus Incentive : 1% | AD Onboarding : 1.5% (BM) | Gold Saving Monthly 10% / renewal 10%',
+            // the old contract's third line ("Promotional Incentive : 4% | Bonus Incentive : 1% | AD Onboarding
+            // : 1.5% (BM) | Gold Saving …") is left out on the board's instruction (2026-11-17)
         ]);
 
         return $h . $this->incomeBreakup24($cbc, $sav, $tds);

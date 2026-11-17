@@ -115,6 +115,49 @@ class RedemptionTest extends TestCase
         $this->assertEquals('100 MG GOLD', RedemptionService::lineLabel($mg, 0.1));
     }
 
+    /** User 2026-11-17: a redemption submitted by mistake is undone before its restock order is raised. */
+    public function test_a_mistaken_redemption_is_cancelled_and_the_qr_can_be_redeemed_again(): void
+    {
+        $branch = Branch::create(['name' => 'Undo Branch', 'country' => 'IN', 'level' => 'reseller', 'is_active' => true]);
+        $plan = $this->plan('509', 'digital');
+        $member = $this->member('RU1');
+        $bond = Bond::create(['member_id' => $member->id, 'plan_id' => $plan->id, 'branch_id' => $branch->id, 'bond_date' => now(), 'value' => 50000, 'invoice_no' => 'INV-RU1', 'status' => 'active']);
+        $cp = $this->gold('GU');
+        Stock::create(['branch_id' => $branch->id, 'catalog_product_id' => $cp->id, 'quantity' => 100]);
+        $qr = RedeemableQr::create(['bond_id' => $bond->id, 'member_id' => $member->id, 'branch_id' => $branch->id, 'invoice_no' => 'INV-RU1', 'qr_code' => 'QRU1', 'qr_mode' => 'cash', 'cash_worth' => 50000, 'status' => 'pending']);
+        $svc = app(RedemptionService::class);
+        $cancel = app(\App\Services\Redeem\RedemptionCancelService::class);
+        $redeem = function (int $pieces) use ($svc, $qr, $branch, $cp) {
+            $svc->generateOtp($qr);
+
+            return $svc->redeem(['qr_code' => 'QRU1', 'branch_id' => $branch->id, 'otp' => $qr->fresh()->otp,
+                'lines' => [['catalog_product_id' => $cp->id, 'unit_weight' => 1, 'quantity' => $pieces]]]);
+        };
+        $stock = fn () => (float) Stock::where('branch_id', $branch->id)->where('catalog_product_id', $cp->id)->value('quantity');
+
+        $first = $redeem(20);
+        $this->assertEquals(80, $stock());
+        $this->assertNull($cancel->blocker($first));
+
+        $cancel->cancel($first, null, 'more stock to be added');
+
+        $this->assertEquals(100, $stock());                                  // pieces back
+        $this->assertEquals(0, (float) $branch->fresh()->gold_gm_margin);    // margin taken back
+        $this->assertEquals(0, \App\Models\ResellerCommission::where('invoice_no', $first->invoice_no)->count());
+        $this->assertEquals('pending', $qr->fresh()->status);                // QR live again
+        $this->assertNull(\App\Models\RedemptionInvoice::find($first->id));   // out of every register …
+        $this->assertSame('more stock to be added', \App\Models\RedemptionInvoice::withTrashed()->find($first->id)->cancel_reason);   // … but on record
+
+        // redeemed afresh with the right items — on a NEW number, the cancelled one is never reused
+        $second = $redeem(25);
+        $this->assertNotSame($first->invoice_no, $second->invoice_no);
+        $this->assertEquals(75, $stock());
+
+        // once the restock order is raised, the redemption can no longer be cancelled
+        app(BranchOrderService::class)->createFromRedemption($second, null);
+        $this->assertStringContainsString('restock order', (string) $cancel->blocker($second->fresh()));
+    }
+
     /** A Mode-B redemption can raise a restock order that, once approved, replenishes the branch. */
     public function test_restock_order_from_redemption_replenishes_branch_on_approval(): void
     {

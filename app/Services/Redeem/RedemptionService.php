@@ -600,11 +600,12 @@ class RedemptionService
         $branch = $branchId ? Branch::find($branchId) : null;
         $prefix = $branch?->invoice_prefix ?: ($branchId ? 'B' . $branchId : 'X');
 
-        $n = (int) RedemptionInvoice::where('branch_id', $branchId)->count() + 1;
+        // withTrashed: a cancelled redemption keeps its number — it is never handed out again
+        $n = (int) RedemptionInvoice::withTrashed()->where('branch_id', $branchId)->count() + 1;
         do {
             $no = 'RDM-' . strtoupper($prefix) . '-' . str_pad((string) $n, 4, '0', STR_PAD_LEFT);
             $n++;
-        } while (RedemptionInvoice::where('invoice_no', $no)->exists());
+        } while (RedemptionInvoice::withTrashed()->where('invoice_no', $no)->exists());
 
         return $no;
     }

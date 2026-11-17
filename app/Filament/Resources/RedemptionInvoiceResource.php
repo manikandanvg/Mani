@@ -38,7 +38,9 @@ class RedemptionInvoiceResource extends BaseResource
 
     public static function getEloquentQuery(): Builder
     {
-        $query = parent::getEloquentQuery()->with(['member', 'branch', 'restockOrder', 'lines.catalogProduct']);
+        // cancelled redemptions stay listable through the Cancelled filter (soft-deleted rows)
+        $query = parent::getEloquentQuery()->withoutGlobalScopes([\Illuminate\Database\Eloquent\SoftDeletingScope::class])
+            ->with(['member', 'branch', 'restockOrder', 'lines.catalogProduct']);
 
         // Branch scope: a distributor login sees only its own branch's invoices.
         $user = auth()->user();
@@ -76,7 +78,10 @@ class RedemptionInvoiceResource extends BaseResource
                     })
                     ->tooltip(fn (RedemptionInvoice $r) => $r->restockOrder?->request_no),
             ])
+            ->recordClasses(fn (RedemptionInvoice $r) => $r->trashed() ? 'opacity-60 line-through' : null)
             ->filters([
+                Tables\Filters\TrashedFilter::make()->label('Cancelled')
+                    ->placeholder('Active only')->trueLabel('Active and cancelled')->falseLabel('Cancelled only'),
                 \App\Filament\Support\CommonFilters::branch(),
                 \App\Filament\Support\CommonFilters::dateRange('invoice_date', 'Invoiced'),
                 Tables\Filters\SelectFilter::make('payment_mode')
@@ -90,6 +95,7 @@ class RedemptionInvoiceResource extends BaseResource
                 Tables\Actions\Action::make('pdf')
                     ->label('Tax invoice')
                     ->icon('heroicon-o-printer')
+                    ->visible(fn (RedemptionInvoice $record) => ! $record->trashed())
                     ->url(fn (RedemptionInvoice $record) => route('redemption.pdf', $record), shouldOpenInNewTab: true),
                 // Restock: the branch gave out stock on this redemption — raise an order to
                 // its supplier (HQ) for the same items, which replenishes the branch on approval.
@@ -117,6 +123,33 @@ class RedemptionInvoiceResource extends BaseResource
                             ->body('Sent to your supplier for approval — the stock is added to your branch once approved.')
                             ->send();
                     }),
+                // Undo a redemption made by mistake (user 2026-11-17) — Head Office only, and only
+                // before a restock order is raised: stock returns, the QR is live again.
+                Tables\Actions\Action::make('cancelRedemption')
+                    ->label('Cancel redemption')
+                    ->icon('heroicon-o-x-circle')
+                    ->color('danger')
+                    ->visible(fn (RedemptionInvoice $record) => (bool) auth()->user()?->isSuperAdmin() && ! $record->trashed())
+                    ->requiresConfirmation()
+                    ->modalHeading(fn (RedemptionInvoice $record) => 'Cancel redemption ' . $record->invoice_no)
+                    ->modalDescription(fn (RedemptionInvoice $record) => ($why = app(\App\Services\Redeem\RedemptionCancelService::class)->blocker($record))
+                        ? 'This redemption cannot be cancelled: ' . $why
+                        : 'The items given out return to the branch stock, the margin of this redemption is taken back and the QR becomes active again, so it can be redeemed afresh with the right items. The invoice stays on record as CANCELLED. This cannot be undone.')
+                    ->form(fn (RedemptionInvoice $record) => app(\App\Services\Redeem\RedemptionCancelService::class)->blocker($record) ? [] : [
+                        \Filament\Forms\Components\Textarea::make('reason')->label('Reason for cancellation')->required()->rows(2)->maxLength(255),
+                    ])
+                    ->modalSubmitAction(fn ($action, RedemptionInvoice $record) => app(\App\Services\Redeem\RedemptionCancelService::class)->blocker($record) ? $action->hidden() : $action)
+                    ->action(function (RedemptionInvoice $record, array $data) {
+                        try {
+                            app(\App\Services\Redeem\RedemptionCancelService::class)->cancel($record, auth()->id(), $data['reason'] ?? null);
+                        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
+                            Notification::make()->danger()->title('Redemption not cancelled')->body($e->getMessage())->persistent()->send();
+
+                            return;
+                        }
+                        Notification::make()->success()->title('Redemption ' . $record->invoice_no . ' cancelled')
+                            ->body('Stock returned to the branch; the QR is active again.')->send();
+                    }),
             ])
             ->bulkActions([]);
     }
@@ -128,7 +161,8 @@ class RedemptionInvoiceResource extends BaseResource
      */
     protected static function canRestock(RedemptionInvoice $record): bool
     {
-        return $record->restockOrder === null
+        return ! $record->trashed()   // a cancelled redemption gave out nothing
+            && $record->restockOrder === null
             && ! static::restockedInLegacy($record)
             && ! static::isCustomized($record);
     }

@@ -362,6 +362,7 @@ class GstAuditorReport
         $invoices = DB::table('redemption_invoices as i')
             ->join('branches as br', 'br.id', '=', 'i.branch_id')
             ->leftJoin('members as m', 'm.id', '=', 'i.member_id')
+            ->whereNull('i.deleted_at')   // a cancelled redemption is not a sale
             ->whereBetween('i.invoice_date', [$this->from, $this->to])
             ->when($own !== null, fn ($w) => $w->whereRaw(substr($this->gstinClause($own, 'br.gst_no'), 5), [$this->gstin]))
             ->when($this->branchId, fn ($w) => $w->where('i.branch_id', $this->branchId))

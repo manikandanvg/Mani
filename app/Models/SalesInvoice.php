@@ -41,4 +41,18 @@ class SalesInvoice extends Model
     {
         return $this->hasManyThrough(RedemptionInvoice::class, Bond::class, 'invoice_no', 'bond_id', 'invoice_no', 'id');
     }
+
+    /**
+     * The ONE redeemed invoice that belongs to this bill (user 2026-11-17: "show the matched
+     * one, hide the others"). A Gold Saving contract collects a redeemed invoice for every
+     * monthly QR, all booked against the joining bill; the bill's own is the one raised for
+     * the QR minted at billing, and where the old system kept no QR link, the first one raised.
+     */
+    public function matchedRedemption(): ?RedemptionInvoice
+    {
+        $all = $this->redemptionInvoices->sortBy([['invoice_date', 'asc'], ['id', 'asc']])->values();
+
+        return $all->first(fn (RedemptionInvoice $r) => $r->qr && $r->qr->kind !== 'renewal' && $r->qr->invoice_no === $this->invoice_no)
+            ?? $all->first();
+    }
 }

@@ -172,8 +172,17 @@ class SalesInvoiceResource extends BaseResource
                     ->toggleable(),
                 Tables\Columns\TextColumn::make('branch.name')
                     ->label('Billing Branch')
+                    // name / city / phone / in-charge (board 2026-11-17) — many dealer branches
+                    // share the name "LORD JEWELLER", so the name alone does not say which one
+                    ->formatStateUsing(fn ($state, SalesInvoice $record) => implode(' / ', array_filter([
+                        trim((string) $state), trim((string) $record->branch?->city),
+                        trim((string) $record->branch?->phone), trim((string) $record->branch?->incharge),
+                    ])))
                     ->placeholder('—')
                     ->wrap()
+                    ->searchable(query: fn (Builder $query, string $search) => $query->orWhereHas('branch', fn (Builder $b) => $b
+                        ->where('name', 'like', "%{$search}%")->orWhere('city', 'like', "%{$search}%")
+                        ->orWhere('phone', 'like', "%{$search}%")->orWhere('incharge', 'like', "%{$search}%")))
                     ->sortable(),
                 // Hidden by default (board 2026-11-17) — still one click away under the
                 // column toggle and always on the View popup.
@@ -212,16 +221,6 @@ class SalesInvoiceResource extends BaseResource
                     ->description(fn (SalesInvoice $r) => $r->status === 'cancelled' && $r->cancelled_at
                         ? 'Cancelled ' . $r->cancelled_at->format('d M Y') . ($r->cancel_reason ? ' — ' . $r->cancel_reason : '')
                         : null),
-                // The tax invoice(s) raised when this bill's gold QR was redeemed — each number
-                // opens its PDF. Empty = not redeemed yet.
-                Tables\Columns\TextColumn::make('redeemed_invoice')
-                    ->label('Redeemed invoice')
-                    ->state(fn (SalesInvoice $record) => $record->redemptionInvoices->pluck('invoice_no')->implode(', '))
-                    ->formatStateUsing(fn ($state, SalesInvoice $record) => new \Illuminate\Support\HtmlString(
-                        $record->redemptionInvoices->map(fn ($r) => '<a href="' . e(route('redemption.pdf', $r)) . '" target="_blank" rel="noopener"'
-                            . ' style="color:#ab222f;font-weight:600;text-decoration:underline;white-space:nowrap">'
-                            . e($r->invoice_no) . ' (PDF)</a>')->implode('<br>')))
-                    ->placeholder('Not redeemed'),
                 Tables\Columns\TextColumn::make('created_at')
                     ->dateTime()
                     ->sortable()
@@ -231,7 +230,7 @@ class SalesInvoiceResource extends BaseResource
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
-            ->modifyQueryUsing(fn (Builder $query) => $query->with(['customer', 'branch', 'plan', 'redemptionInvoices']))
+            ->modifyQueryUsing(fn (Builder $query) => $query->with(['customer', 'branch', 'plan']))
             ->recordClasses(fn (SalesInvoice $r) => $r->status === 'cancelled' ? 'opacity-60 line-through' : null)
             ->filters([
                 Tables\Filters\SelectFilter::make('status')
