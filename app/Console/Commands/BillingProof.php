@@ -98,6 +98,10 @@ class BillingProof extends Command
             foreach (CatalogProduct::where('is_active', true)->get() as $cp) {
                 Stock::create(['branch_id' => $branch->id, 'catalog_product_id' => $cp->id, 'quantity' => 100000000]);
             }
+            // a scheme limited to Head Office / Lord's Branches (G12 Forward since 2026-11-13) is
+            // opened to the test dealer for the run, so its figures are proved too — rolled back
+            DB::table('plans')->update(['available_to' => Plan::AVAILABLE_ALL]);
+            $plans = Plan::where('is_active', true)->orderBy('code')->get();
             if (! $this->option('keep-cap')) {
                 // an earner cannot earn more in a day than their own bonds are worth: lift that cap for
                 // the ten earners so every scheme % is visible even on the crore-value bills
@@ -119,7 +123,7 @@ class BillingProof extends Command
                     try {
                         $this->runCase($sales, $plan, $label, $target, $senior->fresh(), $branch, $rate, $n, $seniorDepth);
                     } catch (\Throwable $e) {
-                        $this->row('Summary', array_merge([$n, $plan->code, $this->planName($plan), $label, $target, '—', 'ERROR'], array_fill(0, 20, ''), [mb_substr($e->getMessage(), 0, 300)]));
+                        $this->row('Summary', array_merge([$n, $plan->code, $this->planName($plan), $label, $target, '—', 'ERROR'], array_fill(0, 21, ''), [mb_substr($e->getMessage(), 0, 300)]));
                         $this->warn("{$plan->code} {$label}: " . $e->getMessage());
                     } finally {
                         DB::rollBack();
@@ -295,7 +299,10 @@ class BillingProof extends Command
         $failed = array_keys(array_filter($ok, fn ($v) => $v === false));
         $levelMonths = array_sum($lvl) > 0 ? $months : 0;
         $this->row('Summary', array_merge($case, [$target, $invoice->invoice_no, $all ? 'PASS' : 'CHECK', $grand, $cross,
-            (float) $bond->value, (float) $buyer->bv, (float) $buyer->unpure_bv,
+            (float) $bond->value,
+            // board sheet 2026-11-18: EP = the bond, except the schemes that give none (PLUS 1, G10)
+            $plan->counts_for_ep ? (float) $bond->value : 0.0,
+            (float) $buyer->bv, (float) $buyer->unpure_bv,
             (float) $ic->sum('amount'), $ic->count(),
             round(array_sum($lvl), 2), $levelMonths, round(array_sum(array_map('round', $lvl)) * $levelMonths, 2),
             (float) ($cbc[1]->worth ?? ($cbc->first()->worth ?? 0)), $cbc->count(), (float) $cbc->sum('worth'),
@@ -478,7 +485,7 @@ class BillingProof extends Command
         $case = ['#', 'Scheme', 'Scheme name', 'Test'];
         $heads = [
             'Summary' => array_merge($case, ['Bill value asked ₹', 'Invoice no', 'RESULT', 'Bill total ₹', 'Taxable ₹',
-                'Bond value ₹', 'BV added (buyer BV / each upline GBV) ₹', 'Ranking BV added ₹',
+                'Bond (contract) value ₹', 'EP given ₹', 'BV added (buyer BV / each upline GBV) ₹', 'Ranking BV added ₹',
                 'Instant commission ₹ (all levels)', 'IC levels paid',
                 'Level income per month ₹ (L1–5)', 'Level months', 'Level income over the term ₹',
                 'CBC per month ₹', 'CBC coupons', 'CBC total ₹',
@@ -507,6 +514,10 @@ class BillingProof extends Command
             ['Earning-potential cap', $this->option('keep-cap')
                 ? 'Left ON: an earner can earn at most the value of their own active bonds in a day (same rule as legacy), so the larger bills show capped commissions.'
                 : 'An earner can earn at most the value of their own active bonds in a day (same rule as legacy). For this test the cap was lifted for the ten earners so every scheme percentage can be seen, even on the crore-value bills. Run with --keep-cap to see the capped figures. (Senior\x27s own bonds today: ₹' . number_format($seniorEp, 2) . '.)'],
+            ['Scheme allocation (board sheet 18-11-2026)', 'EP (the daily earning limit) = the CONTRACT share of the bill = the ranking BV share. "Bond (contract) value" is what the engine wrote on the contract; "EP given" is what that contract adds to the distributor\'s EP.'],
+            ['Changed on 18-11-2026', 'EP share: Dealerships 80 % → 20 %, G24 Wholesaler 70 % → 30 %, Sub Dealer 25 % → 75 %. Gold Saving PLUS 1, G10 Gold Purchase and G10 Silver Purchase give no EP (their contract value is unchanged). G10 Silver Purchase no longer adds ranking BV.'],
+            ['Not changed', 'BV (always the full bill), the gold QR share, instant commission, level income, CBC coupons, billing / gold / silver margins and the settlement rule — all still worked on the full bill.'],
+            ['Schemes limited to Head Office', 'For this test every scheme was opened to the temporary dealer branch, so a Head-Office-only scheme (G12 Forward) is proved as well.'],
             ['Level income', 'Paid by the monthly cut-off on the 1st, for the months shown, when the earner\'s rank reaches that level. Senior rank depth today: ' . $seniorDepth . '.'],
         ];
 

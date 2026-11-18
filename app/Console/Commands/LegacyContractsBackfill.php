@@ -45,6 +45,8 @@ class LegacyContractsBackfill extends Command
         };
 
         Bond::query()
+            // a G10 gold / silver PURCHASE bill carries no contract (board 2026-11-18) — never back-fill one
+            ->whereDoesntHave('plan', fn ($q) => $q->whereIn('type', ['gold', 'silver']))
             ->whereNotExists(fn ($q) => $q->selectRaw('1')->from('member_contracts')->whereColumn('member_contracts.bond_id', 'bonds.id'))
             ->orderBy('id')
             ->chunkById(500, function ($bonds) use (&$rows, &$counts, $validity, $today, $flush) {
