@@ -63,24 +63,11 @@ class StockAuditDeductions extends Command
         }
 
         // ── 2. Gold Saving renewals ──
-        $pool = [];   // branch|date|amount => movements available to match
-        foreach (DB::table('stock_movements')->where('ref_type', 'rd_entry')->get(['branch_id', 'moved_on', 'qty_change']) as $m) {
-            $k = $m->branch_id . '|' . substr((string) $m->moved_on, 0, 10) . '|' . number_format(abs((float) $m->qty_change), 2, '.', '');
-            $pool[$k] = ($pool[$k] ?? 0) + 1;
-        }
-        $entries = DB::table('rd_entries')->where('created_at', '>=', $from)->orderBy('id')->get();
-        $sum['Renewals checked'] = $entries->count();
-        $sum['Renewals WITHOUT a cash deduction'] = 0;
-        $sum['Renewal amount not deducted ₹'] = 0.0;
-        foreach ($entries as $e) {
-            $k = $e->branch_id . '|' . substr((string) $e->paid_on, 0, 10) . '|' . number_format((float) $e->value, 2, '.', '');
-            if (($pool[$k] ?? 0) > 0) {
-                $pool[$k]--;
-
-                continue;
-            }
-            $sum['Renewals WITHOUT a cash deduction']++;
-            $sum['Renewal amount not deducted ₹'] += (float) $e->value;
+        $missing = \App\Services\RdCollectionService::undeductedEntries($from);
+        $sum['Renewals checked'] = DB::table('rd_entries')->where('created_at', '>=', $from)->count();
+        $sum['Renewals WITHOUT a cash deduction'] = $missing->count();
+        $sum['Renewal amount not deducted ₹'] = (float) $missing->sum('value');
+        foreach ($missing as $e) {
             $add('renewal', 'RD-' . $e->id, $e->paid_on, $e->branch_id, 'CASH', (float) $e->value, 'no cash stock was chosen on the collection screen');
         }
 

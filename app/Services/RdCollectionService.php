@@ -297,6 +297,49 @@ class RdCollectionService
         ]);
     }
 
+    /**
+     * Renewals entered since $from that never reduced the cash stock (complaint 2026-11-18).
+     * A renewal is covered by a movement carrying its id, or — movements written before the id
+     * was stored — by one of the same branch, day and amount (each movement covers one renewal).
+     *
+     * @return \Illuminate\Support\Collection<int, object>  rd_entries rows
+     */
+    public static function undeductedEntries(string $from): \Illuminate\Support\Collection
+    {
+        $byId = [];
+        $pool = [];
+        foreach (DB::table('stock_movements')->where('ref_type', 'rd_entry')->get(['branch_id', 'moved_on', 'qty_change', 'ref_id']) as $m) {
+            if ($m->ref_id) {
+                $byId[$m->ref_id] = true;
+
+                continue;
+            }
+            $k = $m->branch_id . '|' . substr((string) $m->moved_on, 0, 10) . '|' . number_format(abs((float) $m->qty_change), 2, '.', '');
+            $pool[$k] = ($pool[$k] ?? 0) + 1;
+        }
+
+        return DB::table('rd_entries')->where('created_at', '>=', $from)->orderBy('id')->get()
+            ->reject(function ($e) use ($byId, &$pool) {
+                if (isset($byId[$e->id])) {
+                    return true;
+                }
+                $k = $e->branch_id . '|' . substr((string) $e->paid_on, 0, 10) . '|' . number_format((float) $e->value, 2, '.', '');
+                if (($pool[$k] ?? 0) > 0) {
+                    $pool[$k]--;
+
+                    return true;
+                }
+
+                return false;
+            })->values();
+    }
+
+    /** Deduct a past renewal that was saved without a cash deduction. */
+    public function deductForEntry(object $entry, ?int $userId = null): void
+    {
+        $this->deductCashStock(0, (int) $entry->branch_id, (float) $entry->value, substr((string) $entry->paid_on, 0, 10), $userId, (int) $entry->id);
+    }
+
     /** The branch's cash stock row (ordinary stock, not a custom piece); created at 0 when missing. */
     public static function branchCashStock(int $branchId, bool $create = true): ?Stock
     {
