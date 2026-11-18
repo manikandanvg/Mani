@@ -300,7 +300,8 @@ class MemberBusinessController extends Controller
         $w = $member->wallet;
 
         // ── EP (Earning Potential) ──
-        $activeBonds = Bond::where('member_id', $member->id)->where('status', 'active');
+        // the contracts that give EP — same rule as CommissionService::earningPotential
+        $activeBonds = Bond::where('member_id', $member->id)->where('status', 'active')->epBearing();
         $activeCount = (int) (clone $activeBonds)->count();
         $activeBv = (float) (clone $activeBonds)->sum('value');
 

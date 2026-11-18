@@ -57,7 +57,7 @@ class PlanResource extends BaseResource
                     Forms\Components\TextInput::make('max_sales_value')->label('Max sales / month')->numeric()
                         ->helperText('Reseller monthly billing cap; blank = no cap'),
                     Forms\Components\TextInput::make('allocation_bv')->label('Allocation BV % (legacy column, not used by billing)')->required()->numeric()->default(100),
-                    Forms\Components\TextInput::make('allocation')->label('Bond share % (legacy allocation: bond = bill × this)')->numeric()->helperText('80 dealerships, 70 G24, 50 G5, 75 Sub Dealer, 10 Area, 100 saving/purchase plans. TBP/rank BV uses "Rank BV %" below, not this.'),
+                    Forms\Components\TextInput::make('allocation')->label('Bond share % (legacy allocation: bond = bill × this)')->numeric()->helperText('board 2026-11-18: 20 dealerships, 30 G24, 50 G5, 75 Sub Dealer, 10 Area, 100 saving/purchase plans. TBP/rank BV uses "Rank BV %" below, not this.'),
                     Forms\Components\TextInput::make('allocation_cont')->label('Allocation contract %')->numeric()->default(0),
                     Forms\Components\TextInput::make('validity_months')->required()->numeric()->default(12),
                 ]),
@@ -69,6 +69,8 @@ class PlanResource extends BaseResource
                 ]),
                 Forms\Components\Section::make('Ranking BV')->columns(2)->schema([
                     Forms\Components\Toggle::make('counts_for_rank')->label('Counts for reward/rank BV')->default(true),
+                    Forms\Components\Toggle::make('counts_for_ep')->label('Gives Earning Potential (EP)')->default(true)
+                        ->helperText('Off = a contract of this scheme adds nothing to the member\'s EP (board 2026-11-18: Gold Saving PLUS 1, G10 Gold and G10 Silver Purchase).'),
                     Forms\Components\TextInput::make('rank_factor')->label('Rank BV %')->numeric()->default(100)
                         ->helperText('% of billed value counted as pure/ranking BV'),
                 ]),

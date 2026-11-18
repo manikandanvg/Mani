@@ -347,7 +347,8 @@ class CommissionService
             return 0.0;
         }
 
-        $bonds = Bond::where('member_id', $member->id)->where('status', 'active');
+        // only schemes that give EP count (board 2026-11-18: PLUS 1 and G10 purchase give none)
+        $bonds = Bond::where('member_id', $member->id)->where('status', 'active')->epBearing();
         $activeBonds = (int) $bonds->count();
         if ($activeBonds < 1) {
             return 0.0;

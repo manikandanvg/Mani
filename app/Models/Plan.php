@@ -34,6 +34,7 @@ class Plan extends Model
         'settlement_close' => 'boolean',
         'settlement_suspend' => 'boolean',
         'counts_for_rank' => 'boolean',
+        'counts_for_ep' => 'boolean',
         'rank_factor' => 'decimal:2',
     ];
 
@@ -103,8 +104,9 @@ class Plan extends Model
 
     /**
      * Legacy allocation (user 2026-11-04, "bill the legacy way"): the % of a bill that becomes
-     * the bond — legacy tbl_bond.bvalue = bill × allocation (80 % on a dealership, 50 % G5,
-     * 75 % Sub Dealer (user 2026-11-18; was 25), 10 % Area, 100 % on the saving / purchase plans). Every commission is
+     * the bond — legacy tbl_bond.bvalue = bill × allocation. Board sheet 2026-11-18: the bond
+     * (= EP) is the CONTRACT share — 20 % on a dealership (was 80), 30 % G24 (was 70), 50 % G5,
+     * 75 % Sub Dealer (was 25), 10 % Area, 100 % on the saving / purchase plans). Every commission is
      * computed on the FULL bill, not on this share. Falls back to the contract share, then 100.
      */
     public function bondShare(): float

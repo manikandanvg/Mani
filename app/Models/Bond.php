@@ -34,6 +34,16 @@ class Bond extends Model
 
     public function member() { return $this->belongsTo(Member::class); }
     public function plan() { return $this->belongsTo(Plan::class); }
+
+    /**
+     * Bonds whose scheme gives Earning Potential (board 2026-11-18): Gold Saving PLUS 1 and the
+     * G10 gold / silver purchase plans give none (plans.counts_for_ep = 0). Their bond value is
+     * still the instalment / bill and must not be touched — only EP ignores it.
+     */
+    public function scopeEpBearing($query)
+    {
+        return $query->whereHas('plan', fn ($q) => $q->where('counts_for_ep', true));
+    }
     public function branch() { return $this->belongsTo(Branch::class); }
     public function product() { return $this->belongsTo(Product::class); }
     public function mou() { return $this->belongsTo(Mou::class); }
