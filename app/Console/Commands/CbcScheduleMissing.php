@@ -154,7 +154,7 @@ class CbcScheduleMissing extends Command
 
     /**
      * The bill the coupon is a % of (legacy billingvalue, INR, before tax): a new-system bill
-     * has its invoice; a legacy bond is bond value ÷ the plan's bond share (25,000 ÷ 25 % = 1,00,000).
+     * has its invoice; a legacy bond is bond value ÷ the plan's bond share (75,000 ÷ 75 % = 1,00,000).
      */
     protected function billBase(Bond $bond, Plan $plan): float
     {

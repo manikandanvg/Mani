@@ -104,7 +104,7 @@ class Plan extends Model
     /**
      * Legacy allocation (user 2026-11-04, "bill the legacy way"): the % of a bill that becomes
      * the bond — legacy tbl_bond.bvalue = bill × allocation (80 % on a dealership, 50 % G5,
-     * 25 % Sub Dealer, 10 % Area, 100 % on the saving / purchase plans). Every commission is
+     * 75 % Sub Dealer (user 2026-11-18; was 25), 10 % Area, 100 % on the saving / purchase plans). Every commission is
      * computed on the FULL bill, not on this share. Falls back to the contract share, then 100.
      */
     public function bondShare(): float
