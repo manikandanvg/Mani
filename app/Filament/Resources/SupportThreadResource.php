@@ -44,6 +44,16 @@ class SupportThreadResource extends BaseResource
                     ->label('From')
                     ->state(fn (SupportThread $r) => static::ownerLabel($r))
                     ->searchable(false),
+                // Triage (2026-11-18): what the chat is about, worked out from the user's own words
+                Tables\Columns\TextColumn::make('topic')->badge()->color('info')->sortable()
+                    ->formatStateUsing(fn (?string $state) => \Illuminate\Support\Str::before(\App\Services\Support\SupportBot::options()[$state] ?? '—', ' /')),
+                // Whose turn is it? The user wrote last = the desk owes a reply — also after an
+                // auto reply, when the user answers it with the details that were asked for.
+                Tables\Columns\TextColumn::make('turn')->label('Waiting for')->badge()
+                    ->state(fn (SupportThread $r) => $r->needs_staff ? 'Us' : 'User')
+                    ->color(fn (string $state) => $state === 'Us' ? 'danger' : 'gray'),
+                Tables\Columns\IconColumn::make('answered')->label('Staff replied')->boolean()
+                    ->state(fn (SupportThread $r) => $r->messages()->where('sender', 'support')->where('source', '!=', \App\Services\Support\SupportBot::SOURCE)->exists()),
                 Tables\Columns\TextColumn::make('subject')->limit(40)->wrap()->searchable(),
                 Tables\Columns\TextColumn::make('last_message')->label('Last message')
                     ->state(fn (SupportThread $r) => \Illuminate\Support\Str::limit((string) $r->messages()->latest('id')->value('body'), 70))
@@ -58,6 +68,25 @@ class SupportThreadResource extends BaseResource
                 Tables\Filters\SelectFilter::make('status')
                     ->options(['open' => 'Open chats', 'closed' => 'Closed chats'])
                     ->default('open'),
+                Tables\Filters\SelectFilter::make('topic')
+                    ->options(fn () => collect(config('support_replies.templates', []))->filter(fn ($t) => ! empty($t['match']) || ($t['bot'] ?? false))
+                        ->map(fn ($t) => $t['title'])->all()),
+                // The working queue: chats where the USER wrote last. A chat comes back here by itself
+                // when the user answers a reply (an auto reply included).
+                Tables\Filters\TernaryFilter::make('turn')
+                    ->label('Waiting for')
+                    ->placeholder('All chats')->trueLabel('Waiting for us (needs a staff reply)')->falseLabel('Waiting for the user')
+                    ->queries(
+                        true: fn ($q) => $q->where('needs_staff', true),
+                        false: fn ($q) => $q->where('needs_staff', false),
+                    ),
+                Tables\Filters\TernaryFilter::make('answered')
+                    ->label('Replied by staff')
+                    ->placeholder('All chats')->trueLabel('A staff member has replied')->falseLabel('No staff reply yet (auto reply does not count)')
+                    ->queries(
+                        true: fn ($q) => $q->whereHas('messages', fn ($m) => $m->where('sender', 'support')->where('source', '!=', \App\Services\Support\SupportBot::SOURCE)),
+                        false: fn ($q) => $q->whereDoesntHave('messages', fn ($m) => $m->where('sender', 'support')->where('source', '!=', \App\Services\Support\SupportBot::SOURCE)),
+                    ),
             ])
             ->actions([
                 // Board 2026-11-15: the chat opens in a POPUP — live transcript, rich-text reply,
@@ -80,6 +109,44 @@ class SupportThreadResource extends BaseResource
                     ])),
             ])
             ->bulkActions([
+                // 2026-11-18: filter one topic, tick the chats, answer them all with one ready reply.
+                // The text is fixed (config/support_replies.php) — nothing about a member is in it.
+                Tables\Actions\BulkAction::make('reply_selected')
+                    ->label('Send a ready reply to selected')
+                    ->icon('heroicon-o-paper-airplane')
+                    ->form([
+                        \Filament\Forms\Components\Select::make('template')->label('Ready reply')
+                            ->options(fn () => \App\Services\Support\SupportBot::options())->required()->live()
+                            ->afterStateUpdated(fn ($state, \Filament\Forms\Set $set) => $set('body', \App\Services\Support\SupportBot::body($state))),
+                        \Filament\Forms\Components\Textarea::make('body')->label('Message that will be sent')->rows(10)->required()
+                            // one person's detail must never go to many chats: refused, not just warned
+                            ->rule(fn () => function (string $attribute, $value, \Closure $fail) {
+                                if ($found = \App\Services\Support\SupportBot::personalDetailIn((string) $value)) {
+                                    $fail("This message goes to every selected chat, so it cannot contain a distributor ID, phone number or amount (found: {$found}). Reply to that chat alone instead.");
+                                }
+                            })
+                            ->helperText('Every selected chat gets this same message, as a push notification and in the app inbox. A distributor ID, phone number or amount is refused here.'),
+                    ])
+                    ->requiresConfirmation()
+                    ->deselectRecordsAfterCompletion()
+                    ->action(function (\Illuminate\Support\Collection $records, array $data) {
+                        $svc = app(\App\Services\Support\SupportService::class);
+                        $records->each(fn (SupportThread $t) => $svc->supportReply($t, trim((string) $data['body']), auth()->id()));
+                        \Filament\Notifications\Notification::make()->success()->title($records->count() . ' chat(s) answered')->send();
+                    }),
+                // Each selected chat that nobody has answered gets the acknowledgement of ITS OWN topic.
+                Tables\Actions\BulkAction::make('acknowledge_selected')
+                    ->label('Auto-acknowledge selected (by topic)')
+                    ->icon('heroicon-o-sparkles')
+                    ->requiresConfirmation()
+                    ->modalDescription('Each selected chat that has no reply yet gets the ready acknowledgement for its own topic. Chats already answered are skipped.')
+                    ->deselectRecordsAfterCompletion()
+                    ->action(function (\Illuminate\Support\Collection $records) {
+                        $bot = app(\App\Services\Support\SupportBot::class);
+                        $sent = $records->filter(fn (SupportThread $t) => $bot->acknowledge($t) !== null)->count();
+                        \Filament\Notifications\Notification::make()->success()
+                            ->title($sent . ' chat(s) acknowledged, ' . ($records->count() - $sent) . ' skipped (already answered)')->send();
+                    }),
                 // "a lot of support chats are there" — close many in one go
                 Tables\Actions\BulkAction::make('close_selected')
                     ->label('Close selected chats')

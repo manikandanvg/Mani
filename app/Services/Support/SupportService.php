@@ -45,7 +45,23 @@ class SupportService
             'last_message_at' => $message->created_at,
             // The user just spoke; their own view is current, HQ now has unread.
             'owner_last_read_at' => $message->created_at,
+            // triage tag for the desk (filter + bulk reply by topic) — set once, from the first words
+            'topic' => $thread->topic ?: SupportBot::suggestFor($thread),
+            // The desk's queue: this chat needs a STAFF answer. A bare "ok, thank you" does not
+            // put an already-answered chat back in the queue; an auto reply never takes one out.
+            'needs_staff' => $thread->needs_staff || ! SupportBot::isThanks($body),
         ])->save();
+
+        // Auto reply (2026-11-18, off unless SUPPORT_BOT_AUTO_REPLY=true): a fixed acknowledgement
+        // of the first message and short fixed answers to follow-ups (SupportBot::respond), so
+        // nobody waits days for a first answer. Never allowed to break the message.
+        if (SupportBot::enabled()) {
+            try {
+                app(SupportBot::class)->respond($thread, $message);
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning('Support auto reply failed: ' . $e->getMessage());
+            }
+        }
 
         return $message;
     }
@@ -55,20 +71,22 @@ class SupportService
      * $html (board 2026-11-15): the desk's rich-text version of the reply, shown in the panel.
      * $body stays the plain text — what the app and the push notification show.
      */
-    public function supportReply(SupportThread $thread, string $body, ?int $supportUserId = null, ?string $html = null): SupportMessage
+    public function supportReply(SupportThread $thread, string $body, ?int $supportUserId = null, ?string $html = null, string $source = 'app'): SupportMessage
     {
         $message = $thread->messages()->create([
             'sender' => 'support',
             'support_user_id' => $supportUserId,
             'body' => $body,
             'body_html' => filled($html) ? $html : null,
-            'source' => 'app',
+            'source' => $source,   // 'bot' = the auto reply (SupportBot)
         ]);
 
         $thread->forceFill([
             'status' => 'open',
             'last_message_at' => $message->created_at,
             'support_last_read_at' => $message->created_at,
+            // only a person's reply takes the chat out of the desk's queue — never the bot's
+            'needs_staff' => $source === SupportBot::SOURCE ? (bool) $thread->needs_staff : false,
         ])->save();
 
         $thread->owner?->notify(new AppNotification(

@@ -12,6 +12,21 @@
         </x-filament::badge>
     </div>
 
+    {{-- Case card (2026-11-18): the member's own figures, for the desk only — never sent to anyone. --}}
+    @if (! empty($facts))
+        <details class="rounded-xl border border-gray-200 bg-gray-50 px-4 py-2 text-sm dark:border-white/10 dark:bg-white/5" open>
+            <summary class="cursor-pointer font-semibold text-gray-700 dark:text-gray-200">{{ __('Case facts (visible to the desk only)') }}</summary>
+            <div class="mt-2 grid grid-cols-1 gap-x-6 gap-y-1 sm:grid-cols-2">
+                @foreach ($facts as $label => $value)
+                    <div class="flex justify-between gap-3">
+                        <span class="text-gray-500 dark:text-gray-400">{{ __($label) }}</span>
+                        <span class="font-medium text-gray-900 dark:text-white">{{ $value }}</span>
+                    </div>
+                @endforeach
+            </div>
+        </details>
+    @endif
+
     {{-- Transcript — polls so the user's messages appear while the desk is typing. --}}
     <div
         wire:poll.5s
@@ -27,7 +42,7 @@
                 <div class="icl-chat-bubble max-w-[80%] rounded-2xl px-4 py-2 text-sm leading-snug"
                      style="{{ $isSupport ? 'background:#ab222f;color:#fff' : 'background:rgba(0,0,0,0.06)' }}">
                     <div class="mb-0.5 text-[11px] opacity-70">
-                        {{ $isSupport ? ('HQ' . ($m->supportUser ? ' · ' . $m->supportUser->name : '')) : \App\Filament\Resources\SupportThreadResource::ownerLabel($thread) }}
+                        {{ $isSupport ? ('HQ' . ($m->source === 'bot' ? ' · ' . __('Auto reply') : ($m->supportUser ? ' · ' . $m->supportUser->name : ''))) :\App\Filament\Resources\SupportThreadResource::ownerLabel($thread) }}
                         · {{ optional($m->created_at)->timezone(config('app.timezone'))->format('d M, h:i A') }}
                     </div>
                     @if ($isSupport && filled($m->body_html))

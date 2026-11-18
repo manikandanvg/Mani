@@ -50,6 +50,14 @@ class SupportChatPanel extends Component implements HasForms
     public function form(Form $form): Form
     {
         return $form->schema([
+            // Ready replies (2026-11-18): fixed texts with no member data in them. The one that fits
+            // what the user wrote is offered first; picking one fills the editor, still editable.
+            Forms\Components\Select::make('template')
+                ->hiddenLabel()
+                ->placeholder(__('Ready reply — suggested: :t', ['t' => \App\Services\Support\SupportBot::options()[\App\Services\Support\SupportBot::suggestReplyFor($this->thread())] ?? '—']))
+                ->options(\App\Services\Support\SupportBot::options())
+                ->searchable()->live()->dehydrated(false)
+                ->afterStateUpdated(fn ($state, Forms\Set $set) => $state ? $set('reply', \App\Services\Support\SupportBot::html($state)) : null),
             Forms\Components\RichEditor::make('reply')
                 ->hiddenLabel()
                 ->placeholder(__('Type a reply…'))
@@ -104,6 +112,7 @@ class SupportChatPanel extends Component implements HasForms
 
         return view('livewire.support-chat-panel', [
             'thread' => $thread,
+            'facts' => \App\Services\Support\SupportBot::factsFor($thread),
             'messages' => $thread->messages()->with('supportUser')->orderBy('created_at')->orderBy('id')->get(),
         ]);
     }

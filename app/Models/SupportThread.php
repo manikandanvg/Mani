@@ -17,6 +17,7 @@ class SupportThread extends Model
         'last_message_at' => 'datetime',
         'owner_last_read_at' => 'datetime',
         'support_last_read_at' => 'datetime',
+        'needs_staff' => 'boolean',
     ];
 
     public function owner(): MorphTo
