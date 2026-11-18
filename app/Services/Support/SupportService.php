@@ -41,7 +41,9 @@ class SupportService
         ]);
 
         $thread->forceFill([
-            'status' => 'open',
+            // A new message reopens a closed chat — except a bare "ok, thank you", which is the
+            // usual answer to "resolved" and used to bring every closed chat back into the list.
+            'status' => $thread->status === 'closed' && SupportBot::isThanks($body) ? 'closed' : 'open',
             'last_message_at' => $message->created_at,
             // The user just spoke; their own view is current, HQ now has unread.
             'owner_last_read_at' => $message->created_at,
@@ -82,7 +84,8 @@ class SupportService
         ]);
 
         $thread->forceFill([
-            'status' => 'open',
+            // a person's reply (re)opens the chat; the auto reply leaves a closed chat closed
+            'status' => $source === SupportBot::SOURCE && $thread->status === 'closed' ? 'closed' : 'open',
             'last_message_at' => $message->created_at,
             'support_last_read_at' => $message->created_at,
             // only a person's reply takes the chat out of the desk's queue — never the bot's
