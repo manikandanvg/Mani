@@ -79,9 +79,9 @@ class RdCollectionService
                 'fx_rate' => $fx,
             ]);
 
-            if (! empty($data['cash_stock_id'])) {
-                $this->deductCashStock((int) $data['cash_stock_id'], $branchId, $amount, $paidOn, $userId);
-            }
+            // Every collection comes out of the branch's cash stock (complaint 2026-11-18: the
+            // field was optional, so a renewal saved with it left blank deducted nothing).
+            $this->deductCashStock((int) ($data['cash_stock_id'] ?? 0), $branchId, $amount, $paidOn, $userId, $entry->id);
 
             $this->payBillMargin($bond, $branchId, $userId, $amount, $paidOn, $currency, $fx);
             // Legacy Trade::rdsales (user 2026-11-04): every instalment pays the plan's IC
@@ -274,11 +274,14 @@ class RdCollectionService
     }
 
     /** Cash stock is held as rupee value (CashStockSeeder), so we deduct the collected amount. */
-    protected function deductCashStock(int $stockId, int $branchId, float $amount, string $paidOn, ?int $userId): void
+    protected function deductCashStock(int $stockId, int $branchId, float $amount, string $paidOn, ?int $userId, ?int $entryId = null): void
     {
-        $stock = Stock::where('id', $stockId)->where('branch_id', $branchId)->first();
+        $stock = $stockId ? Stock::where('id', $stockId)->where('branch_id', $branchId)->first() : null;
+        // Nothing picked (or a row of another branch): the branch's own cash holding. A branch
+        // that never held cash gets a row at 0, so the collection still shows as a movement.
+        $stock ??= self::branchCashStock($branchId);
         if (! $stock) {
-            return;
+            return;   // no cash product in the catalogue at all
         }
         $stock->decrement('quantity', $amount);
         StockMovement::create([
@@ -288,9 +291,25 @@ class RdCollectionService
             'qty_change' => -$amount,
             'balance_after' => $stock->fresh()->quantity,
             'ref_type' => 'rd_entry',
+            'ref_id' => $entryId,
             'moved_on' => $paidOn,
             'created_by' => $userId,
         ]);
+    }
+
+    /** The branch's cash stock row (ordinary stock, not a custom piece); created at 0 when missing. */
+    public static function branchCashStock(int $branchId, bool $create = true): ?Stock
+    {
+        $cashIds = \App\Models\CatalogProduct::where('material', 'cash')->orderBy('id')->pluck('id');
+        if ($cashIds->isEmpty()) {
+            return null;
+        }
+        $stock = Stock::where('branch_id', $branchId)->whereIn('catalog_product_id', $cashIds)
+            ->where('order_line_id', 0)->orderByDesc('quantity')->first();
+
+        return $stock ?? ($create
+            ? Stock::create(['branch_id' => $branchId, 'catalog_product_id' => $cashIds->first(), 'order_line_id' => 0, 'quantity' => 0])
+            : null);
     }
 
     /**

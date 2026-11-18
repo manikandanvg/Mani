@@ -51,8 +51,11 @@ class RdCollection extends Page implements HasForms
 
     public function mount(): void
     {
+        $branchId = auth()->user()?->branch_id ?? Branch::min('id');
         $this->form->fill([
-            'branch_id' => auth()->user()?->branch_id ?? Branch::min('id'),
+            'branch_id' => $branchId,
+            // the branch's cash holding is picked already — the counter cannot skip it
+            'cash_stock_id' => $branchId ? RdCollectionService::branchCashStock((int) $branchId)?->id : null,
             'paid_on' => now()->toDateString(),
         ]);
     }
@@ -94,6 +97,8 @@ class RdCollection extends Page implements HasForms
                         ->label('Cash stock (this branch)')
                         ->options(fn (Get $get) => $this->cashStockOptions($get('branch_id')))
                         ->helperText('The collected amount is deducted from this cash holding.')
+                        // complaint 2026-11-18: it was optional and empty, so renewals deducted nothing
+                        ->required()
                         ->searchable(),
                     TextInput::make('amount')
                         ->label('Payment received (₹)')
@@ -248,6 +253,7 @@ class RdCollection extends Page implements HasForms
 
         $this->form->fill([
             'branch_id' => $data['branch_id'],
+            'cash_stock_id' => RdCollectionService::branchCashStock((int) $data['branch_id'])?->id,
             'paid_on' => now()->toDateString(),
         ]);
     }
