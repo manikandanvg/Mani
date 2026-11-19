@@ -139,7 +139,7 @@ class RedemptionInvoiceResource extends BaseResource
                         \Filament\Forms\Components\Textarea::make('reason')->label('Reason for cancellation')->required()->rows(2)->maxLength(255),
                     ])
                     ->modalSubmitAction(fn ($action, RedemptionInvoice $record) => app(\App\Services\Redeem\RedemptionCancelService::class)->blocker($record) ? $action->hidden() : $action)
-                    ->action(function (RedemptionInvoice $record, array $data) {
+                    ->action(function (RedemptionInvoice $record, array $data, $livewire) {
                         try {
                             app(\App\Services\Redeem\RedemptionCancelService::class)->cancel($record, auth()->id(), $data['reason'] ?? null);
                         } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
@@ -147,6 +147,10 @@ class RedemptionInvoiceResource extends BaseResource
 
                             return;
                         }
+                        // The row on screen was loaded BEFORE the cancel: reload it, or it keeps its
+                        // "Raise restock order" / "Cancel redemption" buttons until the page is refreshed
+                        // (complaint 2026-11-19).
+                        $livewire->flushCachedTableRecords();
                         Notification::make()->success()->title('Redemption ' . $record->invoice_no . ' cancelled')
                             ->body('Stock returned to the branch; the QR is active again.')->send();
                     }),

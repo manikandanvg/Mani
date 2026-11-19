@@ -83,7 +83,7 @@ class RedeemableQrService
      * the contract amount, or the RD paid-total + bonus). Unlike forBond this is never
      * idempotent: a bond can hold a sale QR and a settlement QR side by side.
      */
-    public function mintSettlementQr(Bond $bond, float $worth, ?float $grams = null, string $mode = 'gold', bool $priceToday = false, string $kind = 'settlement'): RedeemableQr
+    public function mintSettlementQr(Bond $bond, float $worth, ?float $grams = null, string $mode = 'gold', bool $priceToday = false, string $kind = 'settlement', ?int $onlyBranchId = null): RedeemableQr
     {
         // Gold Saving (board 2026-11-13): a renewal / settlement QR is worth what was paid THAT
         // day, so it is redeemed at that day's price — not the joining bill's. The QR carries
@@ -94,6 +94,7 @@ class RedeemableQrService
 
             return RedeemableQr::create([
                 'bond_id' => $bond->id, 'member_id' => $bond->member_id, 'branch_id' => $bond->branch_id,
+                'only_branch_id' => $onlyBranchId,   // settlement QR: this branch only (Head Office excepted)
                 'invoice_no' => $bond->invoice_no, 'qr_code' => $this->uniqueToken(), 'qr_mode' => $mode, 'kind' => $kind,
                 'gram_worth' => $grams, 'cash_worth' => round($worth, 2),
                 'frozen_rate' => $rate > 0 ? $rate : null, 'priced_on' => $rate > 0 ? now()->toDateString() : null,
@@ -112,6 +113,7 @@ class RedeemableQrService
             'bond_id' => $bond->id,
             'member_id' => $bond->member_id,
             'branch_id' => $bond->branch_id,
+            'only_branch_id' => $onlyBranchId,
             'invoice_no' => $bond->invoice_no,
             'qr_code' => $this->uniqueToken(),
             'qr_mode' => 'gold',

@@ -53,6 +53,30 @@ class BranchOrderRequest extends Model
         return $this->belongsTo(RedemptionInvoice::class, 'redemption_invoice_id');
     }
 
+    /**
+     * Restock of a SETTLEMENT QR's redemption (user 2026-11-19): shown as "Settlement Redemption",
+     * apart from the restock of an ordinary redeemed QR. The source stays 'redemption'.
+     */
+    public function isSettlementRedemption(): bool
+    {
+        return $this->redemption_invoice_id !== null && $this->redemptionInvoice?->qr?->kind === 'settlement';
+    }
+
+    /** The Type shown on Branch Order Requests. */
+    public function typeLabel(): string
+    {
+        return $this->isSettlementRedemption()
+            ? 'Settlement Redemption'
+            : \App\Services\BranchOrderService::sourceLabel($this->source);
+    }
+
+    public function scopeSettlementRedemption($query, bool $is = true)
+    {
+        $settlement = fn ($q) => $q->withTrashed()->whereHas('qr', fn ($k) => $k->where('kind', 'settlement'));
+
+        return $is ? $query->whereHas('redemptionInvoice', $settlement) : $query->whereDoesntHave('redemptionInvoice', $settlement);
+    }
+
     public function requester()
     {
         return $this->belongsTo(User::class, 'requested_by');

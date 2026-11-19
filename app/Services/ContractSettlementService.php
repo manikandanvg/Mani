@@ -40,6 +40,22 @@ class ContractSettlementService
         return self::isExpired($contract) && ! $contract->settlements()->exists();
     }
 
+    /**
+     * The contract's own branch — where it was billed (user 2026-11-19). A settlement QR is
+     * redeemed only there (Head Office excepted) and returned Gold Saving coins join its stock.
+     */
+    public static function homeBranchId(MemberContract $contract): ?int
+    {
+        // "Who billed" (user 2026-11-19): the bond's billing branch, whatever its kind. A branch
+        // that has since closed (inactive / removed) hands its settlements to Head Office.
+        $id = (int) ($contract->bond?->branch_id ?: $contract->branch_id);
+        if ($id && \App\Models\Branch::whereKey($id)->where('is_active', true)->exists()) {
+            return $id;
+        }
+
+        return $id ? ((int) \App\Models\Branch::where('level', 'hq')->orderBy('id')->value('id') ?: null) : null;
+    }
+
     public const STAGES = ['interim' => 'Interim settlement', 'final' => 'Final settlement (closes the contract)'];
 
     /**
@@ -206,14 +222,18 @@ class ContractSettlementService
      * Settle a contract with a redeemable gold QR (board 2026-11-15). $stage is the admin's
      * choice — 'interim' (the contract runs on) or 'final' (closes it); null = the suggested one.
      * $amount is what the admin approved — the rule amount unless changed on the form; both are
-     * kept. The QR is priced at today's gold rate and redeems like any other gold QR. Nothing
-     * goes to the wallet.
+     * kept. The QR is priced at today's gold rate and redeems only at the contract's own branch
+     * (Head Office excepted). Nothing goes to the wallet.
+     *
+     * $issueQr = false (user 2026-11-19 — "the admin decides whether to issue a QR"): Head Office
+     * settled by hand and paid outside the system; the settlement is only RECORDED (mode
+     * 'manual') — no QR, no wallet credit.
      */
-    public function generateQr(MemberContract $contract, ?float $amount, ?string $note, ?int $userId, ?Carbon $today = null, ?string $stage = null): ContractSettlement
+    public function generateQr(MemberContract $contract, ?float $amount, ?string $note, ?int $userId, ?Carbon $today = null, ?string $stage = null, bool $issueQr = true): ContractSettlement
     {
         $today ??= Carbon::today();
 
-        $row = DB::transaction(function () use ($contract, $amount, $note, $userId, $today, $stage) {
+        $row = DB::transaction(function () use ($contract, $amount, $note, $userId, $today, $stage, $issueQr) {
             $contract = MemberContract::with(['plan', 'bond.member', 'member'])->whereKey($contract->id)->lockForUpdate()->firstOrFail();
             $rule = self::rule($contract);
             abort_unless($rule && $contract->bond, 422, 'This scheme does not settle by gold QR.');
@@ -229,19 +249,25 @@ class ContractSettlementService
             $worth = round($amount ?? $rule['worth'], 2);
             abort_if($worth <= 0, 422, 'Settlement value must be greater than zero.');
 
-            $rate = (float) (\App\Models\LiveRate::where('country', 'IN')->latest('effective_at')->first()?->gold ?? 0);
-            abort_if($rate <= 0, 422, 'No live gold rate set — set it before settling.');
-            $grams = app(\App\Services\Charges\ChargeResolver::class)->gramsForWorth($worth, $rate);
-            $qr = app(\App\Services\Qr\RedeemableQrService::class)->mintSettlementQr($contract->bond, $worth, $grams, 'gold', true);
+            $qr = null;
+            if ($issueQr) {
+                $rate = (float) (\App\Models\LiveRate::where('country', 'IN')->latest('effective_at')->first()?->gold ?? 0);
+                abort_if($rate <= 0, 422, 'No live gold rate set — set it before settling.');
+                $grams = app(\App\Services\Charges\ChargeResolver::class)->gramsForWorth($worth, $rate);
+                $qr = app(\App\Services\Qr\RedeemableQrService::class)
+                    ->mintSettlementQr($contract->bond, $worth, $grams, 'gold', true, 'settlement', self::homeBranchId($contract));
+            } else {
+                $label .= ' — settled manually, no QR';
+            }
 
             $row = ContractSettlement::create([
                 'member_contract_id' => $contract->id,
                 'member_id' => $contract->member_id ?: $contract->bond->member_id,
                 'bond_id' => $contract->bond_id,
                 'amount' => $worth,
-                'mode' => 'gold_qr',
+                'mode' => $qr ? 'gold_qr' : 'manual',
                 'stage' => $stage,
-                'redeemable_qr_id' => $qr->id,
+                'redeemable_qr_id' => $qr?->id,
                 'rule_amount' => $rule['worth'],
                 'note' => mb_substr($label . ($note ? ' · ' . $note : ''), 0, 255),
                 'paid_on' => $today->toDateString(),
@@ -252,6 +278,18 @@ class ContractSettlementService
             if ($final) {
                 $contract->update(['status' => 'closed', 'settled_on' => $today->toDateString()]);
                 $contract->bond->update(['status' => 'closed']);
+            }
+
+            if (! $qr) {
+                DB::afterCommit(fn () => Notifier::to(
+                    $contract->member ?: $contract->bond->member,
+                    'settlement',
+                    ($final ? 'Final settlement' : 'Interim settlement') . ' recorded — ₹' . Money::group($worth),
+                    'Your contract ' . $contract->contract_no . ' was settled by Head Office for ₹' . Money::group($worth) . '.',
+                    route: '/business/earnings',
+                ));
+
+                return $row;
             }
 
             DB::afterCommit(fn () => Notifier::to(

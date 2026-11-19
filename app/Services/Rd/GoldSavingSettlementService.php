@@ -46,12 +46,20 @@ class GoldSavingSettlementService
 
     public static function canSettle(MemberContract $contract, ?Carbon $today = null): bool
     {
-        return self::isGoldSaving($contract)
-            && $contract->bond_id !== null
-            && $contract->settled_on === null
-            && ! in_array($contract->status, ['closed', 'cancelled'], true)
-            && ContractSettlementService::isExpired($contract, $today)
-            && ! RdSettlement::where('bond_id', $contract->bond_id)->exists();
+        if (! self::isGoldSaving($contract) || $contract->bond_id === null || $contract->status === 'cancelled'
+            || $contract->bond?->status === 'cancelled') {
+            return false;
+        }
+        // User 2026-11-19: the old system had no settlement at all — a contract it left 'closed'
+        // (with or without a date) is still waiting for one. Only a close made HERE ends it.
+        $closed = $contract->status === 'closed' || $contract->settled_on !== null;
+        if ($closed && $contract->source !== MemberContract::SOURCE_LEGACY) {
+            return false;
+        }
+
+        return ContractSettlementService::isExpired($contract, $today)
+            && ! RdSettlement::where('bond_id', $contract->bond_id)->exists()
+            && ! $contract->settlements()->exists();
     }
 
     /**
@@ -123,12 +131,17 @@ class GoldSavingSettlementService
     /**
      * $approvedWorth (board 2026-11-15): the amount Head Office approves on the form. The QR is
      * issued for it; the rule's own figure is kept beside it (rule_worth). Null = the rule amount.
+     *
+     * User 2026-11-19: $branchId is the contract's own branch — it takes the coins into its stock
+     * and is the only branch (Head Office excepted) that may redeem the settlement QR.
+     * $issueQr = false: Head Office paid by hand outside the system — coins and stock are handled
+     * the same way, the settlement is recorded (mode 'manual'), no QR is issued.
      */
-    public function settle(MemberContract $contract, int $branchId, ?int $coinsReturned = null, ?string $note = null, ?int $userId = null, ?Carbon $today = null, ?float $approvedWorth = null): RdSettlement
+    public function settle(MemberContract $contract, int $branchId, ?int $coinsReturned = null, ?string $note = null, ?int $userId = null, ?Carbon $today = null, ?float $approvedWorth = null, bool $issueQr = true): RdSettlement
     {
         $today ??= Carbon::today();
 
-        $row = DB::transaction(function () use ($contract, $branchId, $coinsReturned, $note, $userId, $today, $approvedWorth) {
+        $row = DB::transaction(function () use ($contract, $branchId, $coinsReturned, $note, $userId, $today, $approvedWorth, $issueQr) {
             $contract = MemberContract::with(['plan', 'bond.plan'])->whereKey($contract->id)->lockForUpdate()->firstOrFail();
             abort_unless(self::canSettle($contract, $today), 422, 'This Gold Saving contract cannot be settled: it has not expired, or it is already settled.');
 
@@ -148,13 +161,16 @@ class GoldSavingSettlementService
                 $this->stockIn($plan, $branchId, $q['coins_returned'], $contract, $today, $userId);
             }
 
-            $live = LiveRate::where('country', 'IN')->latest('effective_at')->first();
-            $rate = (float) ($q['metal'] === 'silver' ? $live?->silver : $live?->gold);
-            abort_if($rate <= 0, 422, 'No live ' . $q['metal'] . ' rate set — set it before settling.');
-            $grams = $q['metal'] === 'gold'
-                ? app(ChargeResolver::class)->gramsForWorth($q['worth'], $rate)
-                : round($q['worth'] / 1.03 / $rate, 4);
-            $qr = app(RedeemableQrService::class)->mintSettlementQr($bond, $q['worth'], $grams, $q['metal'], true);
+            $qr = null;
+            if ($issueQr) {
+                $live = LiveRate::where('country', 'IN')->latest('effective_at')->first();
+                $rate = (float) ($q['metal'] === 'silver' ? $live?->silver : $live?->gold);
+                abort_if($rate <= 0, 422, 'No live ' . $q['metal'] . ' rate set — set it before settling.');
+                $grams = $q['metal'] === 'gold'
+                    ? app(ChargeResolver::class)->gramsForWorth($q['worth'], $rate)
+                    : round($q['worth'] / 1.03 / $rate, 4);
+                $qr = app(RedeemableQrService::class)->mintSettlementQr($bond, $q['worth'], $grams, $q['metal'], true, 'settlement', $branchId);
+            }
 
             $row = RdSettlement::create([
                 'member_contract_id' => $contract->id, 'bond_id' => $bond->id, 'member_id' => $contract->member_id ?: $bond->member_id,
@@ -163,7 +179,7 @@ class GoldSavingSettlementService
                 'coins_given' => $q['coins_given'], 'coins_cancelled' => $q['coins_cancelled'],
                 'coins_returned' => $q['coins_returned'], 'coins_missing' => $q['coins_missing'],
                 'coin_price' => $q['coin_price'], 'deduction' => $q['deduction'], 'worth' => $q['worth'], 'rule_worth' => $ruleWorth,
-                'metal' => $q['metal'], 'redeemable_qr_id' => $qr->id, 'settled_on' => $today->toDateString(),
+                'metal' => $q['metal'], 'mode' => $qr ? 'qr' : 'manual', 'redeemable_qr_id' => $qr?->id, 'settled_on' => $today->toDateString(),
                 'note' => $note ? mb_substr($note, 0, 255) : null, 'created_by' => $userId,
             ]);
 

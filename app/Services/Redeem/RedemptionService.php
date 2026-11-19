@@ -78,8 +78,16 @@ class RedemptionService
                 'This plan can be redeemed only at the billing branch.');
         }
 
+        // Settlement QR (user 2026-11-19): only at the contract's own branch — Head Office excepted.
+        $only = (int) ($qr->only_branch_id ?? 0);
+        if ($only && $currentBranchId !== null && (int) $currentBranchId !== $only) {
+            abort_unless(Branch::whereKey($currentBranchId)->value('level') === 'hq', 422,
+                'This settlement QR can be redeemed only at ' . (Branch::whereKey($only)->value('name') ?: 'its own branch') . ' (or at Head Office).');
+        }
+
         return [
             'qr' => $qr,
+            'only_branch_id' => $only ?: null,
             'bond' => $bond,
             'plan' => $plan,
             'member' => $member,

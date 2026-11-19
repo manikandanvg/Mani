@@ -158,6 +158,33 @@ class RedemptionTest extends TestCase
         $this->assertStringContainsString('restock order', (string) $cancel->blocker($second->fresh()));
     }
 
+    /** Complaint 2026-11-19: right after "Cancel redemption" the row kept both buttons until a refresh. */
+    public function test_cancelled_redemption_row_loses_its_restock_and_cancel_buttons_at_once(): void
+    {
+        $branch = Branch::create(['name' => 'Btn Branch', 'country' => 'IN', 'level' => 'reseller', 'is_active' => true]);
+        $member = $this->member('RB1');
+        $bond = Bond::create(['member_id' => $member->id, 'plan_id' => $this->plan('510', 'digital')->id, 'branch_id' => $branch->id, 'bond_date' => now(), 'value' => 50000, 'invoice_no' => 'INV-RB1', 'status' => 'active']);
+        $cp = $this->gold('GB');
+        Stock::create(['branch_id' => $branch->id, 'catalog_product_id' => $cp->id, 'quantity' => 100]);
+        $qr = RedeemableQr::create(['bond_id' => $bond->id, 'member_id' => $member->id, 'branch_id' => $branch->id, 'invoice_no' => 'INV-RB1', 'qr_code' => 'QRB1', 'qr_mode' => 'cash', 'cash_worth' => 50000, 'status' => 'pending']);
+        $svc = app(RedemptionService::class);
+        $svc->generateOtp($qr);
+        $invoice = $svc->redeem(['qr_code' => 'QRB1', 'branch_id' => $branch->id, 'otp' => $qr->fresh()->otp,
+            'lines' => [['catalog_product_id' => $cp->id, 'unit_weight' => 1, 'quantity' => 20]]]);
+
+        Role::firstOrCreate(['name' => 'super_admin']);
+        $admin = \App\Models\User::create(['name' => 'HQ', 'email' => 'hq-btn@example.test', 'password' => 'secret123', 'status' => 'active']);
+        $admin->assignRole('super_admin');
+
+        \Livewire\Livewire::actingAs($admin)
+            ->test(\App\Filament\Resources\RedemptionInvoiceResource\Pages\ListRedemptionInvoices::class)
+            ->assertTableActionVisible('restock', $invoice)
+            ->assertTableActionVisible('cancelRedemption', $invoice)
+            ->callTableAction('cancelRedemption', $invoice, data: ['reason' => 'wrong product added'])
+            ->assertDontSee('Raise restock order')
+            ->assertDontSee('Cancel redemption');
+    }
+
     /** A Mode-B redemption can raise a restock order that, once approved, replenishes the branch. */
     public function test_restock_order_from_redemption_replenishes_branch_on_approval(): void
     {

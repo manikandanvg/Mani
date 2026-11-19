@@ -141,7 +141,10 @@ class BoardCorrectionsOct31Test extends TestCase
         Livewire::test(ListBonds::class)
             ->assertCanSeeTableRecords([$active])
             ->assertCanNotSeeTableRecords([$closed]);
+        // User 2026-11-19: Settlements now opens on ALL contracts; "closed / expired" is a filter.
         Livewire::test(ListMemberContracts::class)
+            ->assertCanSeeTableRecords([$expired, $running])
+            ->filterTable('stage', 'closed')
             ->assertCanSeeTableRecords([$expired])
             ->assertCanNotSeeTableRecords([$running])
             ->filterTable('stage', 'active')

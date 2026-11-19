@@ -36,5 +36,8 @@ class RedeemableQr extends Model
 
     public function branch() { return $this->belongsTo(Branch::class); }
 
+    /** The tax invoice(s) this QR was redeemed with (a cancelled one is soft-deleted, so not listed). */
+    public function redemptionInvoices() { return $this->hasMany(RedemptionInvoice::class, 'redeemable_qr_id'); }
+
     public function redeemBranch() { return $this->belongsTo(Branch::class, 'redeem_branch_id'); }
 }

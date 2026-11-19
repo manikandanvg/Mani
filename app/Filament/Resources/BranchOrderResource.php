@@ -90,7 +90,8 @@ class BranchOrderResource extends BaseResource
     /** Own-branch orders plus orders from branches this branch supplies (distributors); everything for HQ. */
     public static function getEloquentQuery(): Builder
     {
-        $query = parent::getEloquentQuery()->with(['branch', 'salesReturn', 'member', 'currentBranch', 'lines', 'approver.branch', 'urnSiblings']);
+        $query = parent::getEloquentQuery()->with(['branch', 'salesReturn', 'member', 'currentBranch', 'lines', 'approver.branch', 'urnSiblings',
+            'redemptionInvoice' => fn ($q) => $q->withTrashed()->with('qr')]);
         $user = auth()->user();
 
         // User 2026-11-15: a request the dealer cancelled is simply gone from Head Office's list.
@@ -121,9 +122,13 @@ class BranchOrderResource extends BaseResource
                 // "Customize order" is called out loudly (board 2026-08-26) so a supplier
                 // dealer can tell bespoke work from a plain stock restock at a glance.
                 Tables\Columns\TextColumn::make('source')->label('Type')->badge()
-                    ->formatStateUsing(fn ($state) => BranchOrderService::sourceLabel($state))
+                    // user 2026-11-19: the restock of a SETTLEMENT QR's redemption is told apart
+                    ->formatStateUsing(fn ($state, BranchOrderRequest $record) => $record->typeLabel())
                     ->icon(fn ($state) => $state === BranchOrderService::SOURCE_CUSTOMIZE ? 'heroicon-m-sparkles' : null)
-                    ->color(fn ($state) => match ($state) {
+                    ->color(fn ($state, BranchOrderRequest $record) => match (true) {
+                        $record->isSettlementRedemption() => 'success',
+                        default => null,
+                    } ?? match ($state) {
                         BranchOrderService::SOURCE_REDEMPTION => 'info',
                         BranchOrderService::SOURCE_CUSTOMIZE => 'warning',
                         default => 'gray',
@@ -217,7 +222,14 @@ class BranchOrderResource extends BaseResource
                         BranchOrderService::SOURCE_ORDER_FORM => 'Order form',
                         BranchOrderService::SOURCE_CUSTOMIZE => 'Customize order',
                         BranchOrderService::SOURCE_REDEMPTION => 'Redemption',
-                    ]),
+                        'settlement_redemption' => 'Settlement Redemption',
+                    ])
+                    ->query(fn (Builder $query, array $data) => match ($data['value'] ?? null) {
+                        null, '' => $query,
+                        'settlement_redemption' => $query->settlementRedemption(),
+                        BranchOrderService::SOURCE_REDEMPTION => $query->where('source', BranchOrderService::SOURCE_REDEMPTION)->settlementRedemption(false),
+                        default => $query->where('source', $data['value']),
+                    }),
             ])
             ->filtersFormColumns(3)
             ->actions([
@@ -369,8 +381,8 @@ class BranchOrderResource extends BaseResource
                 Infolists\Components\TextEntry::make('request_no'),
                 Infolists\Components\TextEntry::make('status')->badge(),
                 Infolists\Components\TextEntry::make('source')->label('Type')->badge()
-                    ->formatStateUsing(fn ($state) => BranchOrderService::sourceLabel($state))
-                    ->color(fn ($state) => match ($state) {
+                    ->formatStateUsing(fn ($state, BranchOrderRequest $record) => $record->typeLabel())
+                    ->color(fn ($state, BranchOrderRequest $record) => $record->isSettlementRedemption() ? 'success' : match ($state) {
                         BranchOrderService::SOURCE_REDEMPTION => 'info',
                         BranchOrderService::SOURCE_CUSTOMIZE => 'warning',
                         default => 'gray',
