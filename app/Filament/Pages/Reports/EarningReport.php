@@ -92,11 +92,25 @@ class EarningReport extends ReportPage
         if (empty($d['type']) || in_array($d['type'], ['BILL_MARGIN', 'RESELLER'], true)) {
             $rc = ResellerCommission::whereDate('bill_date', '>=', $from)->whereDate('bill_date', '<=', $to)
                 ->when($branch, fn ($q) => $q->where('branch_id', $branch))
-                ->select('status', DB::raw('COUNT(*) c'), DB::raw('SUM(com_value) total'))
-                ->groupBy('status')->get();
-            $this->sections[] = ['heading' => __('Bill margin (reseller commissions)'),
-                'columns' => [__('Status'), __('Entries'), __('Total')],
-                'rows' => $rc->map(fn ($s) => [ucfirst((string) $s->status), (string) $s->c, $this->money($s->total)])->all()];
+                // the stream filter: Billing Margin = that margin only; Dealer Margins = the other four
+                ->when(($d['type'] ?? null) === 'BILL_MARGIN', fn ($q) => $q->where('com_type_id', ResellerCommission::COM_BILL_MARGIN))
+                ->when(($d['type'] ?? null) === 'RESELLER', fn ($q) => $q->where('com_type_id', '!=', ResellerCommission::COM_BILL_MARGIN))
+                ->select('com_type_id', 'status', DB::raw('COUNT(*) c'), DB::raw('SUM(com_value) total'))
+                ->groupBy('com_type_id', 'status')->orderBy('com_type_id')->orderBy('status')->get();
+            // One line per MARGIN and status (user 2026-11-20: a dealer read 57 unpaid Gold Saving
+            // renewal margins as "Bill margin — passed", while Billing Margin had nothing pending).
+            $margins = [
+                ResellerCommission::COM_BILL_MARGIN => 'Billing Margin', ResellerCommission::COM_GOLD_MARGIN => 'Gold Margin',
+                ResellerCommission::COM_SILVER_MARGIN => 'Silver Margin', ResellerCommission::COM_STOCK_TRANSFER_MARGIN => 'Stock Transfer Margin',
+                ResellerCommission::COM_RD_RENEWAL_MARGIN => 'Gold Saving Renewal Margin',
+            ];
+            $this->sections[] = ['heading' => __('Dealer margins'),
+                'columns' => [__('Margin'), __('Status'), __('Entries'), __('Total')],
+                'rows' => $rc->map(fn ($s) => [
+                    __($margins[(int) $s->com_type_id] ?? 'Margin'),
+                    $s->status === 'paid' ? __('Paid') : __('Pending approval'),
+                    (string) $s->c, $this->money($s->total),
+                ])->all()];
         }
 
         $rows = $base()->with('member')->latest('earned_on')->limit(300)->get();
