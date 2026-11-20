@@ -37,6 +37,15 @@ class RedeemableQrService
             return $existing;
         }
 
+        // A bill of the OLD system never gets a billing QR here (user 2026-11-20). Its QR was
+        // issued there: still pending → staged as a legacy QR (legacy:stage-pending-qrs);
+        // already redeemed there → nothing is owed. "Show QR" on such a bill used to mint a
+        // fresh pending QR, so a QR redeemed in the old system could be redeemed again.
+        if ($bond->isFromOldSystem()) {
+            return RedeemableQr::where('invoice_no', $bond->invoice_no)->where('member_id', $bond->member_id)
+                ->where('source', RedeemableQr::SOURCE_LEGACY)->first();
+        }
+
         $plan = $bond->loadMissing('plan')->plan;
 
         // G11 PLUS2-style plans mint their ONE QR at the first renewal (RdCollectionService).

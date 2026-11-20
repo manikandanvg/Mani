@@ -210,6 +210,7 @@ class BondResource extends BaseResource
 
                         return view('filament.redeemable-qr-list', [
                             'qrs' => $qrs,
+                            'oldSystem' => $record->isFromOldSystem(),
                             'redeemNote' => $branchLocked
                                 ? 'Redeemable ONLY at the billing branch — ' . ($record->branch?->name ?? 'the issuing branch')
                                     . '. An OTP to the registered mobile is required to complete redemption.'

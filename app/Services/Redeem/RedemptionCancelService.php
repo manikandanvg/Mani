@@ -33,7 +33,8 @@ class RedemptionCancelService
         if ($invoice->trashed()) {
             return 'this redemption is already cancelled.';
         }
-        if (! $invoice->redeemable_qr_id || ! $invoice->qr) {
+        // an old-system redemption is final: cancelling it would make its QR redeemable again
+        if ($invoice->legacy_restock !== null || ! $invoice->redeemable_qr_id || ! $invoice->qr) {
             return 'it was carried over from the old system (no QR on record here) — nothing to undo in this system.';
         }
         $order = $invoice->restockOrder;
@@ -50,9 +51,14 @@ class RedemptionCancelService
         return null;
     }
 
-    public function cancel(RedemptionInvoice $invoice, ?int $userId, ?string $reason): void
+    /**
+     * $reopenQr = false: the redemption is removed as a DUPLICATE (its QR had been redeemed
+     * before — user 2026-11-20): everything is put back the same way, but the QR is CANCELLED
+     * instead of live again, and the member is not told that it can be redeemed.
+     */
+    public function cancel(RedemptionInvoice $invoice, ?int $userId, ?string $reason, bool $reopenQr = true): void
     {
-        DB::transaction(function () use ($invoice, $userId, $reason) {
+        DB::transaction(function () use ($invoice, $userId, $reason, $reopenQr) {
             $invoice = RedemptionInvoice::lockForUpdate()->findOrFail($invoice->id);
             abort_if(($why = $this->blocker($invoice)) !== null, 422, 'Cannot cancel: ' . $why);
 
@@ -91,20 +97,20 @@ class RedemptionCancelService
             }
 
             // --- the QR is live again ---
-            $invoice->qr->update(['status' => 'pending', 'redeem_branch_id' => null, 'redeemed_at' => null, 'otp' => null, 'otp_sent_at' => null]);
+            $invoice->qr->update(['status' => $reopenQr ? 'pending' : 'cancelled', 'redeem_branch_id' => null, 'redeemed_at' => null, 'otp' => null, 'otp_sent_at' => null]);
 
             // --- the invoice stays on record, cancelled ---
             $invoice->forceFill(['cancelled_by' => $userId, 'cancel_reason' => $reason])->save();
             $invoice->delete();   // soft delete = CANCELLED
 
             \App\Services\Activity\ActivityLogger::log('redemption', 'cancelled',
-                'Redemption ' . $invoice->invoice_no . ' CANCELLED' . ($reason ? ' — ' . $reason : '') . '; QR live again, stock returned', [
+                'Redemption ' . $invoice->invoice_no . ' CANCELLED' . ($reason ? ' — ' . $reason : '') . '; QR ' . ($reopenQr ? 'live again' : 'cancelled (redeemed before)') . ', stock returned', [
                     'subject' => $invoice,
                     'details' => ['grand_total' => (float) $invoice->grand_total, 'qr' => $invoice->qr->qr_code, 'pieces_returned' => -1 * (float) $moved->sum('qty_change')],
                 ]);
         });
 
-        if (! app()->runningUnitTests()) {
+        if ($reopenQr && ! app()->runningUnitTests()) {
             \App\Services\Push\Notifier::to($invoice->member, 'redeem',
                 'Redemption cancelled — ' . $invoice->invoice_no,
                 'The redemption made at ' . ($invoice->branch?->name ?? 'the branch') . ' was cancelled. Your QR is active again and can be redeemed.',

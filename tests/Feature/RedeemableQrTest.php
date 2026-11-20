@@ -45,6 +45,81 @@ class RedeemableQrTest extends TestCase
         $this->assertSame("\x89PNG", substr($png, 0, 4)); // PNG magic bytes
     }
 
+    /** User 2026-11-20: a bill of the old system never gets a billing QR minted here. */
+    public function test_old_system_bill_never_gets_a_new_billing_qr(): void
+    {
+        Storage::fake('public');
+        $bond = $this->makeBond();
+        $bond->update(['bond_date' => '2026-10-15', 'invoice_no' => '23442']);
+        $svc = app(RedeemableQrService::class);
+
+        // its QR was redeemed in the old system → no row here, and none may be minted
+        $this->assertNull($svc->forBond($bond->fresh(), 7000.0));
+        $this->assertSame(0, RedeemableQr::count());
+
+        // its QR is still pending in the old system → the staged legacy QR is the one shown
+        $staged = RedeemableQr::create([
+            'member_id' => $bond->member_id, 'invoice_no' => '23442', 'qr_code' => 'OLDQR001', 'qr_mode' => 'gold',
+            'source' => RedeemableQr::SOURCE_LEGACY, 'cash_worth' => 50000, 'status' => 'pending',
+        ]);
+        $this->assertSame($staged->id, $svc->forBond($bond->fresh(), 7000.0)->id);
+        $this->assertSame(1, RedeemableQr::count());
+    }
+
+    /** User 2026-11-20: QR verification checks whether the QR — or its old-system bill — was redeemed before. */
+    public function test_qr_verification_refuses_a_qr_redeemed_before(): void
+    {
+        $bond = $this->makeBond();
+        $bond->update(['bond_date' => '2026-10-15', 'invoice_no' => '23442']);
+        $mk = fn (string $code, ?string $kind, string $status = 'pending') => RedeemableQr::create([
+            'bond_id' => $bond->id, 'member_id' => $bond->member_id, 'invoice_no' => '23442', 'qr_code' => $code,
+            'qr_mode' => 'gold', 'kind' => $kind, 'cash_worth' => 50000, 'status' => $status,
+        ]);
+        $billing = $mk('REMINT01', 'billing');
+        $renewal = $mk('RENEW001', 'renewal');
+        $svc = app(\App\Services\Redeem\RedemptionService::class);
+
+        // nothing on record against the bill yet → clean
+        $this->assertNull($svc->redeemedBefore($billing));
+
+        // the old system redeemed the bill (imported redemption invoice)
+        \App\Models\RedemptionInvoice::create([
+            'invoice_no' => '4598', 'invoice_date' => '2026-10-20', 'bond_id' => $bond->id, 'reference_no' => '23442',
+            'member_id' => $bond->member_id, 'branch_id' => $bond->branch_id, 'payment_mode' => 'passed',
+            'legacy_restock' => 'ordered', 'taxable_total' => 48543.69, 'tax_total' => 1456.31, 'grand_total' => 50000,
+        ]);
+        $this->assertStringContainsString('already redeemed in the old system', (string) $svc->redeemedBefore($billing));
+        $this->assertNull($svc->redeemedBefore($renewal));   // a renewal QR is this system's own entitlement
+
+        // a QR already redeemed / cancelled here says so, instead of "invalid QR"
+        $this->assertStringContainsString('already redeemed', (string) $svc->redeemedBefore($mk('DONE0001', 'renewal', 'redeemed')));
+        $this->assertStringContainsString('cancelled', (string) $svc->redeemedBefore($mk('VOID0001', 'renewal', 'cancelled')));
+
+        try {
+            $svc->lookup('REMINT01');
+            $this->fail('a billing QR of a bill redeemed in the old system must not verify');
+        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
+            $this->assertStringContainsString('already redeemed in the old system', $e->getMessage());
+        }
+    }
+
+    public function test_an_old_system_redemption_cannot_be_cancelled(): void
+    {
+        $bond = $this->makeBond();
+        $qr = RedeemableQr::create([
+            'bond_id' => $bond->id, 'member_id' => $bond->member_id, 'invoice_no' => $bond->invoice_no,
+            'qr_code' => 'OLDQR002', 'qr_mode' => 'gold', 'cash_worth' => 50000, 'status' => 'redeemed',
+        ]);
+        $invoice = \App\Models\RedemptionInvoice::create([
+            'invoice_no' => '4598', 'invoice_date' => '2026-10-20', 'redeemable_qr_id' => $qr->id, 'bond_id' => $bond->id,
+            'member_id' => $bond->member_id, 'branch_id' => $bond->branch_id, 'payment_mode' => 'passed',
+            'legacy_restock' => 'ordered', 'taxable_total' => 48543.69, 'tax_total' => 1456.31, 'grand_total' => 50000,
+        ]);
+
+        $this->assertStringContainsString('old system',
+            (string) app(\App\Services\Redeem\RedemptionCancelService::class)->blocker($invoice));
+    }
+
     public function test_for_bond_is_idempotent_and_computes_worth(): void
     {
         Storage::fake('public');

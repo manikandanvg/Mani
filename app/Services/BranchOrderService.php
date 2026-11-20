@@ -125,6 +125,7 @@ class BranchOrderService
             $existing = BranchOrderRequest::where('redemption_invoice_id', $invoice->id)
                 ->orWhere(fn ($q) => $q->where('source', self::SOURCE_REDEMPTION)->where('source_ref', $invoice->id))->first();
             abort_if($existing !== null, 422, 'A restock order (' . $existing?->request_no . ') was already raised for this redemption.');
+            $this->assertNotRedeemedBefore($invoice);
 
             [$priced, $cross, $gst] = $this->priceRedemptionLines($invoice);
             abort_if(empty($priced), 422, 'This redemption has no stock items to restock.');
@@ -694,6 +695,10 @@ class BranchOrderService
                 'Customized orders are forwarded up the chain and accepted by Head Office — use Forward / Accept.');
             $approverId = $approverId ?? auth()->id();
             $this->assertMayDecide($request, $approverId);
+            // Restock of a redemption: the QR data is verified before the approval (user 2026-11-20).
+            if ($request->source === self::SOURCE_REDEMPTION && ($redemption = $request->redemptionInvoice)) {
+                $this->assertNotRedeemedBefore($redemption);
+            }
 
             $buyerId = $request->branch_id;
             // The fulfilling branch (one hop up) — only a supplier the board matrix allows.
@@ -773,6 +778,18 @@ class BranchOrderService
                     . '. The stock has been added to your branch.',
             route: '/stock-orders/' . $request->id,
         );
+    }
+
+    /**
+     * No stock is claimed for a QR that was redeemed before (user 2026-11-20): the restock order
+     * of a redemption is neither raised nor approved when its QR — or the old-system bill behind
+     * it — already carries an earlier redemption. Reject the order instead.
+     */
+    protected function assertNotRedeemedBefore(RedemptionInvoice $invoice): void
+    {
+        $qr = $invoice->legacy_restock === null ? $invoice->qr : null;   // an old-system redemption is the original
+        $why = $qr ? app(\App\Services\Redeem\RedemptionService::class)->redeemedBefore($qr, $invoice) : null;
+        abort_if($why !== null, 422, 'Redemption ' . $invoice->invoice_no . ' is a duplicate — no stock can be claimed for it. ' . $why);
     }
 
     /** Hard gate behind the Approve / Reject buttons (complaint 2026-11-11). */

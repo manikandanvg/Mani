@@ -3,7 +3,11 @@
 <div style="max-height:70vh;overflow-y:auto;">
     @if ($qrs->isEmpty())
         <p style="text-align:center;padding:2rem 1rem;color:#6b7280;">
-            No QR minted yet — this plan issues its single gold QR at the <strong>first renewal</strong>.
+            @if ($oldSystem ?? false)
+                No QR to show — this bill is from the <strong>old system</strong> and its QR was already redeemed there.
+            @else
+                No QR minted yet — this plan issues its single gold QR at the <strong>first renewal</strong>.
+            @endif
         </p>
     @endif
 

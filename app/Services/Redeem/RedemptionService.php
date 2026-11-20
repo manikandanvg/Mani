@@ -63,8 +63,11 @@ class RedemptionService
      */
     public function lookup(string $qrCode, ?int $currentBranchId = null): array
     {
-        $qr = RedeemableQr::where('qr_code', $qrCode)->where('status', 'pending')->first();
-        abort_unless($qr, 422, 'Invalid QR code or already redeemed.');
+        $qr = RedeemableQr::where('qr_code', $qrCode)->first();
+        abort_unless($qr, 422, 'Invalid QR code.');
+        // QR verification (user 2026-11-20): is it — or the bill behind it — already redeemed?
+        abort_if(($why = $this->redeemedBefore($qr)) !== null, 422, (string) $why);
+        abort_unless($qr->status === 'pending', 422, 'This QR is ' . $qr->status . ' — it cannot be redeemed.');
 
         $bond = $qr->bond()->with('plan')->first();
         $plan = $bond?->plan;
@@ -99,6 +102,50 @@ class RedemptionService
             'priced_on' => $qr->priced_on,
             'cart' => $modeA ? $this->cartFromSale($bond) : [],
         ];
+    }
+
+    /**
+     * "Was this QR already redeemed?" — the ONE check behind QR verification, the redemption
+     * itself and the approval of its restock order (user 2026-11-20). Returns why, or null when
+     * the QR is clean. $except = the redemption invoice being verified (approval side).
+     *
+     *  1. the QR is marked redeemed / cancelled;
+     *  2. a redemption invoice already stands against the QR in this system;
+     *  3. it is a billing QR minted here for a bill of the OLD system, and the old system has a
+     *     redemption invoice for that bill — its QR was redeemed there. (A staged legacy QR was
+     *     still pending there; renewal and settlement QRs are entitlements of this system.)
+     */
+    public function redeemedBefore(RedeemableQr $qr, ?RedemptionInvoice $except = null): ?string
+    {
+        $say = fn (?RedemptionInvoice $inv, string $where) => 'This QR was already redeemed' . $where
+            . ($inv ? ' — invoice ' . $inv->invoice_no . ' of ' . Carbon::parse($inv->invoice_date)->format('d M Y')
+                . ($inv->branch?->name ? ' at ' . $inv->branch->name : '') : '') . '.';
+
+        $own = RedemptionInvoice::where('redeemable_qr_id', $qr->id)->whereNull('legacy_restock')
+            ->when($except, fn ($q) => $q->whereKeyNot($except->id))->orderBy('id')->first();
+        if ($own) {
+            return $say($own, '');
+        }
+        if (! $except && $qr->status === 'redeemed') {
+            return 'This QR was already redeemed' . ($qr->redeemed_at ? ' on ' . $qr->redeemed_at->format('d M Y') : '')
+                . ($qr->redeemBranch?->name ? ' at ' . $qr->redeemBranch->name : '') . '.';
+        }
+        if ($qr->status === 'cancelled') {
+            return 'This QR is cancelled — it can no longer be redeemed.';
+        }
+
+        $billing = $qr->source !== RedeemableQr::SOURCE_LEGACY && in_array($qr->kind, [null, 'billing'], true);
+        $bond = $billing ? $qr->bond : null;
+        if ($bond && $bond->isFromOldSystem()) {
+            $old = RedemptionInvoice::whereNotNull('legacy_restock')
+                ->where(fn ($q) => $q->where('bond_id', $bond->id)->orWhere('reference_no', (string) $bond->invoice_no))
+                ->orderBy('id')->first();
+            if ($old) {
+                return $say($old, ' in the old system');
+            }
+        }
+
+        return null;
     }
 
     /** Mode A cart = the metal lines from the original sale (by invoice_no). */

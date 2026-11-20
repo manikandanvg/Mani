@@ -32,6 +32,22 @@ class Bond extends Model
         return $this->bond_date->copy()->addMonthsNoOverflow(max(1, $months));
     }
 
+    /** First day billed in this system; every bond dated before it came over from the old one. */
+    public const NEW_SYSTEM_FROM = '2026-11-01';
+
+    /**
+     * Billed in the OLD system (carried over by the roll-out): dated before the cut-over and
+     * numbered the old way (this system numbers its bills "INV-…"). The old system already
+     * issued — and may have redeemed — such a bill's QR, so no billing QR is ever minted for it
+     * here (user 2026-11-20).
+     */
+    public function isFromOldSystem(): bool
+    {
+        return $this->bond_date
+            && $this->bond_date->toDateString() < self::NEW_SYSTEM_FROM
+            && ! str_starts_with((string) $this->invoice_no, 'INV-');
+    }
+
     public function member() { return $this->belongsTo(Member::class); }
     public function plan() { return $this->belongsTo(Plan::class); }
 
