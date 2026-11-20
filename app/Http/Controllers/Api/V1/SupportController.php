@@ -37,7 +37,13 @@ class SupportController extends Controller
             'body' => ['required', 'string', 'max:4000'],
         ]);
 
-        $message = $this->support->userMessage(null, $request->user(), $data['body'], $data['subject'] ?? null);
+        // One open chat per person (user 2026-11-20): while a chat is still open, a "new" one is
+        // added to it — the desk used to get the same complaint as 3–5 separate chats.
+        $open = $this->support->openThreadOf($request->user());
+        $subject = trim((string) ($data['subject'] ?? ''));
+        $body = $open && $subject !== '' && ! str_starts_with($data['body'], $subject) ? $subject . "\n" . $data['body'] : $data['body'];
+
+        $message = $this->support->userMessage($open, $request->user(), $body, $subject ?: null);
 
         return response()->json(['data' => $this->presentThread($message->thread)], 201);
     }

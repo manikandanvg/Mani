@@ -146,6 +146,93 @@ class SupportService
             ?? Customer::whereIn('phone', $candidates)->first();
     }
 
+    /** The chat a new message of this person belongs in: their latest OPEN one, if any. */
+    public function openThreadOf(Model $owner): ?SupportThread
+    {
+        return SupportThread::where('owner_type', $owner->getMorphClass())->where('owner_id', $owner->getKey())
+            ->where('status', 'open')->latest('last_message_at')->latest('id')->first();
+    }
+
+    /**
+     * Owners (one person = one name + phone) holding more than one OPEN chat, with those chats
+     * oldest first. User 2026-11-20: unanswered for a week, people raised the same thing again and
+     * again, each time as a new chat.
+     *
+     * @return \Illuminate\Support\Collection<int, \Illuminate\Support\Collection<int, SupportThread>>
+     */
+    public function duplicateGroups(): \Illuminate\Support\Collection
+    {
+        return SupportThread::where('status', 'open')->orderBy('id')->get()
+            ->groupBy(fn (SupportThread $t) => $t->owner_type . '#' . $t->owner_id)
+            ->filter(fn ($g) => $g->count() > 1)->values();
+    }
+
+    /**
+     * Fold a person's open chats into ONE: every message moves into their first chat (message ids
+     * are global, so the transcript reads in the order things were written), the other chats are
+     * removed and their inbox notifications point at the chat that is kept. Nothing is sent.
+     *
+     * @param  \Illuminate\Support\Collection<int, SupportThread>  $threads  the same owner's chats
+     * @return int chats removed
+     */
+    public function mergeThreads(\Illuminate\Support\Collection $threads): int
+    {
+        $threads = $threads->sortBy('id')->values();
+        $keep = $threads->first();
+        $rest = $threads->slice(1)->filter(fn (SupportThread $t) => $t->owner_type === $keep->owner_type && (int) $t->owner_id === (int) $keep->owner_id);
+        if ($rest->isEmpty()) {
+            return 0;
+        }
+
+        return \Illuminate\Support\Facades\DB::transaction(function () use ($keep, $rest) {
+            $ids = $rest->pluck('id')->all();
+            SupportMessage::whereIn('thread_id', $ids)->update(['thread_id' => $keep->id]);
+
+            $all = $rest->push($keep);
+            $subjects = $all->sortBy('id')->pluck('subject')->filter()->unique()->values();
+            $keep->forceFill([
+                'status' => 'open',
+                'subject' => Str::limit($subjects->implode(' | '), 250, '…'),
+                'topic' => $keep->topic ?: $all->pluck('topic')->filter()->first(),
+                'needs_staff' => $all->contains(fn (SupportThread $t) => (bool) $t->needs_staff),
+                'last_message_at' => $all->max('last_message_at'),
+                'owner_last_read_at' => $all->max('owner_last_read_at'),
+                'support_last_read_at' => $all->max('support_last_read_at'),
+            ])->save();
+
+            // "Support replied" rows in the app inbox open /support/{id} — keep them working
+            \Illuminate\Support\Facades\DB::table('notifications')
+                ->where('notifiable_type', $keep->owner_type)->where('notifiable_id', $keep->owner_id)
+                ->where('data', 'like', '%thread_id%')->orderBy('created_at')->get(['id', 'data'])
+                ->each(function ($n) use ($ids, $keep) {
+                    $data = json_decode((string) $n->data, true);
+                    if (in_array((int) ($data['data']['thread_id'] ?? 0), $ids, true)) {
+                        $data['data']['thread_id'] = $keep->id;
+                        $data['route'] = "/support/{$keep->id}";
+                        \Illuminate\Support\Facades\DB::table('notifications')->where('id', $n->id)->update(['data' => json_encode($data)]);
+                    }
+                });
+
+            SupportThread::whereIn('id', $ids)->delete();
+
+            return count($ids);
+        });
+    }
+
+    /** Merge every person's duplicate open chats. @return array{people:int, removed:int} */
+    public function mergeAllDuplicates(): array
+    {
+        $groups = $this->duplicateGroups();
+        $removed = $groups->sum(fn ($g) => $this->mergeThreads($g));
+        if ($removed) {
+            \App\Services\Activity\ActivityLogger::log('support', 'support_chats_merged',
+                "{$removed} duplicate support chat(s) of {$groups->count()} people merged into one chat each",
+                ['details' => ['people' => $groups->count(), 'removed' => $removed]]);
+        }
+
+        return ['people' => $groups->count(), 'removed' => $removed];
+    }
+
     public function markOwnerRead(SupportThread $thread): void
     {
         $thread->forceFill(['owner_last_read_at' => now()])->save();

@@ -81,6 +81,42 @@ class SupportChatListTest extends TestCase
             ->assertCanNotSeeTableRecords([$b]);
     }
 
+    /** User 2026-11-20: one customer's repeated open chats become one chat, messages in written order. */
+    public function test_duplicate_open_chats_of_one_customer_are_merged(): void
+    {
+        $svc = app(SupportService::class);
+        $a = $this->thread('LJW0099001', 'Wallet balance is missing');
+        $member = $a->owner;
+        $svc->supportReply($a, 'We are checking.', null);                    // answered → not waiting for us
+        $b = $svc->userMessage(null, $member, 'Wallet still missing, please reply')->thread;
+        $old = $svc->userMessage(null, $member, 'Old closed matter')->thread;
+        $old->update(['status' => 'closed']);
+        $other = $this->thread('LJW0099002', 'Withdrawal is pending');
+        $svc->supportReply($b, 'Noted.', null);
+        $b->forceFill(['needs_staff' => true])->save();
+        $this->assertSame("/support/{$b->id}", $member->notifications()->latest('created_at')->get()->firstWhere('data.data.thread_id', $b->id)->data['route']);
+
+        Livewire::test(ListSupportThreads::class)->callAction('merge_duplicates');
+
+        $this->assertNull(SupportThread::find($b->id));
+        $a = $a->fresh();
+        $this->assertSame(['Wallet balance is missing', 'We are checking.', 'Wallet still missing, please reply', 'Noted.'],
+            $a->messages()->orderBy('id')->pluck('body')->all());
+        $this->assertSame('Wallet balance is missing | Wallet still missing, please reply', $a->subject);
+        $this->assertTrue($a->needs_staff);
+        $this->assertSame('closed', $old->fresh()->status);                   // closed chats and other people are left alone
+        $this->assertSame(1, $other->fresh()->messages()->count());
+        $this->assertSame(0, $member->notifications()->get()->filter(fn ($n) => ($n->data['data']['thread_id'] ?? 0) === $b->id)->count());
+        $this->assertSame(2, $member->notifications()->get()->filter(fn ($n) => $n->data['route'] === "/support/{$a->id}")->count());
+
+        // and a "new" chat from the app while one is open lands in that chat
+        \Laravel\Sanctum\Sanctum::actingAs($member, ['*']);
+        $this->postJson('/api/v1/support/threads', ['subject' => 'Again', 'body' => 'Any update?'])
+            ->assertCreated()->assertJsonPath('data.id', $a->id);
+        $this->assertSame("Again\nAny update?", $a->messages()->latest('id')->value('body'));
+        $this->artisan('support:merge-duplicates')->expectsOutputToContain('0 customer(s)')->assertSuccessful();
+    }
+
     public function test_a_thank_you_does_not_bring_a_closed_chat_back(): void
     {
         config(['support_replies.bot.auto_reply' => true]);
