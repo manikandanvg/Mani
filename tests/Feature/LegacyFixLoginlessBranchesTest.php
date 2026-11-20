@@ -95,4 +95,56 @@ class LegacyFixLoginlessBranchesTest extends TestCase
         $this->artisan('legacy:fix-loginless-branches')->expectsOutputToContain('created 0 login(s)')->expectsOutputToContain('deactivated 0 empty')->assertSuccessful();
         $this->assertSame(2, User::where('member_code', 'LJW24999')->count(), 'still exactly two logins for the code');
     }
+
+    /** User 2026-11-20: no second login / new e-mail — the login-less branch is merged into the login's branch. */
+    public function test_second_branch_is_merged_into_the_login_branch(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+        app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+        config(['database.connections.legacy' => ['driver' => 'sqlite', 'database' => ':memory:', 'prefix' => '', 'foreign_key_constraints' => false]]);
+        DB::purge('legacy');
+        Schema::connection('legacy')->create('ci_users', function (Blueprint $t) {
+            $t->integer('id'); $t->string('username'); $t->string('firstname')->nullable(); $t->string('lastname')->nullable();
+            $t->integer('role')->default(5); $t->string('brid')->default(''); $t->integer('is_admin')->default(0); $t->string('mapid')->default(''); $t->string('mobile_no')->nullable();
+        });
+        foreach ([['id' => 428, 'username' => 'PRIYANKA', 'brid' => '416', 'mapid' => 'LJW24777', 'mobile_no' => '9442900000'], ['id' => 531, 'username' => 'PRIYANKA', 'brid' => '523', 'mapid' => 'LJW24777', 'mobile_no' => '9442900000']] as $row) {
+            DB::connection('legacy')->table('ci_users')->insert($row);
+        }
+
+        Branch::create(['name' => 'LORD JEWELLER', 'city' => 'Sivakasi', 'country' => 'IN', 'level' => 'hq', 'legacy_brid' => 1, 'is_active' => true]);
+        // $login = the superior position (Wholesaler) that must survive; the login sits on the Area Distributor branch
+        $login = Branch::create(['name' => 'LORD JEWELLER', 'city' => 'A', 'country' => 'IN', 'level' => 'wholesaler', 'legacy_brid' => 416, 'is_active' => true, 'bill_margin' => 900]);
+        $second = Branch::create(['name' => 'LORD JEWELLER', 'city' => 'B', 'country' => 'IN', 'level' => 'area_dealer', 'legacy_brid' => 523, 'is_active' => true, 'bill_margin' => 27715]);
+        $twin = Branch::create(['name' => 'LORD JEWELLER', 'city' => 'B', 'country' => 'IN', 'level' => 'area_dealer', 'legacy_brid' => 542, 'is_active' => true, 'phone' => '9442900000', 'incharge' => 'PRIYANKA / LJW24777']);
+        $user = User::create(['name' => 'PRIYANKA', 'email' => 'priyanka@dealer.lordicl.local', 'phone' => '9442900000', 'password' => 'x', 'status' => 'active', 'branch_id' => $second->id, 'member_code' => 'LJW24777']);
+        $user->assignRole('distributor');
+        $member = Member::create(['member_code' => 'LJW24001', 'name' => 'Someone', 'phone' => '9000000009', 'joined_on' => now(), 'placement' => 'level', 'status' => 'active', 'rank_id' => Rank::where('depth', 0)->value('id'), 'branch_id' => $second->id]);
+        $product = \App\Models\CatalogProduct::create(['code' => 'MG1', 'name' => ['en' => '1 g Gold'], 'material' => 'gold', 'is_active' => true])->id;
+        \App\Models\Stock::create(['branch_id' => $login->id, 'catalog_product_id' => $product, 'quantity' => 17]);
+        \App\Models\Stock::create(['branch_id' => $second->id, 'catalog_product_id' => $product, 'quantity' => 3]);
+        // one unpaid margin row of the second branch: the only margin that may show after the merge
+        \App\Models\ResellerCommission::create(['branch_id' => $second->id, 'com_type_id' => \App\Models\ResellerCommission::COM_RD_RENEWAL_MARGIN,
+            'invoice_no' => 'INV-1', 'bill_date' => '2026-11-10', 'com_value' => 250, 'status' => 'passed', 'source' => 'new']);
+
+        // dry run writes nothing
+        $this->artisan('legacy:merge-second-branches')->expectsOutputToContain('1 branch(es) would be merged')->assertSuccessful();
+        $this->assertTrue($second->fresh()->is_active);
+        $this->assertSame($second->id, $member->fresh()->branch_id);
+
+        $this->artisan('legacy:merge-second-branches', ['--apply' => true])->expectsOutputToContain('1 branch(es) merged')->assertSuccessful();
+
+        $this->assertEquals(20, (float) \App\Models\Stock::where('branch_id', $login->id)->where('catalog_product_id', $product)->value('quantity'));
+        $this->assertEquals(0, (float) \App\Models\Stock::where('branch_id', $second->id)->sum('quantity'));
+        $this->assertSame($login->id, $member->fresh()->branch_id);
+        $this->assertTrue(Branch::withTrashed()->find($second->id)->trashed(), 'the lower position is deleted');
+        $this->assertTrue(Branch::withTrashed()->find($twin->id)->trashed(), 'the empty placeholder of the same person goes too');
+        $this->assertSame($login->id, $user->fresh()->branch_id, 'the login follows to the superior branch');
+        $this->assertEquals(250, (float) $login->fresh()->bill_margin, 'old balances dropped: pending margin only');
+        $this->assertEquals(0, (float) Branch::withTrashed()->find($second->id)->bill_margin);
+        $this->assertSame('priyanka@dealer.lordicl.local', $user->fresh()->email);
+        $this->assertSame(1, User::where('member_code', 'LJW24777')->count(), 'no second login');
+
+        // idempotent, and the login-fix command no longer wants a login for the merged branch
+        $this->artisan('legacy:merge-second-branches', ['--apply' => true])->expectsOutputToContain('0 branch(es) merged')->assertSuccessful();
+    }
 }

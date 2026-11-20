@@ -42,7 +42,8 @@ class LegacyFixLoginlessBranches extends Command
         $legacy = DB::connection('legacy');
 
         $hqId = (int) (Branch::where('legacy_brid', 1)->value('id') ?: 1);
-        $byBrid = Branch::withTrashed()->whereNotNull('legacy_brid')->pluck('id', 'legacy_brid')->map(fn ($v) => (int) $v)->all();
+        // active branches only: one merged into the dealer's other branch (legacy:merge-second-branches) needs no login
+        $byBrid = Branch::whereNotNull('legacy_brid')->where('is_active', true)->pluck('id', 'legacy_brid')->map(fn ($v) => (int) $v)->all();
         $loginBranches = User::query()->whereNotNull('branch_id')->distinct()->pluck('branch_id')->map(fn ($v) => (int) $v)->flip()->all();
         $taken = User::withTrashed()->pluck('id', 'email')->all();
 
@@ -59,7 +60,13 @@ class LegacyFixLoginlessBranches extends Command
             $name = Str::limit(trim($u->firstname . ' ' . $u->lastname) ?: $u->username, 200, '');
             $email = Str::lower(trim((string) $u->email));
             if (! filter_var($email, FILTER_VALIDATE_EMAIL) || isset($taken[$email])) {
-                $email = Str::slug($u->username ?: ('dealer' . $u->id), '.') . '.' . $u->id . '@dealer.lordicl.local';
+                $slug = Str::slug($u->username ?: ('dealer' . $u->id), '.') . '.' . $u->id;
+                $email = $slug . '@dealer.lordicl.local';
+                // the roll-out may have given this very address to the person's OTHER login
+                // (live 2026-11-20: "Duplicate entry sivakumar.b.254@…") → mark it with the brid
+                for ($n = 0; isset($taken[$email]); $n++) {
+                    $email = $slug . '.b' . (int) $u->brid . ($n ? '.' . $n : '') . '@dealer.lordicl.local';
+                }
             }
             $active = (int) $u->is_active === 1;
             $other = $code ? User::withTrashed()->where('member_code', $code)->orderBy('id')->first() : null;
