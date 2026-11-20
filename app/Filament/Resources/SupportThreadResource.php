@@ -43,7 +43,8 @@ class SupportThreadResource extends BaseResource
                 Tables\Columns\TextColumn::make('owner_label')
                     ->label('From')
                     ->state(fn (SupportThread $r) => static::ownerLabel($r))
-                    ->searchable(false),
+                    // User 2026-11-20: find a chat by the person's name, phone number or distributor ID
+                    ->searchable(query: fn (\Illuminate\Database\Eloquent\Builder $query, string $search) => static::searchOwner($query, $search)),
                 // Triage (2026-11-18): what the chat is about, worked out from the user's own words
                 Tables\Columns\TextColumn::make('topic')->badge()->color('info')->sortable()
                     ->formatStateUsing(fn (?string $state) => \Illuminate\Support\Str::before(\App\Services\Support\SupportBot::options()[$state] ?? '—', ' /')),
@@ -155,6 +156,26 @@ class SupportThreadResource extends BaseResource
                     ->deselectRecordsAfterCompletion()
                     ->action(fn (\Illuminate\Support\Collection $records) => $records->each->update(['status' => 'closed'])),
             ]);
+    }
+
+    /** Chats whose owner (Distributor or Customer) matches every word typed: name, phone or distributor ID. */
+    public static function searchOwner(\Illuminate\Database\Eloquent\Builder $query, string $search): \Illuminate\Database\Eloquent\Builder
+    {
+        $words = preg_split('/\s+/', trim($search), -1, PREG_SPLIT_NO_EMPTY);
+        $ids = function (string $model, array $cols) use ($words) {
+            $q = $model::query()->select('id');
+            foreach ($words as $word) {
+                $q->where(fn ($w) => collect($cols)->each(fn ($c) => $w->orWhere($c, 'like', '%' . $word . '%')));
+            }
+
+            return $q;
+        };
+
+        return $query->where(fn ($q) => $q
+            ->where(fn ($m) => $m->where('owner_type', (new \App\Models\Member)->getMorphClass())
+                ->whereIn('owner_id', $ids(\App\Models\Member::class, ['name', 'phone', 'member_code'])))
+            ->orWhere(fn ($c) => $c->where('owner_type', (new \App\Models\Customer)->getMorphClass())
+                ->whereIn('owner_id', $ids(\App\Models\Customer::class, ['name', 'phone']))));
     }
 
     public static function ownerLabel(SupportThread $thread): string

@@ -51,6 +51,20 @@ class SupportChatListTest extends TestCase
             ->assertCanNotSeeTableRecords([$open]);
     }
 
+    /** User 2026-11-20: the list is searchable by the person's name, phone number and distributor ID. */
+    public function test_the_list_is_searchable_by_name_phone_and_id(): void
+    {
+        $a = $this->thread('LJW0099001', 'Wallet balance is missing');
+        $b = $this->thread('LJW0099002', 'Withdrawal is pending');
+
+        foreach (['9000099001', 'Person LJW0099001', 'LJW0099001', 'person 99001'] as $search) {
+            Livewire::test(ListSupportThreads::class)->searchTable($search)
+                ->assertCanSeeTableRecords([$a])->assertCanNotSeeTableRecords([$b]);
+        }
+        Livewire::test(ListSupportThreads::class)->searchTable('Withdrawal')          // subject still works
+            ->assertCanSeeTableRecords([$b])->assertCanNotSeeTableRecords([$a]);
+    }
+
     public function test_a_chat_closed_from_the_row_leaves_the_list(): void
     {
         $a = $this->thread('LJW0099001', 'Wallet balance is missing');
