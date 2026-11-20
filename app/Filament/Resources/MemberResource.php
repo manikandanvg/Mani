@@ -74,12 +74,12 @@ class MemberResource extends BaseResource
                     ->maxLength(30),
                 Forms\Components\DatePicker::make('joined_on')
                     ->required(),
-                Forms\Components\TextInput::make('upline_id')
-                    ->label('Senior Distributor ID')
-                    ->numeric(),
-                Forms\Components\TextInput::make('referrer_id')
-                    ->label('Referred Distributor ID')
-                    ->numeric(),
+                // User 2026-11-20: the admin does not know the internal ids → searchable pickers
+                // (Name - Distributor ID - Phone). A changed Senior is applied by EditMember through
+                // PlacementCorrectionService, so the frozen upline, the IC and the BV tree follow.
+                static::distributorPicker('upline_id', 'Senior Distributor ID')
+                    ->helperText('Changing this moves the distributor (with their whole team) under the new senior: bills, pending Sales Incentive and BV / GBV / TBP stage follow.'),
+                static::distributorPicker('referrer_id', 'Referred Distributor ID'),
                 Forms\Components\TextInput::make('placement')
                     ->required(),
                 Forms\Components\TextInput::make('left_member_id')
@@ -185,6 +185,38 @@ class MemberResource extends BaseResource
                 Forms\Components\TextInput::make('status')
                     ->required(),
             ]);
+    }
+
+    /** "Name - Distributor ID - Phone", as the pickers show a distributor. */
+    public static function distributorLabel(object $m): string
+    {
+        return implode(' - ', array_filter([$m->name, $m->member_code, $m->phone], fn ($v) => filled($v)));
+    }
+
+    /** A searchable distributor dropdown: every word typed must match the name, the ID or the phone. */
+    public static function distributorPicker(string $column, string $label): Forms\Components\Select
+    {
+        return Forms\Components\Select::make($column)
+            ->label($label)
+            ->native(false)
+            ->searchable()
+            ->searchPrompt('Type a name, distributor ID or phone number')
+            ->getSearchResultsUsing(function (string $search, ?Member $record) {
+                $query = Member::query()->when($record, fn ($q) => $q->whereKeyNot($record->getKey()));
+                foreach (preg_split('/\s+/', trim($search), -1, PREG_SPLIT_NO_EMPTY) as $word) {
+                    $like = '%' . $word . '%';
+                    $query->where(fn ($w) => $w->where('name', 'like', $like)
+                        ->orWhere('member_code', 'like', $like)->orWhere('phone', 'like', $like));
+                }
+
+                return $query->orderBy('name')->limit(50)->get(['id', 'name', 'member_code', 'phone'])
+                    ->mapWithKeys(fn (Member $m) => [$m->id => static::distributorLabel($m)])->all();
+            })
+            ->getOptionLabelUsing(function ($value) {
+                $m = Member::withTrashed()->find($value, ['id', 'name', 'member_code', 'phone']);
+
+                return $m ? static::distributorLabel($m) : null;
+            });
     }
 
     /**

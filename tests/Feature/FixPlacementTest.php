@@ -147,4 +147,38 @@ class FixPlacementTest extends TestCase
             ->expectsOutputToContain('loop')->assertSuccessful();
         $this->assertSame($this->m['WRONG']->id, $this->m['X']->fresh()->upline_id);
     }
+
+    /** User 2026-11-20: the edit page picks the senior / referrer from a searchable dropdown and the move reaches bonds, IC and GBV. */
+    public function test_edit_page_dropdown_moves_the_senior_everywhere(): void
+    {
+        $bx = $this->bill('X', 'INV-X5');
+        $this->bill('Y', 'INV-Y5');
+        $this->actingAs(\App\Models\User::whereHas('roles', fn ($q) => $q->where('name', 'super_admin'))->firstOrFail());
+        $page = \App\Filament\Resources\MemberResource\Pages\EditMember::class;
+        $x = $this->m['X'];
+
+        // the picker finds a distributor by name, ID or phone and never offers the distributor themself
+        $label = 'RIGHT - RIGHT - ' . $this->m['RIGHT']->phone;
+        $this->assertSame([$this->m['RIGHT']->id => $label],
+            \Livewire\Livewire::test($page, ['record' => $x->id])->instance()->form->getComponent('data.upline_id')->getSearchResults($this->m['RIGHT']->phone));
+        $this->assertSame([], \Livewire\Livewire::test($page, ['record' => $x->id])->instance()->form->getComponent('data.upline_id')->getSearchResults('X'));
+
+        // a loop is refused and nothing is written
+        \Livewire\Livewire::test($page, ['record' => $x->id])->fillForm(['upline_id' => $this->m['Y']->id])->call('save');
+        $this->assertSame($this->m['WRONG']->id, $x->fresh()->upline_id);
+
+        \Livewire\Livewire::test($page, ['record' => $x->id])
+            ->fillForm(['upline_id' => $this->m['RIGHT']->id, 'referrer_id' => $this->m['ROOT']->id, 'city' => 'SIVAKASI'])
+            ->call('save')->assertHasNoFormErrors();
+
+        $x = $x->fresh();
+        $this->assertSame([$this->m['RIGHT']->id, $this->m['ROOT']->id, 'SIVAKASI'], [$x->upline_id, $x->referrer_id, $x->city]);
+        $this->assertSame($this->m['RIGHT']->id, $bx->fresh()->upline_member_id);
+        $this->assertSame([[1, 'RIGHT', 6000.0, 'pending'], [2, 'ROOT', 1800.0, 'pending']], $this->ic('INV-X5'));
+        $this->assertSame([[1, 'X', 6000.0, 'pending'], [2, 'RIGHT', 1800.0, 'pending'], [3, 'ROOT', 600.0, 'pending']], $this->ic('INV-Y5'));
+        // the tree figures follow: X and Y now count under RIGHT, not WRONG
+        $this->assertSame([2, 0], [$this->m['RIGHT']->fresh()->downline_count, $this->m['WRONG']->fresh()->downline_count]);
+        $this->assertGreaterThan(0, (float) $this->m['RIGHT']->fresh()->gbv);
+        $this->assertSame(0.0, (float) $this->m['WRONG']->fresh()->gbv);
+    }
 }
