@@ -1,0 +1,56 @@
+- branch #6     brid 12    LORD JEWELLER              VARADHARAJ / COVAI                 empty → inactive
+  - branch #1468  brid 425   LORD JEWELLER              LORD JEWELLER / LJW24216214536     empty → inactive
+  - branch #1479  brid 437   LORD JEWELLER              JOSHUA SAMRAJ A / LJW24714084848   empty → inactive
+  - branch #1487  brid 446   LORD JEWELLER              MARIAMMAL K / LJW2417338660        empty → inactive
+  - branch #1495  brid 455   LORD JEWELLER              JOSHITHA K / LJW24642374577        empty → inactive
+  - branch #1594  brid 562   LORD JEWELLER              JEYA M / LJW24791195794            empty → inactive
+  - branch #1595  brid 563   LORD JEWELLER              SUMATHI S / LJW24285023842         empty → inactive
+  - branch #1596  brid 564   LORD JEWELLER              BHARATHI PRIYA PALANISWAMI / LJW24 empty → inactive
+  - branch #1622  brid 593   LORD JEWELLER              SARMILA P / LJW24543360764         empty → inactive
+  - branch #1623  brid 594   LORD JEWELLER              SARMILA P / LJW24543360764         empty → inactive
+  - branch #1632  brid 604   LORD JEWELLER              GURURAJ R / LJW24686681158         empty → inactive
+  - branch #1649  brid 622   LORD JEWELLER              POOVATHAL M / LJW24562963565       empty → inactive
+  - branch #1655  brid 629   LORD JEWELLER              Sathasivam N / LJW24190210865      empty → inactive
+  - branch #1671  brid 647   LORD JEWELLER              GOKILAMANI L / LJW249951124508     empty → inactive
+  - branch #1702  brid 679   LORD JEWELLER              MURUGESAN M / LJW2410451131732     empty → inactive
+  - branch #1707  brid 684   LORD JEWELLER              SRINIVASAN S / LJW2410216128202    empty → inactive
+  - branch #1714  brid 691   LORD JEWELLER              RUKMANI CHANDRASEKARAN / LJW245031 empty → inactive
+  - branch #1716  brid 693   LORD JEWELLER              KAVERI K / LJW248359102035         empty → inactive
+  - branch #1745  brid 722   LORD JEWELLER              srivitha / LJW2411142141070        empty → inactive
+  - branch #1837  brid 817   LORD JEWELLER              srivitha / LJW2411142141070        empty → inactive
+  - branch #1850  brid 830   LORD JEWELLER              S.SIVA SANKAR REDDY / LJW248830108 empty → inactive
+  - branch #1956  brid 937   LORD JEWELLER              M AKILA / LJW2414714191173         empty → inactive
+  - branch #1979  brid 962   LORD JEWELLER              MUTHURAJ  NELLAIAPPAN / LJW2413488 empty → inactive
+  - branch #2012  brid 995   LORD JEWELLER              MURUGAN VEERASAMY / LJW24188210540 empty → inactive
+  - branch #2026  brid 1011  LORD JEWELLER              ANJALAI / LJW24595768022           empty → inactive
+  - branch #2037  brid 1022  LORD JEWELLER              S.SIVA SANKAR REDDY / LJW248830108 empty → inactive
+  - branch #2038  brid 1023  LORD JEWELLER              S.SIVA SANKAR REDDY / LJW248830108 empty → inactive
+  - branch #2040  brid 1025  LORD JEWELLER              CHINTHA RAMA MOHAN REDDY / LJW2421 empty → inactive
+  - branch #2054  brid 1041  LORD JEWELLER              USHARANI S / LJW2416150211022      empty → inactive
+  - branch #2055  brid 1042  LORD JEWELLER              USHARANI S / LJW2416150211022      empty → inactive
+  - branch #2069  brid 1056  LORD JEWELLER              VADANADAN / LJW2413902180250       empty → inactive
+  - branch #2070  brid 1057  LORD JEWELLER              BALAMURUGAN / LJW24504955322       empty → inactive
+  - branch #2071  brid 1058  LORD JEWELLER              Maheswari  / LJW2413583175690      empty → inactive
+  - branch #2154  brid 1141  LORD JEWELLER              D SRIDHARAN / LJW2417242226005     empty → inactive
+  - branch #2156  brid 1143  LORD JEWELLER              Kasthuri / LJW2414802192368        empty → inactive
+  - branch #2159  brid 1146  LORD JEWELLER              preethi raguvaran / LJW24118541509 empty → inactive
+  - branch #2160  brid 1147  LORD JEWELLER              SELVI G / LJW24420143351           empty → inactive
+  - branch #2161  brid 1148  LORD JEWELLER              M AKILA / LJW2414714191173         empty → inactive
+  - branch #2162  brid 1149  LORD JEWELLER              M AKILA / LJW2414714191173         empty → inactive
+  - branch #2163  brid 1150  LORD JEWELLER              KANAGAMBAL K / LJW2415026195564    empty → inactive
+  - branch #2164  brid 1151  LORD JEWELLER              B VEERAMANIKANDAN / LJW24151841978 empty → inactive
+  - branch #2165  brid 1152  LORD JEWELLER              SUGANYA M / LJW2411860151041       empty → inactive
+  - branch #2166  brid 1153  LORD JEWELLER              V Palani  / LJW2415616194          empty → inactive
+  - branch #2167  brid 1154  LORD JEWELLER              G. Ramesh  / LJW2416024209318      empty → inactive
+  - branch #2168  brid 1155  LORD JEWELLER              SARAVANANA KUMAR / LJW241606120985 empty → inactive
+  - branch #2169  brid 1156  LORD JEWELLER              RAMACHANDRAN V / LJW24814899156    empty → inactive
+  - branch #2170  brid 1157  LORD JEWELLER              RAMYASHREE C / LJW2416310213322    empty → inactive
+  - branch #2171  brid 1158  LORD JEWELLER              REKA / LJW2416202211736            empty → inactive
+  - branch #2172  brid 1159  LORD JEWELLER              POOSAMMAL D / LJW2416416214806     empty → inactive
+  - branch #2173  brid 1160  LORD JEWELLER              TAMILARASI MANIMOZHI / LJW24134291 empty → inactive
+  - branch #2174  brid 1161  LORD JEWELLER              K.Elakiya / LJW24287124049         empty → inactive
+  - branch #2175  brid 1162  LORD JEWELLER              MOHANASANKAR K / LJW2412754164006  empty → inactive
+  - branch #2190  brid 1177  LORD JEWELLER              THIRU MUGHIL SENTHUR R / LJW241696 empty → inactive
+  - branch #2201  brid 1188  LORD JEWELLER              MUTHURAJ  NELLAIAPPAN / LJW2413488 empty → inactive
+  - branch #2219  brid 1206  LORD JEWELLER              KRISHNAVENI V / LJW2417138365      empty → inactive
+  - branch #2235  brid 1222  LORD JEWELLER              MOHANASANKAR K / LJW2412754164006  empty → inactive
