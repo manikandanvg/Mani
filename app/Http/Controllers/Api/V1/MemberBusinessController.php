@@ -314,13 +314,19 @@ class MemberBusinessController extends Controller
         $ep = app(\App\Services\CommissionService::class)->earningPotential($member);
 
         // ── TBP (turnover-based promotion) ──
+        // Each direct distributor's LEG = their own ranking BV + their team's — the very figure
+        // the group total above and the "Leg 1 / Leg 2" coaching below are made of. The list
+        // used to show the full-bill GBV of the team only (complaint 2026-11-21, "BV irregular"):
+        // it added up to more than the group total, and a direct with a big bill of their own
+        // but no team yet showed 0 while counting as a leg.
         $top = Member::where('upline_id', $member->id)
-            ->orderByDesc('gbv')->limit(5)
-            ->get(['member_code', 'name', 'gbv'])
+            ->orderByRaw('(unpure_bv + unpure_gbv) desc')->orderBy('id')->limit(5)
+            ->get(['member_code', 'name', 'unpure_bv', 'unpure_gbv'])
             ->map(fn (Member $m) => [
                 'member_code' => $m->member_code,
                 'name' => $m->name,
-                'gbv' => (float) $m->gbv,
+                // key kept as "gbv" — the released app reads it
+                'gbv' => round((float) $m->unpure_bv + (float) $m->unpure_gbv, 2),
             ]);
 
         // Genealogy depth below this member, capped at the 10-level schedule.

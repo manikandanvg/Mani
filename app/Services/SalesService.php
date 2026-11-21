@@ -98,7 +98,7 @@ class SalesService
             [$member, $isNew] = $this->resolveCustomer($data, $billDate, $branchId);
 
             // --- totals from cart (in the BRANCH currency) ---
-            $cart = $data['cart'] ?? [];
+            $cart = $this->cashLinesAsAmounts($data['cart'] ?? []);
             $this->assertMetalLinesCarryCharges($cart, $branch);
             $crossTotal = round(array_sum(array_map(fn ($l) => (float) ($l['net_total'] ?? 0), $cart)), 2);
             $cartGrand = round(array_sum(array_map(fn ($l) => (float) ($l['grand_total'] ?? 0), $cart)), 2);
@@ -733,6 +733,31 @@ class SalesService
         return isset($line['qty']) && $line['qty'] !== null && ($line['material'] ?? $cp?->material) !== 'cash'
             ? (float) $line['qty']                                             // pieces straight from the bill
             : (float) ($cp?->piecesFromWeight((float) ($line['weight'] ?? 0)) ?? ($line['weight'] ?? 0));
+    }
+
+    /**
+     * A cash line is a rupee AMOUNT: ₹1 a unit, and the branch cash stock falls by the amount.
+     * Complaint 2026-11-21 ("billed but no stock reduced"): the Sales page let the price box of
+     * a cash line be typed, and bills were raised as Amount 1 × Price 1,00,000 — the bill total
+     * was right but the cash stock fell by ₹1 (15 live bills, 16–21 Nov). Whatever the screen
+     * sends, the line is stored and deducted as amount × ₹1.
+     */
+    protected function cashLinesAsAmounts(array $cart): array
+    {
+        foreach ($cart as $k => $line) {
+            if (empty($line['catalog_product_id'])) {
+                continue;
+            }
+            $material = $line['material'] ?? CatalogProduct::find($line['catalog_product_id'])?->material;
+            $rate = (float) ($line['rate'] ?? 1);
+            if ($material !== 'cash' || $rate <= 0 || abs($rate - 1) < 0.00001) {
+                continue;
+            }
+            $cart[$k]['weight'] = round((float) ($line['weight'] ?? 0) * $rate, 2);
+            $cart[$k]['rate'] = 1;
+        }
+
+        return $cart;
     }
 
     /** catalog_product_id => pieces billed (ordinary lines only — custom-order pieces are excluded). */

@@ -355,9 +355,14 @@ class Sales extends Page implements HasForms
                                         . '<span style="color:#e6ad46;font-weight:600">' . e(amount_words($amt, 'ta', $cur)) . '</span>'
                                     );
                                 }),
-                            TextInput::make('rate')->label('Price /g')->numeric()->columnSpan(2)->live(onBlur: true)
-                                // frozen order price for a custom piece — never re-priced live
-                                ->readOnly(fn (Get $get) => filled($get('order_line_id'))),
+                            TextInput::make('rate')
+                                ->label(fn (Get $get) => $get('material') === 'cash' ? 'Per ₹' : 'Price /g')
+                                ->numeric()->columnSpan(2)->live(onBlur: true)
+                                // frozen order price for a custom piece — never re-priced live.
+                                // Cash is ₹1 a unit: the amount goes in "Amount" only. With this box
+                                // open, bills were typed as Amount 1 × Price 1,00,000 and the cash
+                                // stock fell by ₹1 (complaint 2026-11-21).
+                                ->readOnly(fn (Get $get) => filled($get('order_line_id')) || $get('material') === 'cash'),
                             TextInput::make('purity')->label('Purity')->columnSpan(1),
                             Placeholder::make('line_total')->label('Grand')->columnSpan(2)
                                 ->content(fn (Get $get) => Number::format(self::lineCalc([

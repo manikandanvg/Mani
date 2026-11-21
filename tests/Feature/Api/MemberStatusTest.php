@@ -80,6 +80,34 @@ class MemberStatusTest extends TestCase
         $this->assertSame(0, $res->json('widgets.gift'));
     }
 
+    /**
+     * Complaint 2026-11-21 ("BV irregular"): the list showed each direct's full-bill team GBV
+     * beside a group total made of ranking BV — it added up to more than the total, and a
+     * direct with a big bill of their own but no team showed 0.
+     */
+    public function test_top_distributors_are_the_legs_that_make_the_group_total(): void
+    {
+        $rank = Rank::firstOrCreate(['code' => 'MEMBER'], ['name' => ['en' => 'Member'], 'depth' => 0, 'target_bv' => 0]);
+        // ST2: big full-bill team, small ranking leg
+        Member::where('member_code', 'ST2')->update(['bv' => 5000, 'unpure_bv' => 1000, 'unpure_gbv' => 29000]);
+        // ST4: no team at all, but a large bill of their own — the biggest leg
+        Member::create([
+            'member_code' => 'ST4', 'name' => 'Own Bill Only', 'phone' => '9000000704',
+            'joined_on' => now(), 'placement' => 'level', 'rank_id' => $rank->id, 'status' => 'active',
+            'upline_id' => $this->member->id, 'bv' => 70000, 'gbv' => 0, 'unpure_bv' => 70000, 'unpure_gbv' => 0,
+        ]);
+
+        Sanctum::actingAs($this->member, ['*']);
+        $res = $this->getJson('/api/v1/member/status')->assertOk();
+
+        $this->assertSame('ST4', $res->json('tbp.top_distributors.0.member_code'));
+        $this->assertSame(70000, $res->json('tbp.top_distributors.0.gbv'));
+        $this->assertSame('ST2', $res->json('tbp.top_distributors.1.member_code'));
+        $this->assertSame(30000, $res->json('tbp.top_distributors.1.gbv'));
+        // the legs add up to the group total shown above them
+        $this->assertSame($res->json('tbp.gross_bv'), array_sum(array_column($res->json('tbp.top_distributors'), 'gbv')));
+    }
+
     public function test_genealogy_returns_the_downline_tree(): void
     {
         // grandchild under ST2 to prove nesting
