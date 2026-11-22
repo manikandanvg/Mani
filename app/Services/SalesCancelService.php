@@ -42,11 +42,22 @@ class SalesCancelService
         return $invoice->status !== 'cancelled' && $this->blocker($invoice) === null;
     }
 
-    /** Why the bill cannot be cancelled, or null when it can. */
-    public function blocker(SalesInvoice $invoice): ?string
+    /**
+     * Why the bill cannot be cancelled, or null when it can. $force (user 2026-11-22, the force
+     * delete of a member — MemberForceDeleteService) passes everything that can be settled in
+     * money: a redeemed QR, collected instalments, paid coupons / incentive / margins.
+     */
+    public function blocker(SalesInvoice $invoice, bool $force = false): ?string
     {
         if ($invoice->status === 'cancelled') {
             return 'This invoice is already cancelled.';
+        }
+        if ($force) {
+            if (BranchOrderLine::where('sales_invoice_id', $invoice->id)->exists()) {
+                return 'Customized-order pieces are billed here; cancel the order flow instead.';
+            }
+
+            return app(AreaDistributorService::class)->cancelBlocker($invoice);
         }
         if (RedeemableQr::where('invoice_no', $invoice->invoice_no)->where('status', 'redeemed')->exists()) {
             return 'The stock QR of this bill has already been redeemed.';
@@ -107,13 +118,23 @@ class SalesCancelService
         return null;
     }
 
-    public function cancel(SalesInvoice $invoice, ?int $userId, ?string $reason = null, bool $deleteMember = false): SalesInvoice
+    /**
+     * @param array{force?: bool, silent?: bool, team_leaves?: bool} $opt  force = part of a member's
+     *        force delete (paid rows stay on record, their money is settled by the caller);
+     *        silent = no push to the member; team_leaves = say outright whether the member leaves
+     *        the ancestors' team count with this bill (the caller counts it once itself).
+     */
+    public function cancel(SalesInvoice $invoice, ?int $userId, ?string $reason = null, bool $deleteMember = false, array $opt = []): SalesInvoice
     {
-        return DB::transaction(function () use ($invoice, $userId, $reason, $deleteMember) {
+        $force = (bool) ($opt['force'] ?? false);
+        $silent = (bool) ($opt['silent'] ?? false);
+
+        return DB::transaction(function () use ($invoice, $userId, $reason, $deleteMember, $force, $silent, $opt) {
             $invoice = SalesInvoice::whereKey($invoice->id)->lockForUpdate()->with('lines')->firstOrFail();
-            if ($why = $this->blocker($invoice)) {
+            if ($why = $this->blocker($invoice, $force)) {
                 abort(422, $why);
             }
+            $this->teamLeaves = array_key_exists('team_leaves', $opt) ? (bool) $opt['team_leaves'] : null;
             if ($deleteMember && ($why = $this->memberDeleteBlocker($invoice))) {
                 abort(422, 'Member profile cannot be deleted: ' . $why . ' Untick the option to cancel the bill only.');
             }
@@ -125,6 +146,9 @@ class SalesCancelService
 
             // --- dealer margins (instant, 'passed') → removed + branch balances reduced
             foreach (ResellerCommission::where('invoice_no', $invoice->invoice_no)->get() as $rc) {
+                if ($force && $rc->status === 'paid') {
+                    continue;   // paid out: stays on record, the money is recovered by the force delete
+                }
                 $local = round((float) $rc->com_value / $fx, 2);
                 $column = match ((int) $rc->com_type_id) {
                     ResellerCommission::COM_BILL_MARGIN => 'bill_margin',
@@ -140,12 +164,7 @@ class SalesCancelService
 
             // --- bond, coupons, incentive lines, contract, QR
             if ($bond) {
-                CbcEntry::where('bond_id', $bond->id)->where('status', 'pending')->delete();
-                CommissionLedger::where('bond_id', $bond->id)->where('status', 'pending')->delete();
-                MemberContract::where('bond_id', $bond->id)->update(['status' => 'cancelled']);
-                RedeemableQr::where('bond_id', $bond->id)->where('status', 'pending')->update(['status' => 'cancelled']);
-                $this->rollBackNetwork($bond, $member, $invoice);
-                $bond->update(['status' => 'cancelled']);
+                $this->cancelBond($bond, $member, $invoice, $force);
             }
             RedeemableQr::where('invoice_no', $invoice->invoice_no)->where('status', 'pending')->update(['status' => 'cancelled']);
 
@@ -164,18 +183,15 @@ class SalesCancelService
                 'subject' => $invoice, 'details' => ['reason' => $reason, 'bond_id' => $bond?->id, 'grand_total' => (float) $invoice->grand_total],
             ]);
 
+            $this->teamLeaves = null;
+
             if ($member && $deleteMember) {
-                // the profile goes with the bill: logins closed, member removed (soft delete —
-                // the cancelled bill keeps pointing at it for the audit trail)
-                \App\Models\User::where('member_code', $member->member_code)->update(['status' => 'inactive']);
-                $member->tokens()->delete();
-                $member->update(['status' => 'inactive']);
-                $member->delete();
+                $this->removeMember($member);
                 \App\Services\Activity\ActivityLogger::log('member', 'deleted_with_invoice',
                     'Member ' . $member->member_code . ' (' . $member->name . ') deleted together with cancelled invoice ' . $invoice->invoice_no, [
                         'subject' => $invoice, 'member' => $member->id, 'details' => ['reason' => $reason],
                     ]);
-            } elseif ($member) {
+            } elseif ($member && ! $silent) {
                 \App\Services\Push\Notifier::to(
                     $member, 'invoice', 'Invoice ' . $invoice->invoice_no . ' cancelled',
                     'Your bill dated ' . Carbon::parse($invoice->date)->format('d M Y') . ' for ₹' . \App\Support\Money::group((float) $invoice->grand_total)
@@ -189,11 +205,52 @@ class SalesCancelService
         });
     }
 
+    /**
+     * The contract side of a cancel: unpaid coupons and incentive lines removed, contract and
+     * pending QR cancelled, network volumes rolled back, bond → cancelled. Also used on its own
+     * for a contract that has no bill in this system (force delete). With $force the lines that
+     * were approved but not yet credited go too; PAID rows always stay on record.
+     */
+    public function cancelBond(Bond $bond, ?Member $member, ?SalesInvoice $invoice = null, bool $force = false): void
+    {
+        if ($bond->status === 'cancelled') {
+            return;
+        }
+        CbcEntry::where('bond_id', $bond->id)->where('status', 'pending')->delete();
+        CommissionLedger::where('bond_id', $bond->id)
+            ->when($force, fn ($q) => $q->where('status', '!=', 'paid'), fn ($q) => $q->where('status', 'pending'))->delete();
+        MemberContract::where('bond_id', $bond->id)->update(['status' => 'cancelled']);
+        RedeemableQr::where('bond_id', $bond->id)->where('status', 'pending')->update(['status' => 'cancelled']);
+        if ($invoice === null) {
+            $this->teamLeaves = false;   // a bare contract never moves the team count
+        }
+        $this->rollBackNetwork($bond, $member, $invoice);
+        if ($invoice === null) {
+            $this->teamLeaves = null;
+        }
+        $bond->update(['status' => 'cancelled']);
+    }
+
+    /**
+     * Remove a member profile: logins closed, app tokens revoked, soft delete — the cancelled
+     * bills keep pointing at it for the audit trail, and the code is never issued again.
+     */
+    public function removeMember(Member $member): void
+    {
+        \App\Models\User::where('member_code', $member->member_code)->update(['status' => 'inactive']);
+        $member->tokens()->delete();
+        $member->update(['status' => 'inactive']);
+        $member->delete();
+    }
+
     /** True while cancel() is also deleting the member — they leave every ancestor's team count. */
     protected bool $memberLeaves = false;
 
+    /** Set by a caller that decides the team count itself (force delete); null = work it out. */
+    protected ?bool $teamLeaves = null;
+
     /** Undo SalesService::applyNetworkDeltas for this bond (BV, GBV, unpure, team size) and re-rank. */
-    protected function rollBackNetwork(Bond $bond, ?Member $member, SalesInvoice $invoice): void
+    protected function rollBackNetwork(Bond $bond, ?Member $member, ?SalesInvoice $invoice): void
     {
         if (! $member) {
             return;
@@ -205,9 +262,10 @@ class SalesCancelService
 
         // A member the bill enrolled (their very first invoice, created with it) also leaves
         // every ancestor's team count.
-        $enrolledHere = $this->memberLeaves || SalesInvoice::where('customer_member_id', $member->id)->where('id', '!=', $invoice->id)->doesntExist()
+        $enrolledHere = $this->teamLeaves ?? ($this->memberLeaves || ($invoice !== null
+            && SalesInvoice::where('customer_member_id', $member->id)->where('id', '!=', $invoice->id)->doesntExist()
             && $member->created_at && $invoice->created_at
-            && abs($member->created_at->diffInSeconds($invoice->created_at)) <= 120;
+            && abs($member->created_at->diffInSeconds($invoice->created_at)) <= 120));
 
         $member->update([
             'bv' => max(0, (float) $member->bv - $value),

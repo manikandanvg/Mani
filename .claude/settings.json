@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(wc -l app/Services/StockTransferService.php app/Services/BranchOrderService.php app/Filament/Pages/OrderManagement.php app/Filament/Pages/OrderForm.php app/Filament/Resources/StockTransferResource.php app/Filament/Resources/BranchOrderResource.php app/Filament/Resources/SalesInvoiceResource.php app/Models/StockTransfer.php app/Models/BranchOrderRequest.php app/Models/Branch.php app/Services/Wallet/* app/Services/Stock/*)"
+    ]
+  }
+}

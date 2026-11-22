@@ -223,6 +223,7 @@ class BranchOrderResource extends BaseResource
                         BranchOrderService::SOURCE_CUSTOMIZE => 'Customize order',
                         BranchOrderService::SOURCE_REDEMPTION => 'Redemption',
                         'settlement_redemption' => 'Settlement Redemption',
+                        BranchOrderService::SOURCE_BRANCH_SALES => 'Branch Sales (HQ)',
                     ])
                     ->query(fn (Builder $query, array $data) => match ($data['value'] ?? null) {
                         null, '' => $query,

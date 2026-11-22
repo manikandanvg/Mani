@@ -287,7 +287,7 @@ class SalesInvoiceResource extends BaseResource
                             ->label(fn () => 'Also delete the member profile' . ($r->customer ? ' — ' . $r->customer->member_code . ' ' . $r->customer->name : ''))
                             ->disabled(fn () => app(\App\Services\SalesCancelService::class)->memberDeleteBlocker($r) !== null)
                             ->helperText(fn () => ($why = app(\App\Services\SalesCancelService::class)->memberDeleteBlocker($r))
-                                ? 'Not possible: ' . $why
+                                ? 'Not possible: ' . $why . ' To remove the profile anyway, close this and use "Force delete member" on this row.'
                                 : 'Tick only when this member was enrolled by mistake. The profile and its app / dealer login are removed; leave unticked to keep the member.'),
                     ])
                     ->modalSubmitAction(fn ($action, SalesInvoice $r) => app(\App\Services\SalesCancelService::class)->blocker($r) ? $action->hidden() : $action)
@@ -305,6 +305,47 @@ class SalesInvoiceResource extends BaseResource
                             ->title('Invoice ' . $r->invoice_no . ' cancelled')
                             ->body('Stock restored; contract, coupons, incentive, margins and QR reversed.'
                                 . ($deleteMember ? ' Member profile deleted.' : ''))->send();
+                    }),
+                // User 2026-11-22: the profile is still needed by other bills / paid coupons / a
+                // redeemed QR → FORCE DELETE. Every value issued against the member is shown first;
+                // what cannot be reversed is charged to the cash stock of the issuing branch.
+                Tables\Actions\Action::make('forceDeleteMember')
+                    ->label('Force delete member')
+                    ->icon('heroicon-o-user-minus')
+                    ->color('danger')
+                    ->visible(fn (SalesInvoice $r) => (bool) auth()->user()?->isSuperAdmin() && $r->customer_member_id && $r->customer !== null)
+                    ->modalWidth('7xl')
+                    ->modalHeading(fn (SalesInvoice $r) => 'Force delete ' . $r->customer?->member_code . ' — ' . $r->customer?->name)
+                    ->modalDescription('ALL bills and contracts of this member are cancelled and the profile is removed. Check every value below before you confirm.')
+                    ->modalContent(fn (SalesInvoice $r) => view('filament.modals.member-force-delete', [
+                        's' => app(\App\Services\MemberForceDeleteService::class)->statement($r->customer),
+                    ]))
+                    ->form(fn (SalesInvoice $r) => app(\App\Services\MemberForceDeleteService::class)->blockers($r->customer) ? [] : [
+                        Forms\Components\Textarea::make('reason')->label('Reason for the force delete')->required()->rows(2)->maxLength(255),
+                        Forms\Components\Checkbox::make('confirmed')
+                            ->label('I have checked the values above. Take back what is in the wallets, charge the rest to the cash stock of the issuing branch (it may go below zero), cancel every bill and delete this member.')
+                            ->accepted()
+                            ->validationMessages(['accepted' => 'Tick the box to confirm the force delete.']),
+                    ])
+                    ->modalSubmitActionLabel('Force delete member')
+                    ->modalSubmitAction(fn ($action, SalesInvoice $r) => app(\App\Services\MemberForceDeleteService::class)->blockers($r->customer) ? $action->hidden() : $action)
+                    ->action(function (SalesInvoice $r, array $data) {
+                        $member = $r->customer;
+                        try {
+                            abort_unless((bool) auth()->user()?->isSuperAdmin(), 403, 'Only the super admin can force delete a member.');
+                            abort_unless(($data['confirmed'] ?? false) === true, 422, 'Tick the box to confirm the force delete.');
+                            $done = app(\App\Services\MemberForceDeleteService::class)->delete($member, auth()->id(), (string) ($data['reason'] ?? ''));
+                        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
+                            \Filament\Notifications\Notification::make()->danger()
+                                ->title('Member not deleted')->body($e->getMessage())->persistent()->send();
+
+                            return;
+                        }
+                        \Filament\Notifications\Notification::make()->success()
+                            ->title($member->member_code . ' force deleted')
+                            ->body(count($done['bills']) . ' bill(s) / contract(s) cancelled. ₹' . \App\Support\Money::group($done['totals']['recover'])
+                                . ' taken back from wallets, ₹' . \App\Support\Money::group($done['totals']['charge']) . ' charged to branch cash stock.')
+                            ->persistent()->send();
                     }),
             ])
             ->bulkActions([]);

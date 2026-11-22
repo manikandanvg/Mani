@@ -89,21 +89,90 @@ class OrderForm extends Page implements HasForms
 
     public function mount(): void
     {
-        $this->form->fill([
-            'branch_id' => auth()->user()?->branch_id ?? Branch::min('id'),
+        $this->form->fill($this->blankState());
+    }
+
+    /** Head Office staff (not a dealer login): may pick the branch the order is for (user 2026-11-22). */
+    protected static function hqUser(): bool
+    {
+        $user = auth()->user();
+
+        return (bool) ($user && ! $user->isDistributor() && ! $user->isSupport());
+    }
+
+    /** The branch a fresh form starts on: the dealer's own; Head Office's for HQ staff. */
+    protected function defaultBranchId(): ?int
+    {
+        return auth()->user()?->branch_id ?? Branch::min('id');
+    }
+
+    protected function blankState(?int $branchId = null): array
+    {
+        return [
+            'branch_id' => $branchId ?? $this->defaultBranchId(),
             'payment_type' => 'cash',
             'lines' => [],
-        ]);
+            'attachments' => [],
+            'urn_no' => null,
+            'urn_amount' => null,
+        ];
+    }
+
+    /** The URN of the payment is mandatory on the Order Form (not on Head Office's Branch Sales). */
+    protected function urnRequired(): bool
+    {
+        return true;
+    }
+
+    protected function paymentOptions(): array
+    {
+        return ['cash' => 'Cash', 'cheque' => 'Cheque', 'online' => 'Online', 'digi_cash' => 'Digi Cash (wallet)', 'others' => 'Others'];
+    }
+
+    /** Every branch, for the Head Office branch picker. */
+    protected function branchOptions(bool $withHq = true): array
+    {
+        return Branch::query()
+            ->when(! $withHq, fn ($q) => $q->where('id', '!=', \App\Services\SalesService::HQ_BRANCH_ID))
+            ->orderBy('name')->get()
+            ->mapWithKeys(fn (Branch $b) => [$b->id => trim($b->name . ($b->city ? ' · ' . $b->city : '')
+                . ($b->incharge ? ' · ' . $b->incharge : '') . ($b->is_active ? '' : ' · INACTIVE'))])
+            ->all();
+    }
+
+    protected function branchLabel(): string
+    {
+        return 'Branch this order is for';
+    }
+
+    protected function branchHelp(): string
+    {
+        return 'Head Office can place the order on behalf of any branch — the stock is added to that branch on approval.';
+    }
+
+    /** Head Office picks the branch; a dealer's form carries its own branch, unseen. */
+    protected function branchField(): \Filament\Forms\Components\Field
+    {
+        if (! static::hqUser()) {
+            return Hidden::make('branch_id');
+        }
+
+        return Select::make('branch_id')
+            ->label($this->branchLabel())
+            ->options(fn () => $this->branchOptions())
+            ->searchable()->required()->live()
+            ->helperText($this->branchHelp());
     }
 
     public function form(Form $form): Form
     {
         return $form
             ->schema([
-                Section::make('Supplier')->schema([
-                    Placeholder::make('supplier')->label('')
-                        ->content(fn () => $this->supplierBanner()),
-                ]),
+                Section::make(static::hqUser() ? 'Branch' : 'Supplier')->schema(array_merge(
+                    static::hqUser() ? [$this->branchField()] : [],
+                    [Placeholder::make('supplier')->label('')
+                        ->content(fn (Get $get) => $this->supplierBanner($get('branch_id') ? (int) $get('branch_id') : null))],
+                )),
                 Section::make('Items')->schema([
                     // Dealer's per-order ceiling, one quiet line (user 2026-11-03: no running total).
                     // … plus the minimum order (user 2026-11-13) — both shown as a hint.
@@ -177,20 +246,20 @@ class OrderForm extends Page implements HasForms
                                 ->columnSpan(3),
                         ]),
                 ]),
-                Section::make('Payment & summary')->columns(2)->schema([
+                Section::make('Payment & summary')->columns(2)->schema(array_merge([
                     Select::make('payment_type')
-                        ->options(['cash' => 'Cash', 'cheque' => 'Cheque', 'online' => 'Online', 'digi_cash' => 'Digi Cash (wallet)', 'others' => 'Others'])
+                        ->options(fn () => $this->paymentOptions())
                         ->default('cash')->required()
                         ->live()   // the URN field below is not asked for a Digi Cash (wallet) payment
-                        ->helperText(fn () => 'Digi cash available: ₹'
-                            . \App\Support\Money::group((float) (auth()->user()?->branch?->digi_cash_balance ?? 0))),
+                        ->helperText(fn (Get $get) => array_key_exists('digi_cash', $this->paymentOptions())
+                            ? 'Digi cash available: ₹' . \App\Support\Money::group((float) (Branch::find($get('branch_id'))?->digi_cash_balance ?? 0))
+                            : null),
                     Textarea::make('payment_remarks')->label('Payment remarks')->rows(2),
                     Placeholder::make('summary')
                         ->label('')
                         ->content(fn (Get $get) => $this->summary($get('lines') ?? []))
                         ->columnSpanFull(),
-                    Hidden::make('branch_id'),
-                ]),
+                ], static::hqUser() ? [] : [$this->branchField()])),
                 // Payment proof (board phase-1, 2026-08-21; reworked 2026-08-26 item 2.2):
                 // its own section with image previews. Files go to the PRIVATE disk and
                 // are streamed through an auth-guarded route, so they open for HQ / the
@@ -220,7 +289,7 @@ class OrderForm extends Page implements HasForms
                     ->schema([
                         TextInput::make('urn_no')
                             ->label('URN number')
-                            ->required()
+                            ->required(fn () => $this->urnRequired())
                             ->minLength(4)->maxLength(60)
                             ->regex('/^[A-Za-z0-9][A-Za-z0-9\\-\\/ ]*$/')
                             ->validationMessages(['regex' => 'Use only letters, numbers, hyphen or slash.'])
@@ -233,7 +302,8 @@ class OrderForm extends Page implements HasForms
                             }),
                         TextInput::make('urn_amount')
                             ->label('Amount paid on this URN (₹)')
-                            ->numeric()->minValue(1)->required()->prefix('₹')
+                            ->numeric()->minValue(1)->prefix('₹')
+                            ->required(fn (Get $get) => $this->urnRequired() || filled($get('urn_no')))
                             ->helperText('The full amount of that bank transaction — not just this order\'s share.'),
                     ]),
             ])
@@ -265,8 +335,17 @@ class OrderForm extends Page implements HasForms
     }
 
     /** Shows the branch this order will be placed with (its source), with a link to change it. */
-    protected function supplierBanner(): HtmlString
+    protected function supplierBanner(?int $branchId = null): HtmlString
     {
+        if (static::hqUser()) {
+            $branch = $branchId ? Branch::find($branchId) : null;
+            $source = $branch?->orderSupplier();
+
+            return new HtmlString('<div class="text-sm">' . ($branch
+                ? 'Stock for <span class="font-semibold">' . e($branch->name) . '</span> — supplied by <span class="font-semibold">'
+                    . e($source?->name ?? 'Head Office') . '</span>.'
+                : 'Select the branch that receives the stock.') . '</div>');
+        }
         $branch = auth()->user()?->branch;
         $source = $branch?->orderSupplier();   // only a supplier the board matrix allows
         $name = $source?->name ?? 'Head Office';
@@ -380,6 +459,10 @@ class OrderForm extends Page implements HasForms
         }
 
         $data = $this->form->getState();
+        // a dealer orders for its own branch only — whatever the form state says
+        if (! static::hqUser()) {
+            $data['branch_id'] = auth()->user()?->branch_id ?? $data['branch_id'];
+        }
 
         try {
             $request = app(BranchOrderService::class)->submit([
@@ -420,13 +503,6 @@ class OrderForm extends Page implements HasForms
             ->body($request->request_no . ' sent to Head Office for approval (₹' . \App\Support\Money::group((float) $request->grand_total) . ').')
             ->send();
 
-        $this->form->fill([
-            'branch_id' => $data['branch_id'],
-            'payment_type' => 'cash',
-            'lines' => [],
-            'attachments' => [],
-            'urn_no' => null,
-            'urn_amount' => null,
-        ]);
+        $this->form->fill($this->blankState((int) $data['branch_id']));
     }
 }

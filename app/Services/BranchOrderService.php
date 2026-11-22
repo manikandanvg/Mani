@@ -42,12 +42,19 @@ class BranchOrderService
     /** Pending dealer orders carried over from the legacy system at the Oct-2026 cut-over (LEG-<transid>). */
     public const SOURCE_LEGACY = 'legacy';
 
+    /**
+     * "Branch Sales" (old system admin/trade/branchsales, asked back 2026-11-22): Head Office
+     * allocates stock straight to a branch — the order is written and approved in one step.
+     */
+    public const SOURCE_BRANCH_SALES = 'branch_sales';
+
     public static function sourceLabel(?string $source): string
     {
         return match ($source) {
             self::SOURCE_REDEMPTION => 'Redemption',
             self::SOURCE_CUSTOMIZE => 'Customize order',
             self::SOURCE_LEGACY => 'Legacy (pre cut-over)',
+            self::SOURCE_BRANCH_SALES => 'Branch Sales (HQ)',
             default => 'Order form',
         };
     }
@@ -294,6 +301,7 @@ class BranchOrderService
 
             $request = BranchOrderRequest::create([
                 'request_no' => $this->nextRequestNo(),
+                'source' => $data['source'] ?? self::SOURCE_ORDER_FORM,
                 'branch_id' => $branchId,
                 'requested_by' => $userId,
                 'no_of_items' => count($priced),
@@ -327,6 +335,10 @@ class BranchOrderService
 
             return $request->fresh('lines');
         });
+
+        if (($data['source'] ?? null) === self::SOURCE_BRANCH_SALES) {
+            return $request;   // approved in the same step (allocate) — nothing awaits anybody
+        }
 
         // HQ bell: a dealer order awaits approval (board 2026-08-11).
         \App\Services\Push\Notifier::admins(
@@ -679,6 +691,47 @@ class BranchOrderService
     }
 
     /**
+     * Branch Sales (user 2026-11-22, old system `generatebranchsales`): Head Office allocates
+     * stock DIRECTLY to any branch — no request from the dealer, no waiting. The allocation is
+     * written as an order (source branch_sales) and approved in the same transaction, so it
+     * shows in Order Requests, the stock ledger and every stock report like any other order.
+     * Head Office staff only; the supplier is always Head Office.
+     *
+     * @param array $data as submit(): branch_id, lines[[catalog_product_id, weight]], payment_type?,
+     *                    payment_remarks?, urn_no?, urn_amount?, attachments?, attachment_names?
+     */
+    public function allocate(array $data, ?User $by = null): BranchOrderRequest
+    {
+        $by ??= auth()->user();
+        abort_if(! $by || $by->isDistributor() || $by->isSupport(), 403, 'Branch Sales is done by Head Office only.');
+        $branch = Branch::find((int) ($data['branch_id'] ?? 0));
+        abort_if(! $branch, 422, 'Select the branch that receives the stock.');
+        abort_if(($data['payment_type'] ?? null) === 'digi_cash', 422, 'Branch Sales cannot be paid from the branch wallet.');
+
+        $request = DB::transaction(function () use ($data, $by, $branch) {
+            $request = $this->submit(array_merge($data, [
+                'branch_id' => $branch->id,
+                'requested_by' => $by->id,
+                'source' => self::SOURCE_BRANCH_SALES,
+                'urn_required' => false,
+            ]));
+            $this->approve($request, $by->id);
+
+            return $request->fresh('lines');
+        });
+
+        \App\Services\Activity\ActivityLogger::log('orders', 'branch_sales',
+            'Branch Sales ' . $request->request_no . ': stock of ₹' . \App\Support\Money::group((float) $request->grand_total)
+                . ' allocated by Head Office to ' . $branch->name, [
+                'subject' => $request,
+                'details' => ['order' => $request->request_no, 'branch_id' => $branch->id,
+                    'grand_total' => (float) $request->grand_total, 'items' => $request->no_of_items],
+            ]);
+
+        return $request;
+    }
+
+    /**
      * Approve a branch order = fulfil it. For every line the goods move from the SELLER
      * (the branch the order was placed with — the buyer's source) to the buyer: the
      * buyer's stock goes up, the seller's stock goes down, a stock_transfers row is logged
@@ -703,7 +756,8 @@ class BranchOrderService
             $buyerId = $request->branch_id;
             // The fulfilling branch (one hop up) — only a supplier the board matrix allows.
             // A sponsor the legacy import recorded as "supplier" ships nothing (2026-11-11).
-            $seller = $request->branch?->orderSupplier();
+            // Branch Sales is Head Office's own allocation — never shipped from a dealer.
+            $seller = $request->source === self::SOURCE_BRANCH_SALES ? null : $request->branch?->orderSupplier();
             $today = Carbon::now()->toDateString();
 
             foreach ($request->lines as $line) {
@@ -768,13 +822,14 @@ class BranchOrderService
 
         // Order-approved acknowledgement to the ordering dealer (board 2026-08-11).
         $customize = $request->source === self::SOURCE_CUSTOMIZE;
+        $allocated = $request->source === self::SOURCE_BRANCH_SALES;
         \App\Services\Push\Notifier::to(
             Branch::find($request->branch_id)?->distributorUser?->memberAccount,
             'order',
-            ($customize ? 'Customize order accepted — ' : 'Stock order approved — ') . $request->request_no,
+            ($customize ? 'Customize order accepted — ' : ($allocated ? 'Stock allocated by Head Office — ' : 'Stock order approved — ')) . $request->request_no,
             $customize
                 ? 'Your supplier accepted your customised order of ₹' . \App\Support\Money::group((float) $request->grand_total) . '.'
-                : 'Head Office approved your order of ₹' . \App\Support\Money::group((float) $request->grand_total)
+                : ($allocated ? 'Head Office allocated stock worth ₹' : 'Head Office approved your order of ₹') . \App\Support\Money::group((float) $request->grand_total)
                     . '. The stock has been added to your branch.',
             route: '/stock-orders/' . $request->id,
         );
