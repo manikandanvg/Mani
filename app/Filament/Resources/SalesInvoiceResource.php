@@ -288,7 +288,7 @@ class SalesInvoiceResource extends BaseResource
                             ->disabled(fn () => app(\App\Services\SalesCancelService::class)->memberDeleteBlocker($r) !== null)
                             ->helperText(fn () => ($why = app(\App\Services\SalesCancelService::class)->memberDeleteBlocker($r))
                                 ? 'Not possible: ' . $why . ' To remove the profile anyway, close this and use "Force delete member" on this row.'
-                                : 'Tick only when this member was enrolled by mistake. The profile and its app / dealer login are removed; leave unticked to keep the member.'),
+                                : 'Tick only when this member was enrolled by mistake. The profile is moved to the deleted-members store and removed from the live data; leave unticked to keep the member.'),
                     ])
                     ->modalSubmitAction(fn ($action, SalesInvoice $r) => app(\App\Services\SalesCancelService::class)->blocker($r) ? $action->hidden() : $action)
                     ->action(function (SalesInvoice $r, array $data) {

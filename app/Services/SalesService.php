@@ -831,10 +831,10 @@ class SalesService
     {
         // withTrashed: a member deleted with a cancelled bill keeps its code (2026-11-11) —
         // the next enrolment must not be handed the same number.
-        $n = (int) Member::withTrashed()->max('id') + 1;
+        $n = max((int) Member::withTrashed()->max('id'), \App\Models\DeletedMember::maxMemberId()) + 1;
         do {
             $code = 'LJW' . str_pad((string) $n++, 7, '0', STR_PAD_LEFT);
-        } while (Member::withTrashed()->where('member_code', $code)->exists());
+        } while (Member::withTrashed()->where('member_code', $code)->exists() || \App\Models\DeletedMember::codeTaken($code));
 
         return $code;
     }

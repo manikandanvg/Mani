@@ -265,6 +265,7 @@ class OrderForm extends Page implements HasForms
                 // are streamed through an auth-guarded route, so they open for HQ / the
                 // supplier on any host — no dependence on the public/storage symlink.
                 Section::make('Payment proof')
+                    ->visible(fn () => $this->urnRequired())   // not on Head Office's own Branch Sales
                     ->icon('heroicon-o-paper-clip')
                     ->description('Attach the transaction receipt, screenshot or bank slip for this payment — your supplier checks it on the approval screen. Up to 5 files (JPG, PNG, WebP or PDF), 8 MB each.')
                     ->schema([
@@ -285,7 +286,7 @@ class OrderForm extends Page implements HasForms
                     ->icon('heroicon-o-hashtag')
                     ->description('The URN / UTR / transaction reference number printed on the payment proof above, and the amount paid on it. If your order limit made you split one payment over two orders, enter the SAME URN and the SAME amount on each — together they cannot exceed the amount paid. A URN can never be used by another branch.')
                     ->columns(2)
-                    ->visible(fn (Get $get) => $get('payment_type') !== 'digi_cash')
+                    ->visible(fn (Get $get) => $this->urnRequired() && $get('payment_type') !== 'digi_cash')
                     ->schema([
                         TextInput::make('urn_no')
                             ->label('URN number')

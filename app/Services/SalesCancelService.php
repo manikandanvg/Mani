@@ -106,6 +106,9 @@ class SalesCancelService
         if (Member::where('upline_id', $member->id)->orWhere('referrer_id', $member->id)->exists()) {
             return $member->member_code . ' already has distributors under them (team / referrals).';
         }
+        if (\App\Models\EmployeeProfile::withTrashed()->where('member_id', $member->id)->exists()) {
+            return $member->member_code . ' is on the payroll (employee record).';
+        }
         $wallet = $member->wallet;
         if ($wallet && ((float) $wallet->cash_balance > 0 || (float) $wallet->coupon_balance > 0 || (float) $wallet->epin_balance > 0)) {
             return $member->member_code . ' has a wallet balance.';
@@ -130,11 +133,16 @@ class SalesCancelService
         $silent = (bool) ($opt['silent'] ?? false);
 
         return DB::transaction(function () use ($invoice, $userId, $reason, $deleteMember, $force, $silent, $opt) {
+            $archive = null;
             $invoice = SalesInvoice::whereKey($invoice->id)->lockForUpdate()->with('lines')->firstOrFail();
             if ($why = $this->blocker($invoice, $force)) {
                 abort(422, $why);
             }
             $this->teamLeaves = array_key_exists('team_leaves', $opt) ? (bool) $opt['team_leaves'] : null;
+            // the member's data as it stands, before the bill is unwound (user 2026-11-22)
+            $archive = $deleteMember && $invoice->customer_member_id && ($leaving = Member::find($invoice->customer_member_id))
+                ? app(DeletedMemberArchiver::class)->snapshot($leaving, ['mode' => 'with_invoice', 'reason' => $reason, 'by' => $userId])
+                : null;
             if ($deleteMember && ($why = $this->memberDeleteBlocker($invoice))) {
                 abort(422, 'Member profile cannot be deleted: ' . $why . ' Untick the option to cancel the bill only.');
             }
@@ -186,7 +194,7 @@ class SalesCancelService
             $this->teamLeaves = null;
 
             if ($member && $deleteMember) {
-                $this->removeMember($member);
+                $this->removeMember($member, $archive);
                 \App\Services\Activity\ActivityLogger::log('member', 'deleted_with_invoice',
                     'Member ' . $member->member_code . ' (' . $member->name . ') deleted together with cancelled invoice ' . $invoice->invoice_no, [
                         'subject' => $invoice, 'member' => $member->id, 'details' => ['reason' => $reason],
@@ -232,15 +240,14 @@ class SalesCancelService
     }
 
     /**
-     * Remove a member profile: logins closed, app tokens revoked, soft delete — the cancelled
-     * bills keep pointing at it for the audit trail, and the code is never issued again.
+     * Remove a member profile (user 2026-11-22: nothing of a deleted member stays in the live
+     * tables). The member's data was copied to the deleted-member store by
+     * DeletedMemberArchiver::snapshot(); here the live rows go. The code is never issued again.
      */
-    public function removeMember(Member $member): void
+    public function removeMember(Member $member, ?\App\Models\DeletedMember $archive = null): void
     {
-        \App\Models\User::where('member_code', $member->member_code)->update(['status' => 'inactive']);
-        $member->tokens()->delete();
-        $member->update(['status' => 'inactive']);
-        $member->delete();
+        $archiver = app(DeletedMemberArchiver::class);
+        $archiver->purge($archive ?? $archiver->snapshot($member), $member);
     }
 
     /** True while cancel() is also deleting the member — they leave every ancestor's team count. */

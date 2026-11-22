@@ -230,7 +230,9 @@ class Complaints20261111Test extends TestCase
         $this->assertNull($cancel->memberDeleteBlocker($gone));
         $cancel->cancel($gone, null, 'enrolled by mistake', true);
         $this->assertNull(Member::find($gone->customer_member_id));
-        $this->assertNotNull(Member::withTrashed()->find($gone->customer_member_id));
+        // user 2026-11-22: nothing stays in the live table — the member is in the deleted-member store
+        $this->assertNull(Member::withTrashed()->find($gone->customer_member_id));
+        $this->assertSame(1, \App\Models\DeletedMember::where('member_id', $gone->customer_member_id)->where('mode', 'with_invoice')->count());
         $this->assertSame('inactive', User::find($opened['user_id'])->status);
         $this->assertSame('cancelled', $gone->fresh()->status);
 

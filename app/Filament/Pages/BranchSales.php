@@ -66,7 +66,11 @@ class BranchSales extends OrderForm
         return 'Any branch can be selected. Supplied by Head Office.';
     }
 
-    /** The dealer did not ask for this stock — a payment reference is optional here. */
+    /**
+     * User 2026-11-22: Head Office sells directly — no URN, no "amount paid on this URN" and no
+     * payment-proof attachment are asked (both sections are hidden); the payment mode and the
+     * remarks are all that is recorded.
+     */
     protected function urnRequired(): bool
     {
         return false;
@@ -87,11 +91,7 @@ class BranchSales extends OrderForm
                 'branch_id' => $data['branch_id'] ?? null,
                 'payment_type' => $data['payment_type'] ?? 'cash',
                 'payment_remarks' => $data['payment_remarks'] ?? null,
-                'urn_no' => $data['urn_no'] ?? null,
-                'urn_amount' => $data['urn_amount'] ?? null,
                 'lines' => $data['lines'] ?? [],
-                'attachments' => $data['attachments'] ?? [],
-                'attachment_names' => $data['attachment_names'] ?? [],
             ], auth()->user());
         } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
             Notification::make()->danger()->title('Stock not allocated')->body($e->getMessage())->persistent()->send();

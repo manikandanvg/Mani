@@ -268,20 +268,36 @@ class BranchSalesAndForceDeleteTest extends TestCase
 
         $this->assertSame('cancelled', $first->fresh()->status);
         $this->assertSame('cancelled', $second->fresh()->status);
-        $this->assertSame(0, Bond::where('member_id', $member->id)->where('status', '!=', 'cancelled')->count());
-        $this->assertSoftDeleted('members', ['id' => $member->id]);
-        // wallets: the upline keeps nothing of the reversed incentive, the member's wallet is emptied
+        // nothing of the member stays in the live tables …
+        $this->assertDatabaseMissing('members', ['id' => $member->id]);
+        $this->assertSame(0, Bond::where('member_id', $member->id)->count());
+        $this->assertSame(0, CbcEntry::where('member_id', $member->id)->count());
+        $this->assertNull(MemberWallet::find($member->id));
+        $this->assertSame(0, RedeemableQr::where('member_id', $member->id)->count());
+        // … it lives in the deleted-member store, as it stood BEFORE the delete
+        $kept = \App\Models\DeletedMember::where('member_code', $member->member_code)->firstOrFail();
+        $this->assertSame('force', $kept->mode);
+        $this->assertSame('Duplicate profile', $kept->reason);
+        $this->assertSame($member->name, $kept->profile['name']);
+        $this->assertSame(2, (int) $kept->bills_count);
+        $this->assertEqualsWithDelta(($icNet - 100) + 14420, (float) $kept->charged_total, 0.01);
+        $this->assertSame(2, $kept->records()->where('source_table', 'bonds')->count());
+        $this->assertSame(6, $kept->records()->where('source_table', 'cbc_entries')->count(), 'paid AND unpaid coupons are kept');
+        $this->assertSame(2, $kept->records()->where('source_table', 'sales_invoices')->where('purged', false)->count());
+        $this->assertGreaterThan(0, (float) $kept->records()->where('source_table', 'member_wallets')->first()->data['cash_balance'], 'the wallet as it was');
+        // the bills stay on record as cancelled, without the member
+        $this->assertNull($first->fresh()->customer_member_id);
+        // the upline keeps nothing of the reversed incentive — but keeps the paid row, it is theirs
         $this->assertSame(0.0, (float) MemberWallet::find($upline->id)->cash_balance);
-        $this->assertSame(0.0, (float) MemberWallet::find($member->id)->cash_balance);
+        $this->assertSame(1, CommissionLedger::where('member_id', $upline->id)->where('invoice_no', $first->invoice_no)->where('status', 'paid')->count());
+        // the code is never handed out again
+        $this->assertTrue(\App\Models\DeletedMember::codeTaken($member->member_code));
         // the issuing branch's cash stock went BELOW ZERO by the withdrawn incentive + the redeemed QR
         $expected = 1000 - (($icNet - 100) + 14420);
         $this->assertLessThan(0, $expected);
         $this->assertEqualsWithDelta($expected, (float) Stock::where('branch_id', $dealer->id)->where('catalog_product_id', $cashCp->id)->value('quantity'), 0.01);
         $this->assertEqualsWithDelta(-(($icNet - 100) + 14420),
             (float) StockMovement::where('ref_type', MemberForceDeleteService::MOVEMENT_REF)->where('ref_id', $member->id)->sum('qty_change'), 0.01);
-        // unpaid lines are gone, paid rows stay on record
-        $this->assertSame(0, CbcEntry::where('member_id', $member->id)->where('status', 'pending')->count());
-        $this->assertSame(1, CbcEntry::where('member_id', $member->id)->where('status', 'paid')->count());
         // network: both bills leave the upline's GBV, the member leaves the team count ONCE
         $this->assertEqualsWithDelta($gbvBefore - 2 * 14420, (float) $upline->fresh()->gbv, 0.01);
         $this->assertSame($teamBefore - 1, (int) $upline->fresh()->downline_count);
@@ -305,10 +321,39 @@ class BranchSalesAndForceDeleteTest extends TestCase
         $this->assertEqualsWithDelta(($icNet - 100) + 14420, $s['totals']['charge'], 0.01);
 
         $svc->delete($member, $this->admin()->id, 'Duplicate profile');
-        $this->assertSame('cancelled', $w->fresh()->status);
-        $this->assertSame(0.0, (float) MemberWallet::find($member->id)->cash_balance);
+        $this->assertNull(\App\Models\WalletWithdrawal::find($w->id), 'the request left the live table with the member');
+        $kept = \App\Models\DeletedMember::where('member_code', $member->member_code)->firstOrFail();
+        $this->assertSame(1, $kept->records()->where('source_table', 'wallet_withdrawals')->count());
         $this->assertEqualsWithDelta(1000 - (($icNet - 100) + 14420), (float) Stock::where('branch_id', $dealer->id)->where('catalog_product_id', $cashCp->id)->value('quantity'), 0.01);
-        $this->assertSoftDeleted('members', ['id' => $member->id]);
+        $this->assertDatabaseMissing('members', ['id' => $member->id]);
+    }
+
+    public function test_cancel_invoice_with_the_delete_tick_also_moves_the_member_to_the_deleted_store_and_the_list_exports(): void
+    {
+        $dealer = Branch::create(['name' => 'Dealer FD', 'country' => 'IN', 'is_active' => true]);
+        $invoice = $this->bill($dealer, Member::firstOrFail());
+        $member = $invoice->customer;
+
+        app(SalesCancelService::class)->cancel($invoice, $this->admin()->id, 'Enrolled by mistake', true);
+
+        $this->assertSame('cancelled', $invoice->fresh()->status);
+        $this->assertDatabaseMissing('members', ['id' => $member->id]);
+        $kept = \App\Models\DeletedMember::where('member_code', $member->member_code)->firstOrFail();
+        $this->assertSame('with_invoice', $kept->mode);
+        $this->assertSame(1, $kept->records()->where('source_table', 'bonds')->count());
+        $this->assertSame(3, $kept->records()->where('source_table', 'cbc_entries')->count());
+
+        // the next enrolment gets a NEW code, never the deleted one
+        $next = $this->bill($dealer, Member::firstOrFail())->customer;
+        $this->assertNotSame($member->member_code, $next->member_code);
+
+        // the list for Lord's admin, and one member's full data
+        $this->artisan('members:deleted-export')->assertSuccessful();
+        $this->artisan('members:deleted-export', ['--member' => $member->member_code])->assertSuccessful();
+        $this->artisan('members:deleted-export', ['--member' => 'NOPE'])->assertFailed();
+        foreach (glob(storage_path('app/deleted-member*')) as $f) {
+            @unlink($f);
+        }
     }
 
     public function test_force_delete_is_refused_while_the_member_has_direct_distributors(): void
@@ -331,7 +376,8 @@ class BranchSalesAndForceDeleteTest extends TestCase
         } catch (HttpException $e) {
             $this->assertSame(422, $e->getStatusCode());
         }
-        $this->assertNotSoftDeleted('members', ['id' => $parent->id]);
+        $this->assertDatabaseHas('members', ['id' => $parent->id]);
+        $this->assertSame(0, \App\Models\DeletedMember::count());
     }
 
     public function test_the_sales_invoices_table_offers_force_delete_to_the_super_admin_with_a_confirmation(): void
@@ -346,11 +392,11 @@ class BranchSalesAndForceDeleteTest extends TestCase
         // without the tick nothing happens
         $list->callTableAction('forceDeleteMember', $first, data: ['reason' => 'Duplicate', 'confirmed' => false])
             ->assertHasTableActionErrors(['confirmed']);
-        $this->assertNotSoftDeleted('members', ['id' => $member->id]);
+        $this->assertDatabaseHas('members', ['id' => $member->id]);
 
         $list->callTableAction('forceDeleteMember', $first, data: ['reason' => 'Duplicate', 'confirmed' => true])
             ->assertHasNoTableActionErrors()
             ->assertNotified($member->member_code . ' force deleted');
-        $this->assertSoftDeleted('members', ['id' => $member->id]);
+        $this->assertDatabaseMissing('members', ['id' => $member->id]);
     }
 }

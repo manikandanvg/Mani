@@ -47,8 +47,10 @@ use Illuminate\Support\Facades\DB;
  * Distributor branch that cannot close. Withdrawal requests Head Office has not paid are
  * cancelled (the money returns to the wallet and is taken back from there); Digi metal and
  * whatever else is left in the member's own wallet is forfeited — all of it listed first.
- * Rows already PAID stay on record as paid (they were, and TDS was withheld on them); the
- * recovery is its own entry — a wallet debit or a cash-stock movement (ref_type force_delete).
+ * The recovery is its own entry — a wallet debit or a cash-stock movement (ref_type force_delete).
+ * Nothing of the member stays in the live tables (user 2026-11-22): DeletedMemberArchiver copies
+ * the member's data to deleted_members / deleted_member_records first and removes the live rows
+ * at the end. Bills stay as CANCELLED, and what other people were paid stays theirs.
  */
 class MemberForceDeleteService
 {
@@ -75,6 +77,9 @@ class MemberForceDeleteService
         $opened = $invoiceIds ? Branch::whereIn('opened_invoice_id', $invoiceIds)->pluck('id')->all() : [];
         if (User::where('member_code', $code)->whereNotNull('branch_id')->whereNotIn('branch_id', $opened ?: [0])->exists()) {
             $out[] = $code . ' runs a dealer branch — close or re-assign that branch first.';
+        }
+        if (\App\Models\EmployeeProfile::withTrashed()->where('member_id', $member->id)->exists()) {
+            $out[] = $code . ' is on the payroll — remove the employee record first.';
         }
         foreach ($this->invoices($member) as $invoice) {
             if (BranchOrderLine::where('sales_invoice_id', $invoice->id)->exists()) {
@@ -373,6 +378,10 @@ class MemberForceDeleteService
         return DB::transaction(function () use ($member, $userId, $reason) {
             $member = Member::whereKey($member->id)->lockForUpdate()->firstOrFail();
             abort_if(($why = $this->blockers($member)) !== [], 422, implode(' ', $why));
+            // the member's data exactly as it stands goes to the deleted-member store first
+            $before = $this->statement($member);
+            abort_if($before['blockers'] !== [], 422, implode(' ', $before['blockers']));
+            $archive = app(DeletedMemberArchiver::class)->snapshot($member, ['mode' => 'force', 'reason' => $reason, 'by' => $userId, 'statement' => $before]);
             // withdrawal requests Head Office has not paid are withdrawn — the money is back in
             // the wallet before the statement is drawn, so it is taken back from there
             foreach ($this->unpaidWithdrawals($member) as $w) {
@@ -435,7 +444,14 @@ class MemberForceDeleteService
                 $ancestor->update(['downline_count' => max(0, (int) $ancestor->downline_count - 1)]);
                 $ancestor = $ancestor->upline;
             }
-            $this->cancel->removeMember($member);
+            $settled = $statement;
+            unset($settled['member']);
+            $archive->update([
+                'statement' => $settled, 'bills_count' => count($statement['bills']),
+                'issued_total' => $statement['totals']['issued'], 'recovered_total' => $statement['totals']['recover'],
+                'charged_total' => $statement['totals']['charge'],
+            ]);
+            $this->cancel->removeMember($member, $archive);
 
             \App\Services\Activity\ActivityLogger::log('member', 'force_deleted',
                 'Member ' . $member->member_code . ' (' . $member->name . ') FORCE DELETED — ' . count($statement['bills']) . ' bill(s) / contract(s) cancelled; ₹'

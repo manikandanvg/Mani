@@ -136,6 +136,7 @@
 
     <div style="font-size:12px;opacity:.75;">
         Sold stock returns to each billing branch and the network volumes (BV / GBV) are rolled back, as with "Cancel invoice".
-        Rows already paid stay on record as paid; the recovery is logged separately. This cannot be undone.
+        The member's profile, wallet, contracts, coupons and QRs are copied to the separate deleted-members store and then removed from the live data;
+        the bills stay on record as CANCELLED. This cannot be undone.
     </div>
 </div>
