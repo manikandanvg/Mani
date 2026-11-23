@@ -505,6 +505,14 @@ class RedemptionService
 
         if ($existing) {
             $branchId = $existing->branch_id;
+            // closed by a cancelled redemption (RedemptionCancelService) → open it again
+            $closed = Branch::find($branchId);
+            if ($closed && ! $closed->is_active) {
+                $closed->update(['is_active' => true]);
+                User::where('branch_id', $branchId)->where('member_code', $member->member_code)->update(['status' => 'active']);
+                $member->update(['branch_id' => $branchId]);
+                $invoice->update(['dealer_created' => true]);
+            }
         } else {
             // Level = the dealership plan's rung on the ladder (board 2026-08-26); a
             // non-dealership plan still opens a plain Retailer branch.

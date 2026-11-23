@@ -413,6 +413,60 @@ class RedemptionTest extends TestCase
         $this->assertEquals(22, (float) Stock::where('branch_id', $dealerBranch->id)->where('catalog_product_id', $cp->id)->value('quantity'));
     }
 
+    /**
+     * User 2026-11-23: "a dealer account was opened by this redemption — but the branch is not
+     * operative yet": the redemption is cancelled, the opened branch + login are closed and the
+     * seeded stock is taken back; once the branch has worked, the cancel is refused.
+     */
+    public function test_a_redemption_that_opened_a_dealer_account_is_cancelled_while_the_branch_is_unused(): void
+    {
+        $branch = Branch::create(['name' => 'Redeem Branch', 'country' => 'IN', 'level' => 'reseller', 'is_active' => true]);
+        $plan = $this->plan('511', 'digital', ['useraccess' => true]);
+        $member = $this->member('DLR9', ['city' => 'Trichy']);
+        $bond = Bond::create(['member_id' => $member->id, 'plan_id' => $plan->id, 'branch_id' => $branch->id, 'bond_date' => now(), 'value' => 100000, 'invoice_no' => 'INV-DLR9', 'status' => 'active']);
+        $cp = $this->gold('GD9');
+        Stock::create(['branch_id' => $branch->id, 'catalog_product_id' => $cp->id, 'quantity' => 1000]);
+        $qr = RedeemableQr::create(['bond_id' => $bond->id, 'member_id' => $member->id, 'branch_id' => $branch->id, 'invoice_no' => 'INV-DLR9', 'qr_code' => 'QDLR9', 'qr_mode' => 'cash', 'cash_worth' => 100000, 'status' => 'pending']);
+        $svc = app(RedemptionService::class);
+        $cancel = app(\App\Services\Redeem\RedemptionCancelService::class);
+        $redeem = function () use ($svc, $qr, $branch, $cp) {
+            $svc->generateOtp($qr->fresh());
+
+            return $svc->redeem([
+                'qr_code' => 'QDLR9', 'branch_id' => $branch->id, 'otp' => $qr->fresh()->otp,
+                'create_dealer' => true, 'dealer' => ['branch_name' => 'DLR9 Jewels'],
+                'lines' => [['catalog_product_id' => $cp->id, 'unit_weight' => 1, 'quantity' => 20]],
+            ]);
+        };
+
+        $invoice = $redeem();
+        $dealerBranch = Branch::where('name', 'DLR9 Jewels')->firstOrFail();
+        $this->assertTrue($invoice->fresh()->dealer_created);
+        $this->assertNull($cancel->blocker($invoice->fresh()), 'an unused dealer branch does not stop the cancel');
+
+        $cancel->cancel($invoice->fresh(), null, 'Wrong items');
+
+        $this->assertSoftDeleted('redemption_invoices', ['id' => $invoice->id]);
+        $this->assertSame('pending', $qr->fresh()->status);
+        $this->assertFalse((bool) $dealerBranch->fresh()->is_active);
+        $this->assertSame('inactive', \App\Models\User::where('branch_id', $dealerBranch->id)->value('status'));
+        $this->assertSame(0, Stock::where('branch_id', $dealerBranch->id)->count(), 'the seeded stock is taken back');
+        $this->assertEquals(1000, (float) Stock::where('branch_id', $branch->id)->where('catalog_product_id', $cp->id)->value('quantity'));
+        $this->assertSame((int) $branch->id, (int) $member->fresh()->branch_id);
+
+        // redeemed again: the SAME branch + login open again, no second one
+        $again = $redeem();
+        $this->assertSame(1, Branch::where('name', 'DLR9 Jewels')->count());
+        $this->assertTrue((bool) $dealerBranch->fresh()->is_active);
+        $this->assertSame('active', \App\Models\User::where('branch_id', $dealerBranch->id)->value('status'));
+        $this->assertTrue($again->fresh()->dealer_created);
+        $this->assertEquals(20, (float) Stock::where('branch_id', $dealerBranch->id)->where('catalog_product_id', $cp->id)->value('quantity'));
+
+        // once the new branch has worked (here: it moved stock) the cancel is refused
+        \App\Models\StockMovement::create(['branch_id' => $dealerBranch->id, 'catalog_product_id' => $cp->id, 'type' => 'sale', 'qty_change' => -1, 'balance_after' => 19, 'moved_on' => now()->toDateString()]);
+        $this->assertStringContainsString('already moved stock', (string) $cancel->blocker($again->fresh()));
+    }
+
     /** Buyer GST: the typed value prints; an existing on-record dealer GST takes precedence. */
     public function test_buyer_gst_typed_then_existing_takes_precedence(): void
     {
