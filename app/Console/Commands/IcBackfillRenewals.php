@@ -52,7 +52,12 @@ class IcBackfillRenewals extends Command
         $lines = 0;
         $amount = 0.0;
         $skipped = 0;
+        // working out each upline's earning limit takes about a second per renewal — show progress
+        $this->line('Working out the incentive of each renewal (10 levels, each capped by the earning limit of the upline) …');
+        $bar = $this->output->createProgressBar($missing->count());
+        $bar->start();
         foreach ($missing as $entry) {
+            $bar->advance();
             $bond = Bond::with('plan', 'member')->find($entry->bond_id);
             if (! $bond || $bond->status === 'cancelled' || empty($bond->plan?->ic_schedule)) {
                 $skipped++;
@@ -74,6 +79,8 @@ class IcBackfillRenewals extends Command
             }
         }
 
+        $bar->finish();
+        $this->newLine(2);
         $this->info(($apply ? 'Issued ' : 'Would issue ') . $lines . ' incentive line(s) worth ₹' . number_format($amount, 2)
             . ' (pending — paid only through Commission Approval).' . ($skipped ? ' Skipped ' . $skipped . ' (contract cancelled / no incentive schedule).' : ''));
         if (! $apply) {
