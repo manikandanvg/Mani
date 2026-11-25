@@ -270,12 +270,12 @@ class SalesInvoiceResource extends BaseResource
                 // "Delete" = CANCEL (board 2026-10-31 item 8): stock comes back, contract /
                 // coupons / incentive / margins / volumes / QR of the bill are reversed.
                 Tables\Actions\Action::make('cancelInvoice')
-                    ->label('Cancel invoice')
+                    ->label('New Close')   // board 2026-11-25: was "Cancel invoice"
                     ->icon('heroicon-o-x-circle')
                     ->color('danger')
                     ->visible(fn (SalesInvoice $r) => static::canCancel($r))
                     ->requiresConfirmation()
-                    ->modalHeading(fn (SalesInvoice $r) => 'Cancel invoice ' . $r->invoice_no)
+                    ->modalHeading(fn (SalesInvoice $r) => 'New Close — cancel invoice ' . $r->invoice_no)
                     ->modalDescription(fn (SalesInvoice $r) => ($why = app(\App\Services\SalesCancelService::class)->blocker($r))
                         ? 'This bill cannot be cancelled: ' . $why
                         : 'The sold stock returns to the branch; the contract, promotional coupons, sales incentive lines, dealer margins, network volumes and the stock QR of this bill are reversed. The bill stays on record as CANCELLED. This cannot be undone.')
@@ -287,7 +287,7 @@ class SalesInvoiceResource extends BaseResource
                             ->label(fn () => 'Also delete the member profile' . ($r->customer ? ' — ' . $r->customer->member_code . ' ' . $r->customer->name : ''))
                             ->disabled(fn () => app(\App\Services\SalesCancelService::class)->memberDeleteBlocker($r) !== null)
                             ->helperText(fn () => ($why = app(\App\Services\SalesCancelService::class)->memberDeleteBlocker($r))
-                                ? 'Not possible: ' . $why . ' To remove the profile anyway, close this and use "Force delete member" on this row.'
+                                ? 'Not possible: ' . $why . ' To remove the profile anyway, close this and use "Force Close(Old)" on this row.'
                                 : 'Tick only when this member was enrolled by mistake. The profile is moved to the deleted-members store and removed from the live data; leave unticked to keep the member.'),
                     ])
                     ->modalSubmitAction(fn ($action, SalesInvoice $r) => app(\App\Services\SalesCancelService::class)->blocker($r) ? $action->hidden() : $action)
@@ -310,41 +310,53 @@ class SalesInvoiceResource extends BaseResource
                 // redeemed QR → FORCE DELETE. Every value issued against the member is shown first;
                 // what cannot be reversed is charged to the cash stock of the issuing branch.
                 Tables\Actions\Action::make('forceDeleteMember')
-                    ->label('Force delete member')
+                    ->label('Force Close(Old)')   // board 2026-11-25: was "Force Delete"
                     ->icon('heroicon-o-user-minus')
                     ->color('danger')
                     ->visible(fn (SalesInvoice $r) => (bool) auth()->user()?->isSuperAdmin() && $r->customer_member_id && $r->customer !== null)
                     ->modalWidth('7xl')
-                    ->modalHeading(fn (SalesInvoice $r) => 'Force delete ' . $r->customer?->member_code . ' — ' . $r->customer?->name)
-                    ->modalDescription('ALL bills and contracts of this member are cancelled and the profile is removed. Check every value below before you confirm.')
-                    ->modalContent(fn (SalesInvoice $r) => view('filament.modals.member-force-delete', [
-                        's' => app(\App\Services\MemberForceDeleteService::class)->statement($r->customer),
-                    ]))
-                    ->form(fn (SalesInvoice $r) => app(\App\Services\MemberForceDeleteService::class)->blockers($r->customer) ? [] : [
+                    ->modalHeading(fn (SalesInvoice $r) => 'Force Close(Old) — bill ' . $r->invoice_no . ' · ' . $r->customer?->member_code . ' ' . $r->customer?->name)
+                    ->modalDescription('Check every value below before you confirm. The settlement of a force-closed contract is done afterwards, on the Settlements page.')
+                    ->form(fn (SalesInvoice $r) => [
+                        // User 2026-11-25: unticked = THIS contract only (the member stays);
+                        // ticked = the member and all their other contracts go too.
+                        Forms\Components\Checkbox::make('delete_all')
+                            ->label('Delete the member + the rest of their contracts — ' . $r->customer?->member_code . ' ' . $r->customer?->name)
+                            ->helperText('Unticked: only this bill / contract (' . $r->invoice_no . ') is force closed and the member stays. Ticked: ALL bills and contracts of the member are closed and the profile is removed.')
+                            ->live(),
+                        Forms\Components\Placeholder::make('statement')->label('')
+                            ->content(fn (Forms\Get $get) => new \Illuminate\Support\HtmlString(view('filament.modals.member-force-delete', [
+                                's' => app(\App\Services\MemberForceDeleteService::class)->statement($r->customer, $get('delete_all') ? null : $r),
+                            ])->render())),
                         Forms\Components\Textarea::make('reason')->label('Reason for the force delete')->required()->rows(2)->maxLength(255),
                         Forms\Components\Checkbox::make('confirmed')
-                            ->label('I have checked the values above. Take back what is in the wallets, charge the rest to the cash stock of the issuing branch (it may go below zero), cancel every bill and delete this member.')
+                            ->label(fn (Forms\Get $get) => 'I have checked the values above. Take back what is in the wallets, charge the rest to the cash stock of the issuing branch (it may go below zero) and '
+                                . ($get('delete_all') ? 'cancel every bill and delete this member.' : 'force close this contract only — the member stays.'))
                             ->accepted()
                             ->validationMessages(['accepted' => 'Tick the box to confirm the force delete.']),
                     ])
-                    ->modalSubmitActionLabel('Force delete member')
-                    ->modalSubmitAction(fn ($action, SalesInvoice $r) => app(\App\Services\MemberForceDeleteService::class)->blockers($r->customer) ? $action->hidden() : $action)
+                    ->modalSubmitActionLabel('Force Close(Old)')
                     ->action(function (SalesInvoice $r, array $data) {
                         $member = $r->customer;
+                        $all = (bool) ($data['delete_all'] ?? false);
                         try {
-                            abort_unless((bool) auth()->user()?->isSuperAdmin(), 403, 'Only the super admin can force delete a member.');
+                            abort_unless((bool) auth()->user()?->isSuperAdmin(), 403, 'Only the super admin can force delete.');
                             abort_unless(($data['confirmed'] ?? false) === true, 422, 'Tick the box to confirm the force delete.');
-                            $done = app(\App\Services\MemberForceDeleteService::class)->delete($member, auth()->id(), (string) ($data['reason'] ?? ''));
+                            $svc = app(\App\Services\MemberForceDeleteService::class);
+                            $done = $all
+                                ? $svc->delete($member, auth()->id(), (string) ($data['reason'] ?? ''))
+                                : $svc->closeContract($r, auth()->id(), (string) ($data['reason'] ?? ''));
                         } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
                             \Filament\Notifications\Notification::make()->danger()
-                                ->title('Member not deleted')->body($e->getMessage())->persistent()->send();
+                                ->title($all ? 'Member not deleted' : 'Contract not closed')->body($e->getMessage())->persistent()->send();
 
                             return;
                         }
                         \Filament\Notifications\Notification::make()->success()
-                            ->title($member->member_code . ' force deleted')
-                            ->body(count($done['bills']) . ' bill(s) / contract(s) cancelled. ₹' . \App\Support\Money::group($done['totals']['recover'])
-                                . ' taken back from wallets, ₹' . \App\Support\Money::group($done['totals']['charge']) . ' charged to branch cash stock.')
+                            ->title($all ? $member->member_code . ' force deleted' : 'Bill ' . $r->invoice_no . ' force closed')
+                            ->body(count($done['bills']) . ' bill(s) / contract(s) closed. ₹' . \App\Support\Money::group($done['totals']['recover'])
+                                . ' taken back from wallets, ₹' . \App\Support\Money::group($done['totals']['charge']) . ' charged to branch cash stock.'
+                                . ($done['settlements'] ? ' Settle the force-closed contract(s) on the Settlements page.' : ''))
                             ->persistent()->send();
                     }),
             ])

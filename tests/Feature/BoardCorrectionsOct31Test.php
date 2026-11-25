@@ -155,7 +155,7 @@ class BoardCorrectionsOct31Test extends TestCase
     {
         $this->actingAs($this->admin);
         $html = $this->get('/admin/rd-collection')->assertSuccessful()->getContent();
-        $this->assertStringContainsString('Gold Saving Collection Entry', $html);
+        $this->assertStringContainsString('Gold Saving Renewal', $html);
         $this->assertStringContainsString('GS Collection (Gold Saving)', $html);
         $this->assertStringNotContainsString('RD Collection', $html);
         $this->assertStringNotContainsString('Monthly Tasks', $html, 'idle module has no nav entry');

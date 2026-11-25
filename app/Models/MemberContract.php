@@ -21,6 +21,7 @@ class MemberContract extends Model
         'amount' => 'decimal:2',
         'start_date' => 'date',
         'end_date' => 'date',
+        'force_closed_on' => 'date',
     ];
 
     public function bond() { return $this->belongsTo(Bond::class); }
@@ -33,6 +34,9 @@ class MemberContract extends Model
 
     /** Gold Saving settlement (board 2026-11-13): coins back, then a gold / silver QR. */
     public function rdSettlement() { return $this->hasOne(RdSettlement::class); }
+
+    /** The figures of a force close (user 2026-11-25) — what the Settlements page settles from. */
+    public function closure() { return $this->hasOne(ClosureSettlement::class)->latestOfMany(); }
 
     public function isExpired(): bool
     {

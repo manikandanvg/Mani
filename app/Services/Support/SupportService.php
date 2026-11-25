@@ -30,6 +30,7 @@ class SupportService
             'owner_id' => $owner->getKey(),
             'subject' => $subject ?: Str::limit($body, 60),
         ]);
+        $reused = $thread->exists && $thread->status === 'closed';   // writing into an old closed chat reopens it
         if (! $thread->exists) {
             $thread->save();
         }
@@ -54,6 +55,12 @@ class SupportService
             'needs_staff' => $thread->needs_staff || ! SupportBot::isThanks($body),
         ])->save();
 
+        // One person, one open chat (board 2026-11-25): a reply written into an OLD closed chat
+        // reopens it — any other open chat of the same person is folded into this one.
+        if ($reused) {
+            $this->consolidate($thread);
+        }
+
         // Auto reply (2026-11-18, off unless SUPPORT_BOT_AUTO_REPLY=true): a fixed acknowledgement
         // of the first message and short fixed answers to follow-ups (SupportBot::respond), so
         // nobody waits days for a first answer. Never allowed to break the message.
@@ -75,6 +82,13 @@ class SupportService
      */
     public function supportReply(SupportThread $thread, string $body, ?int $supportUserId = null, ?string $html = null, string $source = 'app'): SupportMessage
     {
+        // the chat was folded into the person's other chat a moment ago (bulk reply): answer there
+        if (! SupportThread::whereKey($thread->getKey())->exists()) {
+            $thread = SupportThread::where('owner_type', $thread->owner_type)->where('owner_id', $thread->owner_id)
+                ->orderByRaw("status = 'open' desc")->latest('last_message_at')->latest('id')->firstOrFail();
+        }
+
+        $wasClosed = $thread->status === 'closed';
         $message = $thread->messages()->create([
             'sender' => 'support',
             'support_user_id' => $supportUserId,
@@ -91,6 +105,10 @@ class SupportService
             // only a person's reply takes the chat out of the desk's queue — never the bot's
             'needs_staff' => $source === SupportBot::SOURCE ? (bool) $thread->needs_staff : false,
         ])->save();
+
+        if ($wasClosed) {
+            $this->consolidate($thread);   // a reply that reopened an old chat: still one open chat per person
+        }
 
         $thread->owner?->notify(new AppNotification(
             category: 'support',
@@ -160,11 +178,34 @@ class SupportService
      *
      * @return \Illuminate\Support\Collection<int, \Illuminate\Support\Collection<int, SupportThread>>
      */
-    public function duplicateGroups(): \Illuminate\Support\Collection
+    public function duplicateGroups(bool $withClosed = false): \Illuminate\Support\Collection
     {
-        return SupportThread::where('status', 'open')->orderBy('id')->get()
+        return SupportThread::when(! $withClosed, fn ($q) => $q->where('status', 'open'))->orderBy('id')->get()
             ->groupBy(fn (SupportThread $t) => $t->owner_type . '#' . $t->owner_id)
             ->filter(fn ($g) => $g->count() > 1)->values();
+    }
+
+    /**
+     * Keep ONE open chat per person (board 2026-11-25 — "merge not working properly": merged
+     * people came back as two chats). Chats multiply again whenever an old CLOSED chat is
+     * reopened — the user answers in it, the desk replies in it or presses Reopen — while the
+     * person already has another open chat. Called on each of those: the other open chats of the
+     * same person are folded into $thread, the chat in use, so nobody's screen loses its chat.
+     */
+    public function consolidate(SupportThread $thread): int
+    {
+        if ($thread->status !== 'open' || ! $thread->owner_id) {
+            return 0;
+        }
+        $open = SupportThread::where('owner_type', $thread->owner_type)->where('owner_id', $thread->owner_id)
+            ->where('status', 'open')->orderBy('id')->get();
+        if ($open->count() < 2) {
+            return 0;
+        }
+        $removed = $this->mergeThreads($open, $thread);
+        $thread->refresh();
+
+        return $removed;
     }
 
     /**
@@ -173,12 +214,16 @@ class SupportService
      * removed and their inbox notifications point at the chat that is kept. Nothing is sent.
      *
      * @param  \Illuminate\Support\Collection<int, SupportThread>  $threads  the same owner's chats
+     * $keep = the chat that stays (default: the person's first). A set of only CLOSED chats stays
+     * closed; as soon as one of them is open the merged chat is open.
+     *
      * @return int chats removed
      */
-    public function mergeThreads(\Illuminate\Support\Collection $threads): int
+    public function mergeThreads(\Illuminate\Support\Collection $threads, ?SupportThread $keep = null): int
     {
         $threads = $threads->sortBy('id')->values();
-        $keep = $threads->first();
+        $keep = $keep ? ($threads->firstWhere('id', $keep->id) ?? $threads->first()) : $threads->first();
+        $threads = $threads->reject(fn (SupportThread $t) => $t->id === $keep->id)->prepend($keep)->values();
         $rest = $threads->slice(1)->filter(fn (SupportThread $t) => $t->owner_type === $keep->owner_type && (int) $t->owner_id === (int) $keep->owner_id);
         if ($rest->isEmpty()) {
             return 0;
@@ -191,10 +236,12 @@ class SupportService
             $all = $rest->push($keep);
             $subjects = $all->sortBy('id')->pluck('subject')->filter()->unique()->values();
             $keep->forceFill([
-                'status' => 'open',
+                'status' => $all->contains(fn (SupportThread $t) => $t->status === 'open') ? 'open' : 'closed',
                 'subject' => Str::limit($subjects->implode(' | '), 250, '…'),
                 'topic' => $keep->topic ?: $all->pluck('topic')->filter()->first(),
-                'needs_staff' => $all->contains(fn (SupportThread $t) => (bool) $t->needs_staff),
+                // waiting for the desk only if a chat that is still OPEN was waiting — an old closed
+                // chat nobody answered must not put the merged chat back in the queue
+                'needs_staff' => $all->contains(fn (SupportThread $t) => $t->status === 'open' && (bool) $t->needs_staff),
                 'last_message_at' => $all->max('last_message_at'),
                 'owner_last_read_at' => $all->max('owner_last_read_at'),
                 'support_last_read_at' => $all->max('support_last_read_at'),
@@ -219,11 +266,17 @@ class SupportService
         });
     }
 
-    /** Merge every person's duplicate open chats. @return array{people:int, removed:int} */
-    public function mergeAllDuplicates(): array
+    /**
+     * Merge every person's duplicate chats — the open ones, and with $withClosed (board
+     * 2026-11-25) the closed ones too, so one person is ONE line in the open list and in the
+     * closed list, with the whole history inside. @return array{people:int, removed:int}
+     */
+    public function mergeAllDuplicates(bool $withClosed = false): array
     {
-        $groups = $this->duplicateGroups();
-        $removed = $groups->sum(fn ($g) => $this->mergeThreads($g));
+        $groups = $this->duplicateGroups($withClosed);
+        // with closed chats in the set, the chat that stays is the person's OPEN one (the one their
+        // app shows now); among open chats alone it is the first, as before
+        $removed = $groups->sum(fn ($g) => $this->mergeThreads($g, $withClosed ? $g->firstWhere('status', 'open') : null));
         if ($removed) {
             \App\Services\Activity\ActivityLogger::log('support', 'support_chats_merged',
                 "{$removed} duplicate support chat(s) of {$groups->count()} people merged into one chat each",

@@ -55,7 +55,7 @@ class MemberContractResource extends BaseResource
     public static function getEloquentQuery(): Builder
     {
         $query = parent::getEloquentQuery()->with(['member', 'plan', 'branch', 'bond', 'settlements.qr.redemptionInvoices.branch',
-            'rdSettlement.qr.redemptionInvoices.branch']);
+            'rdSettlement.qr.redemptionInvoices.branch', 'closure']);
 
         // Branch scope: a distributor login sees only its own branch's contracts.
         $user = auth()->user();
@@ -74,9 +74,23 @@ class MemberContractResource extends BaseResource
             ->defaultSort(fn (Builder $query) => $query->orderBy('end_date')->orderBy('id'))
             ->columns([
                 Tables\Columns\TextColumn::make('contract_no')->label('Contract')->searchable()->sortable(),
-                Tables\Columns\TextColumn::make('member.member_code')->label('User ID')->searchable()->sortable()->placeholder('—'),
-                Tables\Columns\TextColumn::make('member.name')->label('Distributor')->searchable(),
-                Tables\Columns\TextColumn::make('member.phone')->label('Phone')->searchable()->placeholder('—'),
+                // a force-closed contract of a DELETED member keeps the names on its closure row (user 2026-11-25)
+                Tables\Columns\TextColumn::make('member.member_code')->label('User ID')->sortable()->placeholder('—')
+                    ->state(fn (MemberContract $r) => $r->member?->member_code ?? $r->closure?->member_code)
+                    ->searchable(query: fn (Builder $query, string $search) => $query
+                        ->whereHas('member', fn ($m) => $m->where('member_code', 'like', "%{$search}%"))
+                        ->orWhereHas('closure', fn ($c) => $c->where('member_code', 'like', "%{$search}%"))),
+                Tables\Columns\TextColumn::make('member.name')->label('Distributor')
+                    ->state(fn (MemberContract $r) => $r->member?->name ?? $r->closure?->member_name)
+                    ->description(fn (MemberContract $r) => ! $r->member && $r->closure ? __('Member deleted') : null)
+                    ->searchable(query: fn (Builder $query, string $search) => $query
+                        ->whereHas('member', fn ($m) => $m->where('name', 'like', "%{$search}%"))
+                        ->orWhereHas('closure', fn ($c) => $c->where('member_name', 'like', "%{$search}%"))),
+                Tables\Columns\TextColumn::make('member.phone')->label('Phone')->placeholder('—')
+                    ->state(fn (MemberContract $r) => $r->member?->phone ?? $r->closure?->member_phone)
+                    ->searchable(query: fn (Builder $query, string $search) => $query
+                        ->whereHas('member', fn ($m) => $m->where('phone', 'like', "%{$search}%"))
+                        ->orWhereHas('closure', fn ($c) => $c->where('member_phone', 'like', "%{$search}%"))),
                 Tables\Columns\TextColumn::make('plan.code')->label('Scheme')
                     ->description(fn (MemberContract $r) => Translatable::pick($r->plan?->name))
                     ->sortable(),
@@ -85,24 +99,38 @@ class MemberContractResource extends BaseResource
                 Tables\Columns\TextColumn::make('end_date')->label('End')->date()->sortable(),
                 Tables\Columns\TextColumn::make('settled_on')->label('Settled')->date()->sortable()
                     ->placeholder('—'),
+                // User 2026-11-25: the page says what each contract is — running, expired, closed
+                // or force closed — and since when.
                 Tables\Columns\TextColumn::make('status')->badge()
-                    ->color(fn (?string $state) => match ($state) {
-                        'active' => 'success',
-                        'matured' => 'warning',
-                        'closed' => 'gray',
+                    ->formatStateUsing(fn (?string $state, MemberContract $r) => static::stateLabel($r))
+                    ->description(fn (MemberContract $r) => match (true) {
+                        $r->status === 'force_closed' => 'on ' . ($r->force_closed_on?->format('d M Y') ?? '—'),
+                        $r->status === 'closed' && $r->settled_on => 'on ' . \Illuminate\Support\Carbon::parse($r->settled_on)->format('d M Y'),
+                        $r->status !== 'cancelled' && $r->isExpired() && $r->end_date => 'ended ' . $r->end_date->format('d M Y'),
+                        default => null,
+                    })
+                    ->color(fn (?string $state, MemberContract $r) => match (true) {
+                        $state === 'force_closed' => 'danger',
+                        $state === 'active' && ! $r->isExpired() => 'success',
+                        $state === 'matured', $state === 'active' => 'warning',
                         default => 'gray',
                     }),
                 // Board phase 2 (2026-08-28): the admin-entered settlement credited to the wallet.
                 Tables\Columns\TextColumn::make('settlement_amount')
                     ->label('Settlement')
-                    ->state(fn (MemberContract $r) => ($r->settlements->sum('amount') + (float) ($r->rdSettlement?->worth ?? 0)) ?: null)
+                    ->state(fn (MemberContract $r) => ($r->settlements->sum('amount') + (float) ($r->rdSettlement?->worth ?? 0)
+                        + (float) ($r->closure?->paid_amount ?? 0)) ?: null)
                     ->summarize(Tables\Columns\Summarizers\Summarizer::make()->label('Total settled')
                         ->using(fn (\Illuminate\Database\Query\Builder $query) => '₹' . \App\Support\Money::group(
                             (float) \Illuminate\Support\Facades\DB::table('contract_settlements')
                                 ->whereIn('member_contract_id', $query->clone()->select('id'))->sum('amount')
                             + (float) \Illuminate\Support\Facades\DB::table('rd_settlements')
-                                ->whereIn('member_contract_id', $query->clone()->select('id'))->sum('worth'))))
+                                ->whereIn('member_contract_id', $query->clone()->select('id'))->sum('worth')
+                            + (float) \Illuminate\Support\Facades\DB::table('closure_settlements')
+                                ->whereIn('member_contract_id', $query->clone()->select('id'))->sum('paid_amount'))))
                     ->description(fn (MemberContract $r) => match (true) {
+                        $r->closure?->status === 'paid' => 'Force closed · settled ' . ($r->closure->paid_on?->format('d M Y') ?? '')
+                            . ($r->closure->paid_note ? ' · ' . $r->closure->paid_note : ''),
                         (bool) $r->rdSettlement => ($r->rdSettlement->mode === 'manual' ? 'Settled manually (no QR)' : ucfirst($r->rdSettlement->metal) . ' QR')
                             . ' · ' . $r->rdSettlement->dues_paid . '/' . $r->rdSettlement->dues_total . ' dues'
                             . ($r->rdSettlement->coins_missing ? ' · ' . $r->rdSettlement->coins_missing . ' coin(s) not returned' : ''),
@@ -112,7 +140,11 @@ class MemberContractResource extends BaseResource
                         default => null,
                     })
                     ->formatStateUsing(fn ($state) => $state ? '₹' . \App\Support\Money::group((float) $state) : null)
-                    ->placeholder(fn (MemberContract $r) => $r->isExpired() ? __('Expired — not settled') : '—')
+                    ->placeholder(fn (MemberContract $r) => match (true) {
+                        $r->status === 'force_closed' => __('Force closed — not settled'),
+                        $r->isExpired() => __('Expired — not settled'),
+                        default => '—',
+                    })
                     ->color('success'),
                 // User 2026-11-19: once the settlement QR is redeemed, its tax invoice shows here
                 // (click = the invoice PDF), with the branch that redeemed it.
@@ -145,6 +177,8 @@ class MemberContractResource extends BaseResource
                         'due' => 'Settlement due (12th month / end)',
                         'matured' => 'Matured (needs decision)',
                         'active' => 'Running contracts',
+                        'force_closed' => 'Force closed',
+                        'force_unsettled' => 'Force closed — not settled',
                     ])
                     ->default('all')
                     ->selectablePlaceholder(false)
@@ -153,7 +187,9 @@ class MemberContractResource extends BaseResource
                         'unsettled' => $query->where('status', '!=', 'cancelled')
                             ->where(fn ($w) => $w->where('status', 'matured')->orWhereDate('end_date', '<', now()->toDateString()))
                             ->whereDoesntHave('settlements')->whereDoesntHave('rdSettlement'),
-                        'closed' => $query->where(fn ($w) => $w->whereIn('status', ['closed', 'matured'])
+                        'force_closed' => $query->where('status', 'force_closed'),
+                        'force_unsettled' => $query->where('status', 'force_closed')->whereHas('closure', fn ($c) => $c->where('status', 'payable')),
+                        'closed' => $query->where(fn ($w) => $w->whereIn('status', ['closed', 'matured', 'force_closed'])
                             ->orWhereDate('end_date', '<', now()->toDateString())),
                         'due' => static::settlementDue($query),
                         'matured' => $query->where('status', 'matured'),
@@ -342,8 +378,112 @@ class MemberContractResource extends BaseResource
                                     . ' issued to ' . ($record->member?->name ?? 'the distributor') . '.')
                             ->send();
                     }),
+                // User 2026-11-25 — a FORCE-CLOSED contract is settled here, as its own step:
+                // paid in + bonus due − already given to the member = balance; Head Office approves
+                // the amount and records how it was paid. Nothing is moved in a wallet or in stock.
+                Tables\Actions\Action::make('settle_force_closed')
+                    ->label(fn (MemberContract $record) => $record->closure?->status === 'paid' ? 'Force-close settlement' : 'Settle force-closed contract')
+                    ->icon('heroicon-o-calculator')
+                    ->color(fn (MemberContract $record) => $record->closure?->status === 'paid' ? 'gray' : 'danger')
+                    ->modalHeading(fn (MemberContract $record) => 'Force-closed contract — ' . $record->contract_no)
+                    ->modalWidth('2xl')
+                    ->visible(fn (MemberContract $record) => $record->status === 'force_closed' && $record->closure !== null)
+                    ->form(fn (MemberContract $record) => array_merge([
+                        Forms\Components\Placeholder::make('working')->label('')
+                            ->content(fn () => self::closureWorking($record->closure)),
+                    ], self::maySettleClosure($record) ? [
+                        Forms\Components\TextInput::make('paid_amount')->label('Approved settlement amount (₹)')
+                            ->numeric()->minValue(0)->required()->prefix('₹')
+                            ->default((float) $record->closure->payable)
+                            ->helperText('Pre-filled with the balance worked out above. Enter 0 when nothing is to be paid.'),
+                        Forms\Components\DatePicker::make('paid_on')->label('Settled on')->default(now()->toDateString())->maxDate(now())->required(),
+                        Forms\Components\TextInput::make('paid_note')->label('How it was paid (cash / bank reference / note)')->required()->maxLength(255),
+                    ] : []))
+                    ->modalSubmitActionLabel('Approve & record settlement')
+                    ->modalSubmitAction(fn ($action, MemberContract $record) => self::maySettleClosure($record) ? $action : $action->hidden())
+                    ->modalCancelActionLabel(fn (MemberContract $record) => self::maySettleClosure($record) ? __('Cancel') : __('Close'))
+                    ->action(function (MemberContract $record, array $data) {
+                        abort_unless(self::maySettleClosure($record), 403);
+                        $closure = \App\Models\ClosureSettlement::whereKey($record->closure->id)->lockForUpdate()->first();
+                        if (! $closure || $closure->status !== 'payable') {
+                            \Filament\Notifications\Notification::make()->danger()->title('This contract was already settled.')->send();
+
+                            return;
+                        }
+                        $closure->update([
+                            'status' => 'paid', 'paid_amount' => round((float) $data['paid_amount'], 2), 'paid_on' => $data['paid_on'],
+                            'paid_note' => $data['paid_note'], 'paid_by' => auth()->id(),
+                        ]);
+                        $record->update(['settled_on' => $data['paid_on']]);
+                        \Filament\Notifications\Notification::make()->success()
+                            ->title('Force-closed contract settled')
+                            ->body('₹' . \App\Support\Money::group((float) $closure->paid_amount) . ' recorded for ' . $closure->member_code . ' ' . $closure->member_name . '.')
+                            ->send();
+                    }),
             ])
             ->bulkActions([]);
+    }
+
+    /** What the contract is today, in the page's words (user 2026-11-25). */
+    public static function stateLabel(MemberContract $r): string
+    {
+        return match (true) {
+            $r->status === 'force_closed' => 'Force closed',
+            $r->status === 'cancelled' => 'Cancelled',
+            $r->status === 'closed' => 'Closed',
+            $r->status === 'matured' => 'Matured',
+            $r->isExpired() => 'Expired',
+            $r->status === 'active' => 'Active',
+            default => ucfirst((string) $r->status),
+        };
+    }
+
+    /** Head Office settles a force-closed contract once; a branch login only reads the working. */
+    protected static function maySettleClosure(MemberContract $record): bool
+    {
+        $u = auth()->user();
+
+        return $u !== null && ! $u->isDistributor() && ! $u->isSupport() && $record->closure?->status === 'payable';
+    }
+
+    /** Paid in + bonus due − already given = balance, with the lines behind each figure. */
+    protected static function closureWorking(\App\Models\ClosureSettlement $c): \Illuminate\Support\HtmlString
+    {
+        $m = fn ($v) => '₹' . \App\Support\Money::group((float) $v);
+        $titles = ['contributed' => 'Paid in by the member', 'bonus' => 'Bonus due', 'given' => 'Already given to the member'];
+        $html = '<div class="text-sm text-gray-500" style="margin-bottom:.5rem">' . e($c->member_code . ' ' . $c->member_name)
+            . ' · ' . e(trim(($c->plan_code ? $c->plan_code . ' — ' : '') . ($c->plan_name ?? '')))
+            . ' · force closed on ' . e($c->closed_on?->format('d M Y') ?? '—')
+            . ($c->branch ? ' · billed by ' . e($c->branch->name) : '') . '</div><table class="w-full text-sm">';
+        foreach ($titles as $side => $title) {
+            $lines = array_values(array_filter((array) $c->detail, fn ($l) => ($l['side'] ?? null) === $side));
+            $html .= '<tr><td class="py-1 font-semibold" colspan="2" style="padding-top:.6rem">' . e($title) . '</td></tr>';
+            if (! $lines) {
+                $html .= '<tr><td class="py-1 text-gray-500" colspan="2">nothing</td></tr>';
+            }
+            foreach ($lines as $l) {
+                $html .= '<tr class="border-t border-gray-100 dark:border-white/10"><td class="py-1 pr-3">' . e($l['label'] ?? '')
+                    . '<div class="text-xs text-gray-500">' . e($l['detail'] ?? '') . '</div></td><td class="py-1 text-right" style="white-space:nowrap">'
+                    . e($m($l['amount'] ?? 0)) . '</td></tr>';
+            }
+        }
+        $html .= '<tr class="border-t-2 border-gray-300 font-bold"><td class="py-2">' . e($m($c->contributed) . ' + ' . $m($c->bonus) . ' − ' . $m($c->given))
+            . '</td><td class="py-2 text-right" style="white-space:nowrap">= ' . e(((float) $c->balance < 0 ? '− ' : '') . $m(abs((float) $c->balance))) . '</td></tr>'
+            . '<tr class="font-bold"><td class="py-1">Balance payable to the member</td><td class="py-1 text-right" style="white-space:nowrap">'
+            . e($m($c->payable)) . '</td></tr>';
+        if ((float) $c->balance < 0) {
+            $html .= '<tr><td class="py-1 text-xs text-danger-600" colspan="2">The member received ' . e($m(abs((float) $c->balance))) . ' more than was paid in.</td></tr>';
+        }
+        if ($c->status === 'paid') {
+            $html .= '<tr class="border-t border-gray-300 font-bold"><td class="py-2">Settled on ' . e($c->paid_on?->format('d M Y') ?? '—')
+                . ($c->paid_note ? ' · ' . e($c->paid_note) : '') . '</td><td class="py-2 text-right" style="white-space:nowrap">' . e($m($c->paid_amount)) . '</td></tr>';
+        }
+        $html .= '</table>';
+        if ($c->reason) {
+            $html .= '<div class="text-xs text-gray-500" style="margin-top:.6rem">Reason of the force close: ' . e($c->reason) . '</div>';
+        }
+
+        return new \Illuminate\Support\HtmlString($html);
     }
 
     /**

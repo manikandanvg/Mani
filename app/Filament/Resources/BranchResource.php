@@ -129,6 +129,17 @@ class BranchResource extends BaseResource
                     Forms\Components\TextInput::make('longitude')->numeric()->step('0.0000001')
                         ->placeholder('e.g. 76.9558'),
                 ]),
+                // Board 2026-11-25: the branch's bank account, above the UPI details; every change
+                // is logged (who, when, from → to) so Head Office can watch a branch that keeps
+                // swapping its bank. The dealer enters the same under Master → My Bank Details.
+                Forms\Components\Section::make('Bank details')
+                    ->description('The bank account of this branch. Every change is recorded in the log below.')
+                    ->columns(2)->schema([
+                        ...\App\Filament\Support\BranchBankForm::fields(),
+                        Forms\Components\Placeholder::make('bank_change_log')->label('Bank change log')
+                            ->content(fn (?Branch $record) => \App\Filament\Support\BranchBankForm::log($record))
+                            ->columnSpanFull(),
+                    ]),
                 // Launch without L-BOX (board 2026-10-31, common 3): each branch has its own
                 // STATIC payment QR; the app shows it so distributors scan and pay the branch.
                 Forms\Components\Section::make('Payment QR')
@@ -195,6 +206,17 @@ class BranchResource extends BaseResource
                 Tables\Columns\TextColumn::make('order_limit')
                     ->numeric()
                     ->sortable(),
+                // Board 2026-11-25: bank account + how many times it was changed
+                Tables\Columns\TextColumn::make('bank_name')->label('Bank')->searchable()->placeholder('—')
+                    ->description(fn (Branch $record) => $record->bank_acno
+                        ? trim(($record->bank_holder ? $record->bank_holder . ' · ' : '') . 'A/c ' . $record->bank_acno . ($record->bank_ifsc ? ' · IFSC ' . $record->bank_ifsc : ''))
+                        : null)
+                    ->toggleable(isToggledHiddenByDefault: true),
+                Tables\Columns\TextColumn::make('bank_changes_count')->label('Bank changes')
+                    ->counts(['bankChanges' => fn ($q) => $q->where('is_first', false)])
+                    ->badge()->color(fn ($state) => (int) $state >= 2 ? 'danger' : ((int) $state === 1 ? 'warning' : 'gray'))
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\IconColumn::make('is_active')
                     ->boolean(),
                 Tables\Columns\TextColumn::make('created_at')

@@ -31,6 +31,10 @@ class ContractSettlementService
 
     public static function canGenerate(MemberContract $contract): bool
     {
+        // force closed (user 2026-11-25): settled by its own closure settlement on the Settlements page
+        if ($contract->status === 'force_closed') {
+            return false;
+        }
         // Gold-QR schemes (user 2026-11-15): the ADMIN decides when, and whether it is the interim
         // or the final settlement — open until the final one has been issued.
         if (self::settlesByQr($contract)) {
@@ -72,7 +76,7 @@ class ContractSettlementService
         // EXPIRED ("Expired — not settled", e.g. LEG-27) — it is exactly the one waiting for its
         // settlement. What ends the journey is the FINAL settlement itself (or an earlier
         // settlement recorded without a stage).
-        if ($contract->status === 'cancelled') {
+        if (in_array($contract->status, ['cancelled', 'force_closed'], true)) {
             return [];
         }
         $rows = $contract->settlements()->get(['stage']);

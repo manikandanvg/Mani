@@ -46,7 +46,7 @@ class GoldSavingSettlementService
 
     public static function canSettle(MemberContract $contract, ?Carbon $today = null): bool
     {
-        if (! self::isGoldSaving($contract) || $contract->bond_id === null || $contract->status === 'cancelled'
+        if (! self::isGoldSaving($contract) || $contract->bond_id === null || in_array($contract->status, ['cancelled', 'force_closed'], true)
             || $contract->bond?->status === 'cancelled') {
             return false;
         }

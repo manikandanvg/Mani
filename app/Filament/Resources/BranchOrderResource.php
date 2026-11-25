@@ -90,7 +90,7 @@ class BranchOrderResource extends BaseResource
     /** Own-branch orders plus orders from branches this branch supplies (distributors); everything for HQ. */
     public static function getEloquentQuery(): Builder
     {
-        $query = parent::getEloquentQuery()->with(['branch', 'salesReturn', 'member', 'currentBranch', 'lines', 'approver.branch', 'urnSiblings',
+        $query = parent::getEloquentQuery()->with(['branch.distributorUser', 'salesReturn', 'member', 'currentBranch', 'lines', 'approver.branch', 'urnSiblings',
             'redemptionInvoice' => fn ($q) => $q->withTrashed()->with('qr')]);
         $user = auth()->user();
 
@@ -138,9 +138,20 @@ class BranchOrderResource extends BaseResource
                 Tables\Columns\TextColumn::make('created_at')->label('Date')->dateTime()->sortable(),
                 Tables\Columns\TextColumn::make('branch.name')->label('Branch')->searchable()->toggleable(),
                 // Board 2026-11-15: click the number to copy it.
-                Tables\Columns\TextColumn::make('branch.phone')->label('Contact No')->placeholder('—')->searchable()->toggleable()
+                // Board 2026-11-25: the STAFF contact number — the phone of the branch's own login
+                // (the branch phone when the login has none) — with the in-charge and the MAP ID.
+                Tables\Columns\TextColumn::make('branch.phone')->label('Contact No')->placeholder('—')->toggleable()
+                    ->state(fn (BranchOrderRequest $r) => $r->branch?->distributorUser?->phone ?: $r->branch?->phone)
+                    ->searchable(query: fn (Builder $query, string $search) => $query->whereHas('branch', fn (Builder $b) => $b
+                        ->where('phone', 'like', "%{$search}%")
+                        ->orWhereHas('users', fn (Builder $u) => $u->where('phone', 'like', "%{$search}%"))))
                     ->copyable()->copyMessage('Phone number copied')->icon('heroicon-m-clipboard-document')->iconPosition('after')
-                    ->tooltip('Click to copy'),
+                    ->tooltip('Staff contact number — click to copy'),
+                Tables\Columns\TextColumn::make('branch.incharge')->label('Branch Incharge')->placeholder('—')->searchable()->wrap()->toggleable(),
+                Tables\Columns\TextColumn::make('map_id')->label('MAP ID')->placeholder('—')->toggleable()->copyable()
+                    ->state(fn (BranchOrderRequest $r) => $r->branch?->distributorUser?->member_code)
+                    ->searchable(query: fn (Builder $query, string $search) => $query->whereHas('branch.users',
+                        fn (Builder $u) => $u->where('member_code', 'like', "%{$search}%"))),
                 Tables\Columns\TextColumn::make('currentBranch.name')->label('Now at')->placeholder('—')->toggleable()
                     ->description(fn (BranchOrderRequest $r) => $r->isCustomize() && $r->current_branch_id ? match ($r->status) {
                         'pending' => 'awaiting forward / accept', 'approved', 'in_transit' => 'holding the pieces', 'delivered' => 'ready to bill', default => null,

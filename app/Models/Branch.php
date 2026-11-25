@@ -384,8 +384,50 @@ class Branch extends Model
             ->whereHas('roles', fn ($q) => $q->where('name', 'distributor'));
     }
 
+    /** Bank details of the branch (board 2026-11-25) — every change to them is logged. */
+    public const BANK_FIELDS = ['bank_name', 'bank_holder', 'bank_acno', 'bank_ifsc'];
+
+    public function bankChanges() { return $this->hasMany(BranchBankChange::class)->orderByDesc('id'); }
+
+    /** How many times the bank details were CHANGED (the first entry is not a change). */
+    public function bankChangeCount(): int
+    {
+        return $this->bankChanges()->where('is_first', false)->count();
+    }
+
+    /** Write one line of the bank-change log; $old = the values before the save. */
+    protected function logBankChange(array $old): void
+    {
+        $new = [];
+        foreach (self::BANK_FIELDS as $f) {
+            $old[$f] = filled($old[$f] ?? null) ? trim((string) $old[$f]) : null;
+            $new[$f] = filled($this->{$f}) ? trim((string) $this->{$f}) : null;
+        }
+        if ($old === $new || ! \Illuminate\Support\Facades\Schema::hasTable('branch_bank_changes')) {
+            return;
+        }
+        $user = auth()->user();
+        $row = ['branch_id' => $this->getKey(), 'is_first' => array_filter($old) === [], 'changed_by' => $user?->id,
+            'changed_by_name' => $user ? mb_substr((string) $user->name, 0, 150) : null];
+        foreach (self::BANK_FIELDS as $f) {
+            $row['old_' . $f] = $old[$f];
+            $row['new_' . $f] = $new[$f];
+        }
+        BranchBankChange::create($row);
+    }
+
     protected static function booted(): void
     {
+        // Bank details (board 2026-11-25): whatever screen saves them, the change is logged.
+        static::created(function (Branch $branch) {
+            $branch->logBankChange([]);
+        });
+        static::updated(function (Branch $branch) {
+            if ($branch->wasChanged(self::BANK_FIELDS)) {
+                $branch->logBankChange(array_intersect_key($branch->getOriginal(), array_flip(self::BANK_FIELDS)));
+            }
+        });
+
         // HQ-only sourcing (user 2026-11-11): a branch can never be saved pointing at another
         // dealer — whatever screen or command tried, the supplier stays Head Office.
         static::saving(function (Branch $branch) {

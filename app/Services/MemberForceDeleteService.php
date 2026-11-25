@@ -51,6 +51,20 @@ use Illuminate\Support\Facades\DB;
  * Nothing of the member stays in the live tables (user 2026-11-22): DeletedMemberArchiver copies
  * the member's data to deleted_members / deleted_member_records first and removes the live rows
  * at the end. Bills stay as CANCELLED, and what other people were paid stays theirs.
+ *
+ * Board 2026-11-25: the statement covers ALL bills and contracts of the member (never only the
+ * bill the button was pressed on). Each contract is CLOSED on the day of the force delete and
+ * settled:  paid in + bonus due − already given to the member = balance payable to the member.
+ * The figures are shown per contract before the admin confirms and are then kept as
+ * closure_settlements rows. Nothing is paid by the system itself.
+ *
+ * User 2026-11-25 (same day, after the board):
+ *   - the admin chooses: "delete the member + the rest of the contracts" (delete()) or THIS
+ *     contract only (closeContract() — the member stays, only the bill of the row is closed);
+ *     the statement shows all contracts or that one accordingly (statement($member, $only));
+ *   - the settlement is a SEPARATE step: its amount is not shown in the force-delete popup. The
+ *     contract stays on the Settlements page as "Force closed" (member_contracts.status
+ *     force_closed, also after the member is gone) and is worked out and settled there.
  */
 class MemberForceDeleteService
 {
@@ -92,6 +106,14 @@ class MemberForceDeleteService
         return $out;
     }
 
+    /** Why this ONE bill cannot be force closed (the member stays, so a team does not matter). */
+    public function billBlockers(SalesInvoice $invoice): array
+    {
+        $why = $this->cancel->blocker($invoice, true);
+
+        return $why ? ['Bill ' . $invoice->invoice_no . ': ' . $why] : [];
+    }
+
     /** The member's standing (not cancelled) bills, oldest first. */
     protected function invoices(Member $member)
     {
@@ -123,15 +145,20 @@ class MemberForceDeleteService
      *   totals: array{issued:float, reverse:float, recover:float, charge:float, forfeit:float},
      *   charges: array<int, array{branch_id:int, branch:string, amount:float, cash_stock:float, after:float}>,
      *   wallet_debits: array<int, array{member_id:int, member:string, amount:float}>,
-     *   forfeit: array{cash:float, coupon:float, epin:float, gold_g:float, silver_g:float}
+     *   forfeit: array{cash:float, coupon:float, epin:float, gold_g:float, silver_g:float},
+     *   settlements: array<int, array<string, mixed>>,
+     *   settlement_totals: array{contributed:float, bonus:float, given:float, payable:float}
      * }
      */
-    public function statement(Member $member): array
+    public function statement(Member $member, ?SalesInvoice $only = null): array
     {
         $rows = [];
         $bills = [];
-        $bonds = $this->bonds($member);
-        $invoices = $this->invoices($member)->keyBy('invoice_no');
+        // $only = this bill / contract alone; the member and their other contracts are not touched
+        $bonds = $only
+            ? $this->bonds($member)->filter(fn ($b) => $b->invoice_no && $b->invoice_no === $only->invoice_no)->values()
+            : $this->bonds($member);
+        $invoices = ($only ? $this->invoices($member)->where('id', $only->id) : $this->invoices($member))->keyBy('invoice_no');
         $branchNames = [];
         $branchName = function (?int $id) use (&$branchNames) {
             if (! $id) {
@@ -153,7 +180,9 @@ class MemberForceDeleteService
 
             return $names[$id] ??= (($m = Member::withTrashed()->find($id)) ? $m->member_code . ' ' . $m->name : 'Member #' . $id);
         };
-        $add = function (string $bill, ?int $branchId, string $kind, string $detail, float $amount, string $action, ?int $walletMemberId = null)
+        // $own = the value reached the MEMBER (goods, a settlement, their own coupon) — it counts
+        // as "already given" in the closure settlement of that contract (board 2026-11-25)
+        $add = function (string $bill, ?int $branchId, string $kind, string $detail, float $amount, string $action, ?int $walletMemberId = null, bool $own = false)
             use (&$rows, &$available, $walletCash, $branchName, $memberName) {
             $amount = round($amount, 2);
             $recover = 0.0;
@@ -171,7 +200,7 @@ class MemberForceDeleteService
             $rows[] = [
                 'bill' => $bill, 'branch_id' => $branchId, 'branch' => $branchName($branchId), 'kind' => $kind, 'detail' => $detail,
                 'amount' => $amount, 'action' => $action, 'recover' => $recover, 'charge' => $charge,
-                'wallet_member_id' => $walletMemberId, 'wallet_member' => $memberName($walletMemberId),
+                'wallet_member_id' => $walletMemberId, 'wallet_member' => $memberName($walletMemberId), 'own' => $own,
             ];
         };
 
@@ -186,25 +215,27 @@ class MemberForceDeleteService
         // ── the member's own wallet withdrawals still on the way ──
         // not yet paid by Head Office → the request is cancelled, the money is back in the wallet
         // (and so can be taken back below); already paid to the branch → it counts as withdrawn
-        $unpaid = $this->unpaidWithdrawals($member);
+        $unpaid = $only ? collect() : $this->unpaidWithdrawals($member);
         if ($unpaid->isNotEmpty()) {
             $back = round((float) $unpaid->sum('amount'), 2);
             $available[$member->id] = round($walletCash($member->id) + $back, 2);
             $add('Wallet', null, 'Wallet withdrawal — not paid yet', $unpaid->count() . ' request' . ($unpaid->count() === 1 ? '' : 's')
                 . ' cancelled; the money returns to the wallet first', $back, 'info');
         }
-        foreach (WalletWithdrawal::where('member_id', $member->id)->where('wallet', '!=', 'branch_digi')->where('status', 'admin_paid')->get() as $w) {
+        foreach ($only ? [] : WalletWithdrawal::where('member_id', $member->id)->where('wallet', '!=', 'branch_digi')->where('status', 'admin_paid')->get() as $w) {
             $add('Wallet', (int) $w->branch_id ?: null, 'Wallet withdrawal — paid to the branch', 'Head Office already paid ' . $branchName((int) $w->branch_id)
                 . ' for the hand-over (' . $w->created_at?->format('d M Y') . ') — counts as withdrawn', (float) $w->amount, 'info');
         }
 
         // ── contracts: incentive, coupons, settlements, instalments ──
         $bondIds = [];
+        $closures = [];
         foreach ($bonds as $bond) {
             $bondIds[] = $bond->id;
             $invoice = $bond->invoice_no ? $invoices->get($bond->invoice_no) : null;
             $bill = $bond->invoice_no ?: 'Contract #' . $bond->id;
             $branchId = (int) ($invoice?->branch_id ?: $bond->branch_id) ?: null;
+            $closures[$bill] = $this->closureBase($bond, $invoice, $bill, $branchId, $branchName($branchId));
             if (! $invoice) {
                 $bills[] = ['invoice_no' => $bill . ' (contract, no bill here)', 'date' => $bond->bond_date ? Carbon::parse($bond->bond_date)->format('d M Y') : null,
                     'branch' => $branchName($branchId), 'amount' => (float) ($bond->epin_value ?: $bond->value), 'plan' => $bond->plan?->code];
@@ -234,18 +265,19 @@ class MemberForceDeleteService
                 $cash = (float) $row->cash_amount > 0 ? (float) $row->cash_amount
                     : CommissionApprovalService::cbcSplit($worth, (bool) ($bond->plan?->cbc_dealer_rule ?? false))['cash'];
                 $add($bill, $branchId, 'Promotional Incentive (CBC) — PAID', 'coupon ' . ($row->cbc_date?->format('M Y') ?? '') . ' · worth ₹' . Money::group($worth)
-                    . ($row->paid_on ? ' · paid ' . $row->paid_on->format('d M Y') : ''), $cash, 'recover', (int) $row->member_id);
+                    . ($row->paid_on ? ' · paid ' . $row->paid_on->format('d M Y') : ''), $cash, 'recover', (int) $row->member_id,
+                    (int) $row->member_id === (int) $member->id);
             }
 
             // Contract settlements paid without a QR (a settlement QR is counted with the QRs below)
             foreach (ContractSettlement::where('bond_id', $bond->id)->whereNull('redeemable_qr_id')->whereNotNull('paid_on')->get() as $s) {
                 $toWallet = ! in_array((string) $s->mode, ['manual', 'cash', 'hand'], true);
                 $add($bill, $branchId, 'Contract settlement — PAID', ucfirst((string) $s->mode) . ' · ' . Carbon::parse($s->paid_on)->format('d M Y'),
-                    (float) $s->amount, $toWallet ? 'recover' : 'charge', $toWallet ? $member->id : null);
+                    (float) $s->amount, $toWallet ? 'recover' : 'charge', $toWallet ? $member->id : null, true);
             }
             foreach (RdSettlement::where('bond_id', $bond->id)->whereNull('redeemable_qr_id')->get() as $s) {
                 $add($bill, (int) ($s->branch_id ?: $branchId) ?: null, 'Gold Saving settlement — handed over', ucfirst((string) $s->mode) . ' · ' . ucfirst((string) $s->metal)
-                    . ($s->settled_on ? ' · ' . Carbon::parse($s->settled_on)->format('d M Y') : ''), (float) $s->worth, 'charge');
+                    . ($s->settled_on ? ' · ' . Carbon::parse($s->settled_on)->format('d M Y') : ''), (float) $s->worth, 'charge', null, true);
             }
 
             // Gold Saving instalments are money the member PAID IN — shown, never moved by the system
@@ -257,7 +289,7 @@ class MemberForceDeleteService
         }
 
         // ── stock QRs of the member (billing, Gold Saving, renewal, settlement) ──
-        $qrs = RedeemableQr::where(fn ($q) => $q->where('member_id', $member->id)
+        $qrs = RedeemableQr::where(fn ($q) => $q->when(! $only, fn ($w) => $w->where('member_id', $member->id), fn ($w) => $w->whereRaw('1 = 0'))
             ->when($bondIds, fn ($w) => $w->orWhereIn('bond_id', $bondIds))
             ->when($invoices->isNotEmpty(), fn ($w) => $w->orWhereIn('invoice_no', $invoices->keys()->all())))
             ->whereIn('status', ['pending', 'redeemed'])->orderBy('id')->get();
@@ -276,7 +308,7 @@ class MemberForceDeleteService
                 }
                 $add($bill, $branchId, $kind . ' — REDEEMED', ($redemption ? 'redemption ' . $redemption->invoice_no : 'QR ' . $qr->qr_code)
                     . ' at ' . $branchName((int) ($qr->redeem_branch_id ?: $redemption?->branch_id))
-                    . ($qr->redeemed_at ? ' · ' . Carbon::parse($qr->redeemed_at)->format('d M Y') : '') . ' — the goods were handed over', $value, 'charge');
+                    . ($qr->redeemed_at ? ' · ' . Carbon::parse($qr->redeemed_at)->format('d M Y') : '') . ' — the goods were handed over', $value, 'charge', null, true);
             } else {
                 $value = (float) $qr->cash_worth > 0 ? (float) $qr->cash_worth : (float) $qr->gram_worth * (float) $qr->frozen_rate;
                 $add($bill, $branchId, $kind . ' — not redeemed', 'QR ' . $qr->qr_code . ' is cancelled', $value, 'reverse');
@@ -300,8 +332,9 @@ class MemberForceDeleteService
         }
 
         // ── what is left in the member's own wallet after the recoveries above is forfeited ──
-        $wallet = $member->wallet;
-        $forfeit = [
+        // (one contract only: the member stays, nothing of the wallet is forfeited)
+        $wallet = $only ? null : $member->wallet;
+        $forfeit = $only ? ['cash' => 0.0, 'coupon' => 0.0, 'epin' => 0.0, 'gold_g' => 0.0, 'silver_g' => 0.0] : [
             'cash' => round(max(0.0, isset($available[$member->id]) ? $available[$member->id] : (float) ($wallet?->cash_balance ?? 0)), 2),
             'coupon' => round(max(0.0, (float) ($wallet?->coupon_balance ?? 0)), 2),
             'epin' => round(max(0.0, (float) ($wallet?->epin_balance ?? 0)), 2),
@@ -329,7 +362,7 @@ class MemberForceDeleteService
         }
         unset($c);
 
-        $blockers = $this->blockers($member);
+        $blockers = $only ? $this->billBlockers($only) : $this->blockers($member);
         if (isset($charges[0])) {
             $blockers[] = 'A value of ₹' . Money::group($charges[0]['amount']) . ' has no issuing branch on record — it cannot be charged anywhere.';
         }
@@ -339,8 +372,29 @@ class MemberForceDeleteService
 
         $sum = fn (string $action) => round(array_sum(array_map(fn ($r) => $r['action'] === $action ? $r['amount'] : 0.0, $rows)), 2);
 
+        // ── closure settlement of each contract (board 2026-11-25) ──
+        // paid in + bonus due − already given to the member = balance payable to the member.
+        // "Already given" = what the member keeps: goods of a redeemed QR, a settlement handed
+        // over, and the part of their own coupons they had withdrawn (what is still in the wallet
+        // is taken back above, so it is not held against them twice). What OTHER people were paid
+        // on the bill is recovered from them / the branch — never from the member's balance.
+        foreach ($rows as $r) {
+            if ($r['own'] && $r['charge'] > 0 && isset($closures[$r['bill']])) {
+                $closures[$r['bill']]['given'] = round($closures[$r['bill']]['given'] + $r['charge'], 2);
+                $closures[$r['bill']]['lines'][] = ['side' => 'given', 'label' => $r['kind'], 'detail' => $r['detail'], 'amount' => $r['charge']];
+            }
+        }
+        foreach ($closures as &$c) {
+            $c['balance'] = round($c['contributed'] + $c['bonus'] - $c['given'], 2);
+            $c['payable'] = max(0.0, $c['balance']);
+        }
+        unset($c);
+        $closures = array_values($closures);
+        $col = fn (string $k) => round(array_sum(array_column($closures, $k)), 2);
+
         return [
             'member' => $member,
+            'only' => $only?->invoice_no,
             'blockers' => $blockers,
             'bills' => $bills,
             'rows' => $rows,
@@ -354,6 +408,61 @@ class MemberForceDeleteService
             'charges' => array_values($charges),
             'wallet_debits' => array_values($debits),
             'forfeit' => $forfeit,
+            'settlements' => $closures,
+            'settlement_totals' => ['contributed' => $col('contributed'), 'bonus' => $col('bonus'), 'given' => $col('given'),
+                'payable' => $col('payable')],
+        ];
+    }
+
+    /**
+     * What the member paid in on one contract and the bonus due on it, as it stands on the day
+     * of the closure. Gold Saving: the joining due + every instalment collected, and the scheme
+     * bonus (bonus months × first due) once every due is paid — the same figures the normal Gold
+     * Saving settlement uses. Every other contract: the bill (tax included); no bonus is defined.
+     *
+     * @return array{bill:string, bond_id:int, contract_no:?string, invoice_no:?string, plan_code:?string, plan_name:?string,
+     *   branch_id:?int, branch:string, contract_date:?string, contributed:float, bonus:float, given:float, balance:float,
+     *   payable:float, lines:array<int, array{side:string, label:string, detail:string, amount:float}>}
+     */
+    protected function closureBase(Bond $bond, ?SalesInvoice $invoice, string $bill, ?int $branchId, string $branch): array
+    {
+        $plan = $bond->plan;
+        $lines = [];
+        $bonus = 0.0;
+        if (\App\Services\Rd\GoldSavingRules::variant($plan) !== null) {
+            $first = round((float) \App\Services\Rd\GoldSavingRules::firstDue($bond), 2);
+            $entries = RdEntry::where('bond_id', $bond->id);
+            $collected = round((float) (clone $entries)->sum('value'), 2);
+            $contributed = round($first + $collected, 2);
+            $lines[] = ['side' => 'contributed', 'label' => 'Joining due', 'detail' => 'paid with the bill', 'amount' => $first];
+            if (($n = (clone $entries)->count()) > 0) {
+                $lines[] = ['side' => 'contributed', 'label' => 'Gold Saving instalments', 'detail' => $n . ' collected', 'amount' => $collected];
+            }
+            $duesTotal = (int) ($plan->validity_months ?: 11);
+            $duesPaid = min($duesTotal, RdCollectionService::duesPaid($bond));
+            $months = (int) $plan->settlement_bonus_months;
+            if ($duesPaid >= $duesTotal && $months > 0) {
+                $bonus = round($months * $first, 2);
+                $lines[] = ['side' => 'bonus', 'label' => 'Scheme bonus', 'detail' => $months . ' × first due ₹' . Money::group($first)
+                    . ' — all ' . $duesTotal . ' dues paid', 'amount' => $bonus];
+            } else {
+                $lines[] = ['side' => 'bonus', 'label' => 'Scheme bonus', 'detail' => 'none — ' . ($months > 0
+                    ? $duesPaid . ' of ' . $duesTotal . ' dues paid' : 'the scheme has no bonus'), 'amount' => 0.0];
+            }
+        } else {
+            $contributed = round((float) ($invoice?->grand_total ?: ($bond->epin_value ?: $bond->value)), 2);
+            $lines[] = ['side' => 'contributed', 'label' => $invoice ? 'Bill amount' : 'Contract value', 'detail' => $bill, 'amount' => $contributed];
+        }
+
+        return [
+            'bill' => $bill, 'bond_id' => (int) $bond->id,
+            'member_contract_id' => ($mc = MemberContract::where('bond_id', $bond->id)->orderBy('id')->first())?->id,
+            'contract_no' => $mc?->contract_no,
+            'invoice_no' => $bond->invoice_no ?: null,
+            'plan_code' => $plan?->code, 'plan_name' => \App\Support\Translatable::pick($plan?->name),
+            'branch_id' => $branchId, 'branch' => $branch,
+            'contract_date' => $bond->bond_date ? Carbon::parse($bond->bond_date)->toDateString() : null,
+            'contributed' => $contributed, 'bonus' => $bonus, 'given' => 0.0, 'balance' => 0.0, 'payable' => 0.0, 'lines' => $lines,
         ];
     }
 
@@ -378,6 +487,8 @@ class MemberForceDeleteService
         return DB::transaction(function () use ($member, $userId, $reason) {
             $member = Member::whereKey($member->id)->lockForUpdate()->firstOrFail();
             abort_if(($why = $this->blockers($member)) !== [], 422, implode(' ', $why));
+            abort_unless(\Illuminate\Support\Facades\Schema::hasTable('closure_settlements'), 422,
+                'The closure-settlement store is not set up on this server yet (run the database migration) — the member was NOT deleted.');
             // the member's data exactly as it stands goes to the deleted-member store first
             $before = $this->statement($member);
             abort_if($before['blockers'] !== [], 422, implode(' ', $before['blockers']));
@@ -451,16 +562,23 @@ class MemberForceDeleteService
                 'issued_total' => $statement['totals']['issued'], 'recovered_total' => $statement['totals']['recover'],
                 'charged_total' => $statement['totals']['charge'],
             ]);
+            // 6. each contract is CLOSED today and its settlement goes on the settlement screen
+            //    (board 2026-11-25): paid in + bonus − already given = balance payable to the member
+            //    The contract row itself stays on the Settlements page as "Force closed" — it only
+            //    loses its link to the member and the bond, which leave the live tables below.
+            $this->recordClosures($statement, $member, $userId, $reason, $archive->id, true);
             $this->cancel->removeMember($member, $archive);
 
             \App\Services\Activity\ActivityLogger::log('member', 'force_deleted',
                 'Member ' . $member->member_code . ' (' . $member->name . ') FORCE DELETED — ' . count($statement['bills']) . ' bill(s) / contract(s) cancelled; ₹'
                     . Money::group($statement['totals']['recover']) . ' taken back from wallets, ₹' . Money::group($statement['totals']['charge'])
-                    . ' charged to branch cash stock. Reason: ' . $reason, [
+                    . ' charged to branch cash stock; closure settlement payable to the member ₹'
+                    . Money::group($statement['settlement_totals']['payable']) . '. Reason: ' . $reason, [
                     'member' => $member->id,
                     'details' => [
                         'reason' => $reason, 'bills' => $statement['bills'], 'rows' => $statement['rows'], 'totals' => $statement['totals'],
                         'charges' => $statement['charges'], 'wallet_debits' => $statement['wallet_debits'], 'forfeit' => $statement['forfeit'],
+                        'settlements' => $statement['settlements'], 'settlement_totals' => $statement['settlement_totals'],
                     ],
                 ]);
 
@@ -476,6 +594,110 @@ class MemberForceDeleteService
 
             return $statement;
         });
+    }
+
+    /**
+     * Force close ONE contract (user 2026-11-25): the bill of the row and its contract only. The
+     * member, their wallet, their team and their other contracts are not touched. What was paid
+     * out on this bill is taken back from the wallets / charged to the issuing branch exactly as
+     * in a force delete; the contract goes to the Settlements page as "Force closed".
+     *
+     * @return array the statement that was settled
+     */
+    public function closeContract(SalesInvoice $invoice, ?int $userId, string $reason): array
+    {
+        $reason = mb_substr(trim($reason), 0, 255);
+        abort_if($reason === '', 422, 'Give the reason for the force delete.');
+
+        return DB::transaction(function () use ($invoice, $userId, $reason) {
+            $invoice = SalesInvoice::whereKey($invoice->id)->lockForUpdate()->firstOrFail();
+            $member = Member::whereKey($invoice->customer_member_id)->lockForUpdate()->first();
+            abort_unless($member, 422, 'This bill has no member profile.');
+            abort_unless(\Illuminate\Support\Facades\Schema::hasTable('closure_settlements')
+                && \Illuminate\Support\Facades\Schema::hasColumn('member_contracts', 'force_closed_on'), 422,
+                'The closure-settlement store is not set up on this server yet (run the database migration) — nothing was changed.');
+            $statement = $this->statement($member, $invoice);
+            abort_if($statement['blockers'] !== [], 422, implode(' ', $statement['blockers']));
+            $tag = 'Force close of bill ' . $invoice->invoice_no . ' (' . $member->member_code . ')';
+
+            $this->settleMoney($statement, $member, $userId, $tag, 'the bill ' . $invoice->invoice_no . ' of ' . $member->member_code . ' (' . $member->name . ') was');
+            $this->cancel->cancel($invoice, $userId, 'Force closed: ' . $reason, false, ['force' => true, 'team_leaves' => false]);
+            $this->recordClosures($statement, $member, $userId, $reason, null, false);
+
+            \App\Services\Activity\ActivityLogger::log('contract', 'force_closed',
+                'Bill ' . $invoice->invoice_no . ' of ' . $member->member_code . ' (' . $member->name . ') FORCE CLOSED — ₹'
+                    . Money::group($statement['totals']['recover']) . ' taken back from wallets, ₹' . Money::group($statement['totals']['charge'])
+                    . ' charged to branch cash stock. The member stays. Reason: ' . $reason, [
+                    'subject' => $invoice, 'member' => $member->id,
+                    'details' => ['reason' => $reason, 'rows' => $statement['rows'], 'totals' => $statement['totals'],
+                        'charges' => $statement['charges'], 'wallet_debits' => $statement['wallet_debits'], 'settlements' => $statement['settlements']],
+                ]);
+            foreach ($statement['charges'] as $c) {
+                \App\Services\Push\Notifier::to(Branch::find($c['branch_id'])?->distributorUser?->memberAccount, 'stock',
+                    'Cash stock charged — ₹' . Money::group($c['amount']),
+                    'Head Office force closed the bill ' . $invoice->invoice_no . ' of ' . $member->member_code . ' (' . $member->name . '). ₹'
+                    . Money::group($c['amount']) . ' already paid out or redeemed on it was deducted from your cash stock.', route: '/stock');
+            }
+            unset($statement['member']);
+
+            return $statement;
+        });
+    }
+
+    /** Steps 1 + 2 of a force close: wallets first, the withdrawn rest on the issuing branch's cash stock. */
+    protected function settleMoney(array $statement, Member $member, ?int $userId, string $tag, string $what): void
+    {
+        foreach ($statement['wallet_debits'] as $d) {
+            $wallet = MemberWallet::whereKey($d['member_id'])->lockForUpdate()->first();
+            $take = round(min($d['amount'], max(0.0, (float) ($wallet?->cash_balance ?? 0))), 2);
+            abort_if($take + 0.004 < $d['amount'], 422, 'The wallet of ' . $d['member'] . ' changed while this was being processed — open the statement again.');
+            $wallet->decrement('cash_balance', $take);
+            \App\Services\Push\Notifier::to(Member::find($d['member_id']), 'commission', 'Incentive reversed — ₹' . Money::group($take),
+                '₹' . Money::group($take) . ' paid to you was taken back from your cash wallet: ' . $what . ' cancelled by Head Office.', route: '/wallet');
+        }
+        $perBill = [];
+        foreach ($statement['rows'] as $r) {
+            if ($r['charge'] > 0) {
+                $key = $r['branch_id'] . '|' . $r['bill'];
+                $perBill[$key] ??= ['branch_id' => (int) $r['branch_id'], 'bill' => $r['bill'], 'amount' => 0.0, 'kinds' => []];
+                $perBill[$key]['amount'] = round($perBill[$key]['amount'] + $r['charge'], 2);
+                $perBill[$key]['kinds'][$r['kind']] = true;
+            }
+        }
+        foreach ($perBill as $c) {
+            $this->chargeCashStock($c['branch_id'], $c['amount'], (int) $member->id, $userId,
+                $tag . ' — bill ' . $c['bill'] . ': ' . implode(', ', array_keys($c['kinds'])));
+        }
+    }
+
+    /**
+     * The contracts of the statement go to the Settlements page as "Force closed", each with the
+     * figures of its closure (paid in, bonus due, already given) for the settlement made there.
+     * $memberLeaves: the member and the bond are about to leave the live tables — the contract
+     * row is unhooked from both so it stays.
+     */
+    protected function recordClosures(array $statement, Member $member, ?int $userId, string $reason, ?int $archiveId, bool $memberLeaves): void
+    {
+        $today = Carbon::today()->toDateString();
+        foreach ($statement['settlements'] as $c) {
+            if (! $c['member_contract_id']) {
+                continue;   // a bill without a contract has nothing to settle
+            }
+            \App\Models\ClosureSettlement::create([
+                'deleted_member_id' => $archiveId, 'member_contract_id' => $c['member_contract_id'],
+                'member_id' => $member->id, 'member_code' => $member->member_code,
+                'member_name' => $member->name, 'member_phone' => $member->phone,
+                'bond_id' => $c['bond_id'], 'contract_no' => $c['contract_no'], 'invoice_no' => $c['invoice_no'],
+                'plan_code' => $c['plan_code'], 'plan_name' => $c['plan_name'] ? mb_substr((string) $c['plan_name'], 0, 200) : null,
+                'branch_id' => $c['branch_id'], 'contract_date' => $c['contract_date'], 'closed_on' => $today,
+                'contributed' => $c['contributed'], 'bonus' => $c['bonus'], 'given' => $c['given'],
+                'balance' => $c['balance'], 'payable' => $c['payable'], 'detail' => $c['lines'],
+                'status' => 'payable', 'reason' => $reason, 'created_by' => $userId,
+            ]);
+            MemberContract::whereKey($c['member_contract_id'])->update(array_merge(
+                ['status' => 'force_closed', 'force_closed_on' => $today],
+                $memberLeaves ? ['member_id' => null, 'bond_id' => null] : []));
+        }
     }
 
     /**

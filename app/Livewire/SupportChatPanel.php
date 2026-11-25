@@ -87,6 +87,7 @@ class SupportChatPanel extends Component implements HasForms
         abort_unless(static::allowed(), 403);
         $thread = $this->thread();
         $thread->update(['status' => $thread->status === 'open' ? 'closed' : 'open']);
+        app(SupportService::class)->consolidate($thread);   // reopened beside another open chat → one chat
         // tell the list behind the popup: it shuts the popup and drops the chat from the list
         $this->dispatch('support-thread-changed');
     }

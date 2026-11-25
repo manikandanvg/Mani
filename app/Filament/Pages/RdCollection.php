@@ -24,7 +24,7 @@ use Filament\Pages\Page;
 use Illuminate\Support\HtmlString;
 
 /**
- * Trade — Gold Saving Collection Entry (board 2026-10-31: the word "RD" is retired everywhere). Records one monthly installment against an
+ * Trade — Gold Saving Renewal (board 2026-11-25: was "Gold Saving Collection Entry"; the word "RD" is retired everywhere). Records one monthly installment against an
  * EXISTING RD bond (legacy admin/trade/rdsales): pick the saver, see their schedule,
  * deduct the branch's cash stock, save the renewal. Branch comes from the session.
  */
@@ -39,11 +39,11 @@ class RdCollection extends Page implements HasForms
 
     protected static ?string $navigationGroup = 'Trade';
 
-    protected static ?string $navigationLabel = 'Gold Saving Collection Entry';
+    protected static ?string $navigationLabel = 'Gold Saving Renewal';
 
     protected static ?int $navigationSort = 9;
 
-    protected static ?string $title = 'Gold Saving Collection';
+    protected static ?string $title = 'Gold Saving Renewal';
 
     protected static string $view = 'filament.pages.rd-collection';
 
@@ -240,7 +240,7 @@ class RdCollection extends Page implements HasForms
 
         Notification::make()
             ->success()
-            ->title('Collection saved')
+            ->title('Renewal saved')
             ->body($label . ' for ₹' . \App\Support\Money::group((float) $entry->value) . ' recorded.'
                 . ($bond?->plan?->is_contract ? ' The updated contract was sent to the saver (app notification + inbox).' : ''))
             // Board 2026-11-15: open the contract as it now stands, straight from the confirmation.

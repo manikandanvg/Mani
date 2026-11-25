@@ -38,6 +38,16 @@
         </div>
     </div>
 
+    <div style="font-size:12px;opacity:.75;margin-top:-6px;">
+        @if (! empty($s['only']))
+            These figures cover <b>this bill / contract only ({{ $s['only'] }})</b>. {{ $s['member']->member_code }} and their other contracts are not touched.
+            Tick "Delete the member + the rest of their contracts" above to see and close all of them.
+        @else
+            These figures cover <b>all {{ count($s['bills']) }} bill(s) / contract(s)</b> of {{ $s['member']->member_code }}.
+            The "Bill" column below shows which bill each value belongs to.
+        @endif
+    </div>
+
     <div>
         <div style="font-weight:600;margin-bottom:4px;">Bills and contracts that will be cancelled ({{ count($s['bills']) }})</div>
         @if ($s['bills'])
@@ -103,6 +113,14 @@
         @endif
     </div>
 
+    {{-- User 2026-11-25: the settlement is a separate step — its amount is worked out on the Settlements page --}}
+    @if (! empty($s['settlements']))
+        <div style="{{ $box }}font-size:13px;">
+            <b>Settlement:</b> not done here. {{ count($s['settlements']) === 1 ? 'This contract goes' : 'These ' . count($s['settlements']) . ' contracts go' }}
+            to Sales &amp; Contracts → Settlements as <b>Force closed</b>; the amount is worked out and settled there.
+        </div>
+    @endif
+
     @if ($s['charges'])
         <div>
             <div style="font-weight:600;margin-bottom:4px;">Cash stock of the issuing branch</div>
@@ -136,7 +154,11 @@
 
     <div style="font-size:12px;opacity:.75;">
         Sold stock returns to each billing branch and the network volumes (BV / GBV) are rolled back, as with "Cancel invoice".
-        The member's profile, wallet, contracts, coupons and QRs are copied to the separate deleted-members store and then removed from the live data;
-        the bills stay on record as CANCELLED. This cannot be undone.
+        @if (! empty($s['only']))
+            The member's profile, wallet and other contracts stay as they are; this bill stays on record as CANCELLED. This cannot be undone.
+        @else
+            The member's profile, wallet, coupons and QRs are copied to the separate deleted-members store and then removed from the live data;
+            the bills stay on record as CANCELLED. This cannot be undone.
+        @endif
     </div>
 </div>

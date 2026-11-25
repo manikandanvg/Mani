@@ -24,17 +24,28 @@ class ListSupportThreads extends ListRecords
                 ->requiresConfirmation()
                 ->modalHeading('Merge duplicate chats')
                 ->modalDescription(function () {
-                    $groups = app(\App\Services\Support\SupportService::class)->duplicateGroups();
-                    if ($groups->isEmpty()) {
-                        return 'No customer has more than one open chat.';
+                    $support = app(\App\Services\Support\SupportService::class);
+                    $open = $support->duplicateGroups();
+                    $all = $support->duplicateGroups(true);
+                    if ($all->isEmpty()) {
+                        return 'No customer has more than one chat.';
                     }
 
-                    return $groups->count() . ' customer(s) have ' . $groups->sum->count() . ' open chats between them. '
+                    return $open->count() . ' customer(s) have more than one OPEN chat; counting closed chats too, '
+                        . $all->count() . ' customer(s) have ' . $all->sum->count() . ' chats between them. '
                         . 'Each customer\'s chats become ONE chat with all the messages in the order they were written; '
                         . 'the customer sees the same single chat in the app. No message is sent. This cannot be undone.';
                 })
-                ->action(function () {
-                    $r = app(\App\Services\Support\SupportService::class)->mergeAllDuplicates();
+                // Board 2026-11-25: the same person still showed several times under "Closed chats",
+                // and an old closed chat came back as a second open one.
+                ->form([
+                    \Filament\Forms\Components\Checkbox::make('with_closed')
+                        ->label('Also merge each customer\'s CLOSED chats (the whole history in one chat)')
+                        ->helperText('Ticked: one customer = one chat everywhere. A customer with an open chat gets their old closed chats folded into it; a customer with only closed chats keeps one closed chat. Unticked: only customers with two or more OPEN chats are merged.')
+                        ->default(true),
+                ])
+                ->action(function (array $data) {
+                    $r = app(\App\Services\Support\SupportService::class)->mergeAllDuplicates((bool) ($data['with_closed'] ?? true));
                     \Filament\Notifications\Notification::make()->success()
                         ->title($r['removed'] ? "{$r['removed']} duplicate chat(s) merged — {$r['people']} customer(s) now have one chat each" : 'Nothing to merge')
                         ->send();

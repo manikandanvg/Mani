@@ -35,6 +35,19 @@ class SupportThreadResource extends BaseResource
         return $open > 0 ? (string) $open : null;
     }
 
+    /**
+     * Optimisation 2026-11-25: the owner, "staff replied" and the last message come with the list
+     * query — they were three extra queries for every chat row on the page.
+     */
+    public static function getEloquentQuery(): \Illuminate\Database\Eloquent\Builder
+    {
+        return parent::getEloquentQuery()->with('owner')
+            ->withExists(['messages as staff_replied' => fn ($q) => $q->where('sender', 'support')
+                ->where('source', '!=', \App\Services\Support\SupportBot::SOURCE)])
+            ->addSelect(['last_body' => \App\Models\SupportMessage::select('body')
+                ->whereColumn('thread_id', 'support_threads.id')->latest('id')->limit(1)]);
+    }
+
     public static function table(Table $table): Table
     {
         return $table
@@ -54,10 +67,10 @@ class SupportThreadResource extends BaseResource
                     ->state(fn (SupportThread $r) => $r->needs_staff ? 'Us' : 'User')
                     ->color(fn (string $state) => $state === 'Us' ? 'danger' : 'gray'),
                 Tables\Columns\IconColumn::make('answered')->label('Staff replied')->boolean()
-                    ->state(fn (SupportThread $r) => $r->messages()->where('sender', 'support')->where('source', '!=', \App\Services\Support\SupportBot::SOURCE)->exists()),
+                    ->state(fn (SupportThread $r) => (bool) $r->staff_replied),
                 Tables\Columns\TextColumn::make('subject')->limit(40)->wrap()->searchable(),
                 Tables\Columns\TextColumn::make('last_message')->label('Last message')
-                    ->state(fn (SupportThread $r) => \Illuminate\Support\Str::limit((string) $r->messages()->latest('id')->value('body'), 70))
+                    ->state(fn (SupportThread $r) => \Illuminate\Support\Str::limit((string) $r->last_body, 70))
                     ->wrap()->toggleable(),
                 Tables\Columns\TextColumn::make('status')->badge()
                     ->color(fn (string $state) => $state === 'open' ? 'warning' : 'gray'),
@@ -105,9 +118,11 @@ class SupportThreadResource extends BaseResource
                     ->icon('heroicon-o-check-circle')
                     ->color('gray')
                     ->requiresConfirmation()
-                    ->action(fn (SupportThread $record) => $record->update([
-                        'status' => $record->status === 'open' ? 'closed' : 'open',
-                    ])),
+                    ->action(function (SupportThread $record) {
+                        $record->update(['status' => $record->status === 'open' ? 'closed' : 'open']);
+                        // reopened beside another open chat of the same person → one chat (board 2026-11-25)
+                        app(\App\Services\Support\SupportService::class)->consolidate($record);
+                    }),
             ])
             ->bulkActions([
                 // 2026-11-18: filter one topic, tick the chats, answer them all with one ready reply.

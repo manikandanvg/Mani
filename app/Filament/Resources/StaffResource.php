@@ -98,6 +98,12 @@ class StaffResource extends BaseResource
                 Forms\Components\TextInput::make('password')
                     ->password()
                     ->revealable()
+                    // User 2026-11-25: the browser filled this with the ADMIN's own saved login (and
+                    // put the admin's user name into the Roles search box before it). "new-password"
+                    // tells the browser this is not a login form; the data-* flags do the same for
+                    // password managers. Saving such a filled form would have changed the staff password.
+                    ->autocomplete('new-password')
+                    ->extraInputAttributes(['data-lpignore' => 'true', 'data-1p-ignore' => 'true', 'data-bwignore' => 'true', 'data-form-type' => 'other'])
                     ->required(fn (string $context) => $context === 'create')
                     ->dehydrated(fn ($state) => filled($state)) // User model 'hashed' cast hashes it
                     ->helperText('Leave blank to keep the current password.'),

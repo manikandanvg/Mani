@@ -11,7 +11,7 @@
                 color="primary"
                 icon="heroicon-m-arrow-path"
                 wire:loading.attr="disabled">
-                <span wire:loading.remove>Save collection</span>
+                <span wire:loading.remove>Save renewal</span>
                 <span wire:loading>Processing…</span>
             </x-filament::button>
         </div>

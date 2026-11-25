@@ -390,13 +390,171 @@ class BranchSalesAndForceDeleteTest extends TestCase
             ->filterTable('branch_id', $dealer->id)
             ->assertTableActionVisible('forceDeleteMember', $first);
         // without the tick nothing happens
-        $list->callTableAction('forceDeleteMember', $first, data: ['reason' => 'Duplicate', 'confirmed' => false])
+        $list->callTableAction('forceDeleteMember', $first, data: ['delete_all' => true, 'reason' => 'Duplicate', 'confirmed' => false])
             ->assertHasTableActionErrors(['confirmed']);
         $this->assertDatabaseHas('members', ['id' => $member->id]);
 
-        $list->callTableAction('forceDeleteMember', $first, data: ['reason' => 'Duplicate', 'confirmed' => true])
+        $list->callTableAction('forceDeleteMember', $first, data: ['delete_all' => true, 'reason' => 'Duplicate', 'confirmed' => true])
             ->assertHasNoTableActionErrors()
             ->assertNotified($member->member_code . ' force deleted');
         $this->assertDatabaseMissing('members', ['id' => $member->id]);
+    }
+
+    // ───────────── 3. Closure settlement of a force-deleted contract (board 2026-11-25) ─────────────
+
+    public function test_each_contract_is_settled_paid_in_plus_bonus_minus_already_given(): void
+    {
+        ['member' => $member, 'first' => $first, 'second' => $second, 'dealer' => $dealer] = $this->scenario();
+
+        $s = app(MemberForceDeleteService::class)->statement($member);
+        $this->assertCount(2, $s['settlements'], 'one settlement per contract — the statement covers ALL bills');
+        $byBill = collect($s['settlements'])->keyBy('bill');
+
+        // bill 1: the coupon cash is still in the wallet (taken back) → nothing is held against the member
+        $one = $byBill[$first->invoice_no];
+        $this->assertEqualsWithDelta((float) $first->grand_total, $one['contributed'], 0.01);
+        $this->assertSame(0.0, $one['bonus']);
+        $this->assertSame(0.0, $one['given']);
+        $this->assertEqualsWithDelta((float) $first->grand_total, $one['payable'], 0.01);
+        // bill 2: the goods of the redeemed QR were handed over → deducted in full
+        $two = $byBill[$second->invoice_no];
+        $this->assertEqualsWithDelta(14420, $two['given'], 0.01);
+        $this->assertEqualsWithDelta((float) $second->grand_total - 14420, $two['balance'], 0.01);
+        $this->assertEqualsWithDelta((float) $first->grand_total + max(0, (float) $second->grand_total - 14420), $s['settlement_totals']['payable'], 0.01);
+
+        app(MemberForceDeleteService::class)->delete($member, $this->admin()->id, 'Duplicate profile');
+
+        // the member is gone, but both contracts stay on the Settlements page as FORCE CLOSED
+        $this->assertDatabaseMissing('members', ['id' => $member->id]);
+        $contracts = \App\Models\MemberContract::whereIn('invoice_no', [$first->invoice_no, $second->invoice_no])->get();
+        $this->assertCount(2, $contracts);
+        foreach ($contracts as $c) {
+            $this->assertSame('force_closed', $c->status);
+            $this->assertNull($c->member_id);
+            $this->assertSame(now()->toDateString(), $c->force_closed_on->toDateString());
+        }
+        $contract = $contracts->firstWhere('invoice_no', $first->invoice_no);
+        $kept = $contract->closure;
+        $this->assertSame('payable', $kept->status);
+        $this->assertSame((int) $dealer->id, (int) $kept->branch_id);
+        $this->assertSame($member->name, $kept->member_name);
+        $this->assertEqualsWithDelta((float) $first->grand_total, (float) $kept->payable, 0.01);
+        $this->assertSame('Duplicate profile', $kept->reason);
+        $this->assertSame('Force closed', \App\Filament\Resources\MemberContractResource::stateLabel($contract));
+
+        // the settlement is its own step, on the Settlements page — found by the deleted member's code
+        $this->actingAs($this->admin());
+        $this->get('/admin/login');
+        \Livewire\Livewire::test(\App\Filament\Resources\MemberContractResource\Pages\ListMemberContracts::class)
+            ->filterTable('stage', 'force_unsettled')
+            ->assertCanSeeTableRecords($contracts)
+            ->searchTable($member->member_code)
+            ->assertCanSeeTableRecords($contracts)
+            ->assertTableActionVisible('settle_force_closed', $contract)
+            ->assertTableActionHidden('generate_settlement', $contract)
+            ->callTableAction('settle_force_closed', $contract, data: ['paid_amount' => (float) $kept->payable, 'paid_on' => now()->toDateString(), 'paid_note' => 'Cash at the branch'])
+            ->assertHasNoTableActionErrors();
+        $this->assertSame('paid', $kept->fresh()->status);
+        $this->assertSame($this->admin()->id, (int) $kept->fresh()->paid_by);
+        $this->assertNotNull($contract->fresh()->settled_on);
+    }
+
+    public function test_without_the_tick_only_this_contract_is_force_closed_and_the_member_stays(): void
+    {
+        ['member' => $member, 'first' => $first, 'second' => $second, 'dealer' => $dealer, 'cashCp' => $cashCp, 'upline' => $upline] = $this->scenario();
+        $svc = app(MemberForceDeleteService::class);
+        $walletBefore = (float) MemberWallet::find($member->id)->cash_balance;
+        $uplineBefore = (float) MemberWallet::find($upline->id)->cash_balance;
+
+        // the statement shows THIS contract only: the redeemed QR of bill 2, nothing of bill 1
+        $s = $svc->statement($member, $second);
+        $this->assertSame($second->invoice_no, $s['only']);
+        $this->assertCount(1, $s['bills']);
+        $this->assertSame([$second->invoice_no], array_values(array_unique(array_column($s['rows'], 'bill'))));
+        $this->assertNotContains('Promotional Incentive (CBC) — PAID', array_column($s['rows'], 'kind'));
+        $this->assertSame(0.0, $s['totals']['forfeit']);
+        $this->assertCount(1, $s['settlements']);
+
+        $svc->closeContract($second, $this->admin()->id, 'Wrong scheme billed');
+
+        // the member, the other bill and the wallets not concerned are untouched
+        $this->assertDatabaseHas('members', ['id' => $member->id]);
+        $this->assertNotSame('cancelled', $first->fresh()->status);
+        $this->assertSame('active', Bond::where('invoice_no', $first->invoice_no)->value('status'));
+        $this->assertEqualsWithDelta($walletBefore, (float) MemberWallet::find($member->id)->cash_balance, 0.01);
+        $this->assertSame(0, \App\Models\DeletedMember::count());
+        // this bill is cancelled, its contract is on the Settlements page as force closed
+        $this->assertSame('cancelled', $second->fresh()->status);
+        $contract = \App\Models\MemberContract::where('invoice_no', $second->invoice_no)->firstOrFail();
+        $this->assertSame('force_closed', $contract->status);
+        $this->assertSame((int) $member->id, (int) $contract->member_id);
+        $this->assertEqualsWithDelta(14420, (float) $contract->closure->given, 0.01);
+        $this->assertSame('active', \App\Models\MemberContract::where('invoice_no', $first->invoice_no)->value('status'));
+        // what was paid out on THIS bill is settled: the upline's unpaid line of bill 2 simply goes,
+        // the redeemed goods fall on the issuing branch
+        $charged = -(float) StockMovement::where('ref_type', MemberForceDeleteService::MOVEMENT_REF)->where('ref_id', $member->id)->sum('qty_change');
+        $this->assertEqualsWithDelta($s['totals']['charge'], $charged, 0.01);
+        $this->assertGreaterThanOrEqual(14420, $charged);
+        $this->assertEqualsWithDelta(1000 - $charged, (float) Stock::where('branch_id', $dealer->id)->where('catalog_product_id', $cashCp->id)->value('quantity'), 0.01);
+        $this->assertEqualsWithDelta($uplineBefore - $s['totals']['recover'], (float) MemberWallet::find($upline->id)->cash_balance, 0.01);
+
+        // the popup follows the tick: unticked = this contract, ticked = all of them
+        $this->actingAs($this->admin());
+        $this->get('/admin/login');
+        \Livewire\Livewire::test(\App\Filament\Resources\SalesInvoiceResource\Pages\ListSalesInvoices::class)
+            ->filterTable('branch_id', $dealer->id)
+            ->mountTableAction('forceDeleteMember', $first)
+            ->assertSee('this bill / contract only')
+            ->setTableActionData(['delete_all' => true])
+            ->assertSee('bill(s) / contract(s)</b> of ' . $member->member_code, false);
+    }
+
+    // ───────────── 4. Branch bank details + change log (board 2026-11-25) ─────────────
+
+    public function test_branch_bank_details_are_logged_on_every_change_from_both_screens(): void
+    {
+        $dealer = Branch::create(['name' => 'Dealer Bank', 'country' => 'IN', 'is_active' => true]);
+        $this->assertSame(0, $dealer->bankChanges()->count(), 'a branch created without bank details logs nothing');
+
+        // Head Office enters the account: the first entry is logged, but is not a "change"
+        $this->actingAs($this->admin());
+        $dealer->update(['bank_name' => 'Canara Bank', 'bank_holder' => 'Ravi', 'bank_acno' => '1234567890', 'bank_ifsc' => 'CNRB0001234']);
+        $this->assertSame(1, $dealer->bankChanges()->count());
+        $this->assertSame(0, $dealer->bankChangeCount());
+        $dealer->update(['phone' => '9000000001']);
+        $this->assertSame(1, $dealer->bankChanges()->count(), 'a save that does not touch the bank logs nothing');
+
+        // the branch itself moves to SBI from its own login
+        $login = $this->dealerLogin($dealer);
+        $this->actingAs($login);
+        $this->assertTrue(\App\Filament\Pages\MyBankDetails::canAccess());
+        \Livewire\Livewire::test(\App\Filament\Pages\MyBankDetails::class)
+            ->assertFormSet(['bank_name' => 'Canara Bank', 'bank_acno' => '1234567890'])
+            ->fillForm(['bank_name' => 'State Bank of India', 'bank_ifsc' => 'sbin0005678'])
+            ->call('save')
+            ->assertHasNoFormErrors()
+            ->assertSee('Bank details changed 1 time(s)');
+        $dealer->refresh();
+        $this->assertSame('State Bank of India', $dealer->bank_name);
+        $this->assertSame('SBIN0005678', $dealer->bank_ifsc);
+        $this->assertSame(1, $dealer->bankChangeCount());
+        $last = $dealer->bankChanges()->first();
+        $this->assertSame('Canara Bank', $last->old_bank_name);
+        $this->assertSame('State Bank of India', $last->new_bank_name);
+        $this->assertSame('CNRB0001234', $last->old_bank_ifsc);
+        $this->assertSame($login->id, (int) $last->changed_by);
+
+        // a wrong IFSC is refused, nothing is logged
+        \Livewire\Livewire::test(\App\Filament\Pages\MyBankDetails::class)
+            ->fillForm(['bank_ifsc' => 'WRONG'])
+            ->call('save')
+            ->assertHasFormErrors(['bank_ifsc']);
+        $this->assertSame(2, $dealer->bankChanges()->count());
+
+        // Head Office sees the same log on the branch form, and is not offered the dealer page
+        $this->actingAs($this->admin());
+        $this->assertFalse(\App\Filament\Pages\MyBankDetails::canAccess());
+        $this->get('/admin/branches/' . $dealer->id . '/edit')->assertSuccessful()
+            ->assertSee('Bank change log')->assertSee('Bank details changed 1 time(s)')->assertSee('Canara Bank');
     }
 }

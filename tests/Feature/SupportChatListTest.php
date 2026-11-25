@@ -110,7 +110,7 @@ class SupportChatListTest extends TestCase
         $b->forceFill(['needs_staff' => true])->save();
         $this->assertSame("/support/{$b->id}", $member->notifications()->latest('created_at')->get()->firstWhere('data.data.thread_id', $b->id)->data['route']);
 
-        Livewire::test(ListSupportThreads::class)->callAction('merge_duplicates');
+        Livewire::test(ListSupportThreads::class)->callAction('merge_duplicates', data: ['with_closed' => false]);
 
         $this->assertNull(SupportThread::find($b->id));
         $a = $a->fresh();
@@ -145,5 +145,61 @@ class SupportChatListTest extends TestCase
         $svc->userMessage($a->fresh(), $a->owner, 'But the amount is still wrong');     // a real message reopens it
         $this->assertSame('open', $a->fresh()->status);
         $this->assertTrue($a->fresh()->needs_staff);
+    }
+
+    /** Board 2026-11-25: "merge not working properly" — closed chats were left out, and an old chat came back as a second open one. */
+    public function test_closed_chats_are_merged_too_and_a_reopened_chat_never_makes_a_second_open_one(): void
+    {
+        $member = \App\Models\Member::firstOrFail();
+        $support = app(SupportService::class);
+        $old = $support->userMessage(null, $member, 'October wallet missing')->thread;
+        $support->supportReply($old, 'Credited', null);
+        $old->update(['status' => 'closed']);
+        $older = $support->userMessage(null, $member, 'QR not received')->thread;
+        $older->update(['status' => 'closed', 'needs_staff' => true]);
+        $open = $support->userMessage(null, $member, 'November wallet missing')->thread;
+        $open->update(['needs_staff' => false]);
+        $this->assertSame(1, SupportThread::where('status', 'open')->count());
+
+        // the plain merge has nothing to do — one open chat — yet the person is three lines
+        $this->assertSame(0, $support->duplicateGroups()->count());
+        $this->assertSame(1, $support->duplicateGroups(true)->count());
+
+        Livewire::test(ListSupportThreads::class)->callAction('merge_duplicates', data: ['with_closed' => true])->assertHasNoActionErrors();
+        // one chat: the OPEN one stays (the app keeps showing it), the history is inside, in order
+        $this->assertSame([$open->id], SupportThread::pluck('id')->all());
+        $open->refresh();
+        $this->assertSame('open', $open->status);
+        $this->assertFalse((bool) $open->needs_staff, 'an unanswered CLOSED chat does not put it back in the queue');
+        $this->assertSame(['October wallet missing', 'Credited', 'QR not received', 'November wallet missing'], $open->messages()->orderBy('id')->pluck('body')->all());
+
+        // a customer with only closed chats keeps ONE closed chat
+        $other = \App\Models\Member::where('id', '!=', $member->id)->first() ?? \App\Models\Member::create(['member_code' => 'LJWCL2', 'name' => 'Closed Two',
+            'phone' => '9555555555', 'status' => 'active', 'joined_on' => '2026-10-01', 'rank_id' => $member->rank_id]);
+        $c1 = $support->userMessage(null, $other, 'First')->thread;
+        $c1->update(['status' => 'closed']);
+        $c2 = $support->userMessage(null, $other, 'Second')->thread;
+        $c2->update(['status' => 'closed']);
+        $this->artisan('support:merge-duplicates', ['--apply' => true, '--with-closed' => true])->assertSuccessful();
+        $this->assertSame(1, SupportThread::where('owner_id', $other->id)->count());
+        $this->assertSame('closed', SupportThread::where('owner_id', $other->id)->value('status'));
+
+        // the user answers in an OLD closed chat while another chat is open → still one open chat,
+        // and it is the chat they are writing in
+        $c = SupportThread::where('owner_id', $other->id)->firstOrFail();
+        $new = $support->userMessage(null, $other, 'A new question')->thread;
+        $this->assertSame(1, SupportThread::where('owner_id', $other->id)->where('status', 'open')->count());
+        $support->userMessage($c, $other, 'Following up on the old one');
+        $this->assertSame([$c->id], SupportThread::where('owner_id', $other->id)->where('status', 'open')->pluck('id')->all());
+        $this->assertNull(SupportThread::find($new->id));
+        $this->assertContains('A new question', $c->messages()->pluck('body')->all());
+
+        // the desk reopening an old chat beside an open one folds them as well
+        $shut = $support->userMessage(null, $member, 'An older matter')->thread;
+        $shut->update(['status' => 'closed']);
+        $this->assertSame(1, SupportThread::where('owner_id', $member->id)->where('status', 'open')->count());
+        Livewire::test(ListSupportThreads::class)->filterTable('status', 'closed')->callTableAction('toggle', $shut);
+        $this->assertSame([$shut->id], SupportThread::where('owner_id', $member->id)->pluck('id')->all());
+        $this->assertSame('open', $shut->fresh()->status);
     }
 }

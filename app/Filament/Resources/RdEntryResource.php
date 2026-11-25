@@ -13,7 +13,7 @@ use Filament\Tables\Table;
 
 /**
  * Manage Gold Saving (GS) collections — the renewal installments recorded via the
- * Gold Saving Collection Entry page. Read-only list (entries are created by the collection flow).
+ * Gold Saving Renewal page. Read-only list (entries are created by the collection flow).
  */
 class RdEntryResource extends BaseResource
 {
@@ -35,7 +35,7 @@ class RdEntryResource extends BaseResource
 
     public static function canCreate(): bool
     {
-        return false;   // collections are recorded through the Gold Saving Collection Entry page
+        return false;   // collections are recorded through the Gold Saving Renewal page
     }
 
     public static function table(Table $table): Table
