@@ -21,6 +21,8 @@ use Illuminate\Support\Facades\DB;
  */
 class StockAuditRestock extends Command
 {
+    use Concerns\BranchCsv;
+
     protected $signature = 'stock:audit-restock {--csv : also write the detail lists as CSV files}
         {--branch= : audit one branch only (branch id)}';
 
@@ -32,9 +34,10 @@ class StockAuditRestock extends Command
     public function handle(): int
     {
         $branchId = $this->option('branch') ? (int) $this->option('branch') : null;
-        $branches = DB::table('branches')->get(['id', 'name', 'city', 'level', 'incharge'])->keyBy('id');
+        $this->loadBranches();
+        $branches = collect($this->branchRows);
         $products = DB::table('catalog_products')->get(['id', 'code', 'name', 'material'])->keyBy('id');
-        $bName = fn ($id) => ($b = $branches[$id] ?? null) ? trim($b->name . ($b->city ? ' / ' . $b->city : '')) . ' [#' . $id . ']' : 'Branch #' . $id;
+        $bName = fn ($id) => $this->bLabel($id);
         $pName = function ($id) use ($products) {
             $p = $products[$id] ?? null;
             if (! $p) {
@@ -215,15 +218,7 @@ class StockAuditRestock extends Command
                 if (! $rows) {
                     continue;
                 }
-                $path = $dir . DIRECTORY_SEPARATOR . $stamp . '-' . $name . '.csv';
-                $fh = fopen($path, 'w');
-                fwrite($fh, "\xEF\xBB\xBF");   // Excel reads UTF-8
-                fputcsv($fh, $head);
-                foreach ($rows as $row) {
-                    fputcsv($fh, $row);
-                }
-                fclose($fh);
-                $this->line('Written: ' . $path . ' (' . count($rows) . ' rows)');
+                $this->writeCsv($dir . DIRECTORY_SEPARATOR . $stamp . '-' . $name . '.csv', $head, $rows);
             }
         } else {
             $this->line('Add --csv to write the full lists to storage/app/stock-audit/.');

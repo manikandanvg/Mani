@@ -99,6 +99,7 @@ class SalesService
 
             // --- totals from cart (in the BRANCH currency) ---
             $cart = $this->cashLinesAsAmounts($data['cart'] ?? []);
+            $this->assertStockCovers($cart, (int) $branchId);
             $this->assertMetalLinesCarryCharges($cart, $branch);
             $crossTotal = round(array_sum(array_map(fn ($l) => (float) ($l['net_total'] ?? 0), $cart)), 2);
             $cartGrand = round(array_sum(array_map(fn ($l) => (float) ($l['grand_total'] ?? 0), $cart)), 2);
@@ -772,6 +773,55 @@ class SalesService
         }
 
         return $out;
+    }
+
+    /**
+     * HARD GATE (major complaint 2026-11-25: with ₹2.62 Cr of cash stock a bill of ₹112.62 Cr went
+     * through — INV-HQ-0604 — and left the cash stock at −₹110 Cr). The Sales page only HINTED at
+     * the stock; nothing on the server checked it, and a product the branch never held was
+     * billed without any deduction at all. A bill may sell only what the branch holds — cash,
+     * gold, silver, vessels, custom pieces alike, Head Office included. Checked per stock row,
+     * with the rows locked so two bills at once cannot both pass.
+     */
+    protected function assertStockCovers(array $cart, int $branchId): void
+    {
+        $need = [];
+        foreach ($cart as $line) {
+            if (empty($line['catalog_product_id'])) {
+                continue;
+            }
+            // the quantity the stock falls by must be real, and — for cash — must BE the value billed:
+            // a line of "0 pieces" or "₹1 of cash" priced at lakhs would pass any stock check
+            $pieces = $this->linePieces($line);
+            $value = max((float) ($line['net_total'] ?? 0), (float) ($line['grand_total'] ?? 0));
+            abort_if($pieces < 0, 422, 'A bill line cannot carry a negative quantity.');
+            abort_if($pieces <= 0 && $value > 0, 422, 'A bill line has a value but no quantity — enter the quantity so the stock can be deducted.');
+            $material = $line['material'] ?? CatalogProduct::find($line['catalog_product_id'])?->material;
+            abort_if($material === 'cash' && $value > $pieces + 0.5, 422,
+                'A cash line is billed for exactly its amount: ₹' . \App\Support\Money::group($pieces) . ' of cash stock cannot be billed as ₹'
+                . \App\Support\Money::group($value) . '.');
+            $key = $line['catalog_product_id'] . '|' . (int) ($line['order_line_id'] ?? 0);
+            $need[$key] = ($need[$key] ?? 0) + $pieces;
+        }
+        foreach ($need as $key => $qty) {
+            if ($qty <= 0) {
+                continue;
+            }
+            [$productId, $orderLineId] = array_map('intval', explode('|', $key));
+            $stock = Stock::where('branch_id', $branchId)->where('catalog_product_id', $productId)
+                ->where('order_line_id', $orderLineId)->lockForUpdate()->first();
+            $have = max(0.0, (float) ($stock?->quantity ?? 0));
+            if ($have + 1e-6 >= $qty) {
+                continue;
+            }
+            $cp = CatalogProduct::find($productId);
+            $name = \App\Support\Translatable::pick($cp?->name) ?: ('item #' . $productId);
+            $fmt = fn (float $v) => $cp?->material === 'cash'
+                ? '₹' . \App\Support\Money::group($v)
+                : rtrim(rtrim(number_format($v, 4, '.', ''), '0'), '.') . ' pcs';
+            abort(422, 'Not enough stock at this branch for ' . $name . ': billed ' . $fmt((float) $qty) . ', available ' . $fmt($have)
+                . '. A bill can only sell what the branch holds — raise an order request for more stock first.');
+        }
     }
 
     protected function deductStock(array $cart, int $branchId, string $billDate, ?int $userId, ?int $invoiceId = null): void

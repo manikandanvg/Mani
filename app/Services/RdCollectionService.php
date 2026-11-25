@@ -283,6 +283,12 @@ class RdCollectionService
         if (! $stock) {
             return;   // no cash product in the catalogue at all
         }
+        // HARD GATE (major complaint 2026-11-25): a renewal is billed out of the branch's cash
+        // stock and may never take more than the branch holds — it used to go below zero silently.
+        $stock = Stock::whereKey($stock->id)->lockForUpdate()->first();
+        $held = max(0.0, (float) $stock->quantity);
+        abort_if($held + 0.005 < $amount, 422, 'Not enough cash stock at this branch: the renewal is ₹' . \App\Support\Money::group($amount)
+            . ', available ₹' . \App\Support\Money::group($held) . '. Raise an order request for cash stock first.');
         $stock->decrement('quantity', $amount);
         StockMovement::create([
             'branch_id' => $branchId,

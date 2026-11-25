@@ -433,8 +433,11 @@ class RedemptionService
             }
             // Redeem consumes the REDEEMING branch's own stock only — never HQ/admin
             // stock, and never below zero.
+            // the branch's ORDINARY stock row only — never a customer's customized-order piece
+            // (same product, its own row), which a plain lookup could pick instead (2026-11-25)
             $stock = Stock::where('branch_id', $branchId)
                 ->where('catalog_product_id', $l['catalog_product_id'])
+                ->where('order_line_id', 0)
                 ->lockForUpdate()->first();
             abort_if(! $stock || (float) $stock->quantity + 1e-6 < $qty, 422,
                 'Insufficient branch stock for ' . $l['description'] . ' — redemption uses the redeeming branch\'s own stock.');

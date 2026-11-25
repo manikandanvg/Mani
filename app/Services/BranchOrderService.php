@@ -865,6 +865,10 @@ class BranchOrderService
             ['branch_id' => $seller->id, 'catalog_product_id' => $line->catalog_product_id],
             ['quantity' => 0]
         );
+        // a supplier ships only what it holds (2026-11-25: no stock row may be taken below zero)
+        $sellerStock = Stock::whereKey($sellerStock->id)->lockForUpdate()->first();
+        abort_if((float) $sellerStock->quantity + 1e-6 < $pieces, 422, 'The supplying branch (' . $seller->name . ') does not hold enough stock for '
+            . ($line->description ?: 'a line of this order') . ' — it cannot be approved until the supplier is restocked.');
         // stock ledger moves PIECES; the money/transfer maths below stay gram-based
         $sellerStock->decrement('quantity', $pieces);
         StockMovement::create([

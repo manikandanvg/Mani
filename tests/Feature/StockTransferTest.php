@@ -123,6 +123,16 @@ class StockTransferTest extends TestCase
                 ['catalog_product_id' => $silver->id, 'weight' => 20],
             ],
         ]);
+        // 2026-11-25: a supplier ships only what it holds — with nothing in stock the approval is refused
+        try {
+            $orders->approve($request->fresh('lines'));
+            $this->fail('A supplier with no stock shipped an order.');
+        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
+            $this->assertStringContainsString('does not hold enough stock', $e->getMessage());
+        }
+        $this->assertSame('pending', $request->fresh()->status);
+        \App\Models\Stock::create(['branch_id' => $seller->id, 'catalog_product_id' => $gold->id, 'quantity' => 100]);
+        \App\Models\Stock::create(['branch_id' => $seller->id, 'catalog_product_id' => $silver->id, 'quantity' => 100]);
         $orders->approve($request->fresh('lines'));
 
         // a transfer row per line, all seller→buyer (multi-item — not a single-item entry)
@@ -146,7 +156,7 @@ class StockTransferTest extends TestCase
 
         // buyer received the goods, seller shipped them
         $this->assertEquals(10, (float) \App\Models\Stock::where('branch_id', $buyer->id)->where('catalog_product_id', $gold->id)->value('quantity'));
-        $this->assertEquals(-10, (float) \App\Models\Stock::where('branch_id', $seller->id)->where('catalog_product_id', $gold->id)->value('quantity'));
+        $this->assertEquals(90, (float) \App\Models\Stock::where('branch_id', $seller->id)->where('catalog_product_id', $gold->id)->value('quantity'));
     }
 
     /** The source dropdown offers only branches ABOVE you in the chain, plus Head Office. */

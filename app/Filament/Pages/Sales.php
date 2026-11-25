@@ -512,12 +512,13 @@ class Sales extends Page implements HasForms
 
         // PAN: soft warning only — never blocks billing. Stronger note above the legal
         // threshold (Rule 114B / 269ST), but the operator may still proceed.
+        // Shown only AFTER the bill is saved (user 2026-11-25: a refused bill showed "Saving anyway").
         $threshold = (float) config('services.pan.block_threshold', 200000);
+        $panWarning = null;
         if (($this->panResult['match'] ?? '') !== 'exact') {
-            $body = $totals['grand'] >= $threshold
-                ? 'This bill is ₹' . Number::format($threshold) . '+ and the PAN is not verified (Rule 114B). Saving anyway.'
-                : 'PAN is not verified. Saving anyway.';
-            Notification::make()->title('PAN not verified')->body($body)->warning()->send();
+            $panWarning = $totals['grand'] >= $threshold
+                ? 'This bill is ₹' . Number::format($threshold) . '+ and the PAN is not verified (Rule 114B). The bill was saved.'
+                : 'PAN is not verified. The bill was saved.';
         }
 
         // The charges of a stock item are read from the CATALOGUE here, never trusted from the
@@ -587,6 +588,10 @@ class Sales extends Page implements HasForms
             Notification::make()->title('Bill not generated')->body($e->getMessage())->danger()->persistent()->send();
 
             return;
+        }
+
+        if ($panWarning) {
+            Notification::make()->title('PAN not verified')->body($panWarning)->warning()->send();
         }
 
         Notification::make()

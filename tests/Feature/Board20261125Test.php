@@ -134,4 +134,67 @@ class Board20261125Test extends TestCase
         $this->assertStringContainsString('autocomplete="new-password"', $html);
         $this->assertStringContainsString('data-lpignore="true"', $html);
     }
+
+    /** Major complaint 2026-11-25: a renewal may never take more cash stock than the branch holds. */
+    public function test_a_renewal_above_the_branch_cash_stock_is_refused(): void
+    {
+        $plan = Plan::create(['code' => 'GSC', 'name' => ['en' => 'Gold Saving'], 'plan_type' => 1, 'type' => 'rd', 'min_value' => 0,
+            'allocation_bv' => 100, 'validity_months' => 11, 'billing_margin' => 2, 'is_active' => true]);
+        $branch = Branch::create(['name' => 'Dealer RD', 'country' => 'IN', 'is_active' => true]);
+        $first = Member::firstOrFail();
+        $saver = Member::create(['member_code' => 'LJWSAVER2', 'name' => 'Saver Two', 'phone' => '9666666666', 'branch_id' => $branch->id,
+            'joined_on' => '2026-10-01', 'status' => 'active', 'rank_id' => $first->rank_id]);
+        $bond = Bond::create(['member_id' => $saver->id, 'plan_id' => $plan->id, 'branch_id' => $branch->id, 'bond_date' => now()->subMonth(),
+            'value' => 1000, 'epin_value' => 1000, 'lvlcom_count' => 11, 'status' => 'active']);
+        $cash = \App\Models\CatalogProduct::create(['code' => 'CASHR', 'name' => ['en' => 'Cash'], 'material' => 'cash', 'gst_pct' => 0, 'is_active' => true]);
+        $stock = \App\Models\Stock::create(['branch_id' => $branch->id, 'catalog_product_id' => $cash->id, 'quantity' => 1500]);
+        $svc = app(\App\Services\RdCollectionService::class);
+
+        $svc->collect(['bond_id' => $bond->id, 'branch_id' => $branch->id, 'amount' => 1000, 'cash_stock_id' => $stock->id]);
+        $this->assertEquals(500, (float) $stock->fresh()->quantity);
+        try {
+            $svc->collect(['bond_id' => $bond->id, 'branch_id' => $branch->id, 'amount' => 1000, 'cash_stock_id' => $stock->id]);
+            $this->fail('A renewal above the cash stock went through.');
+        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
+            $this->assertSame(422, $e->getStatusCode());
+            $this->assertStringContainsString('Not enough cash stock', $e->getMessage());
+        }
+        $this->assertEquals(500, (float) $stock->fresh()->quantity, 'nothing was taken');
+        $this->assertSame(1, RdEntry::where('bond_id', $bond->id)->count(), 'and no renewal was saved');
+    }
+
+    /** Board 2026-11-25: Branch ID first on Branches; Stocks shows who the branch is (HQ only) and filters by gold / silver / cash. */
+    public function test_branch_id_and_stock_page_branch_columns_and_material_filter(): void
+    {
+        $branch = Branch::create(['name' => 'Dealer ST', 'country' => 'IN', 'is_active' => true, 'phone' => '9000000002', 'incharge' => 'KUMAR', 'city' => 'Salem']);
+        $login = User::create(['name' => 'Kumar', 'email' => 'kumar@test.local', 'password' => 'secret123', 'status' => 'active', 'branch_id' => $branch->id, 'phone' => '9777777777']);
+        $login->assignRole('distributor');
+        app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+        $gold = \App\Models\CatalogProduct::create(['code' => 'STG', 'name' => ['en' => '1 g Gold'], 'material' => 'gold', 'gst_pct' => 3, 'is_active' => true]);
+        $cash = \App\Models\CatalogProduct::create(['code' => 'STC', 'name' => ['en' => 'Cash'], 'material' => 'cash', 'gst_pct' => 0, 'is_active' => true]);
+        $g = \App\Models\Stock::create(['branch_id' => $branch->id, 'catalog_product_id' => $gold->id, 'quantity' => 5]);
+        $c = \App\Models\Stock::create(['branch_id' => $branch->id, 'catalog_product_id' => $cash->id, 'quantity' => 9000]);
+
+        $this->actingAs($this->admin());
+        $this->get('/admin/login');
+        Livewire::test(\App\Filament\Resources\BranchResource\Pages\ListBranches::class)
+            ->assertTableColumnExists('id')
+            ->searchTable((string) $branch->id)->assertCanSeeTableRecords([$branch]);
+        Livewire::test(\App\Filament\Resources\StockResource\Pages\ListStock::class)
+            ->filterTable('branch_id', $branch->id)
+            ->assertTableColumnVisible('branch_id')
+            ->assertTableColumnStateSet('branch_id', $branch->id, $g)
+            ->assertTableColumnStateSet('branch.incharge', 'KUMAR', $g)
+            ->assertTableColumnStateSet('staff_phone', '9777777777', $g)
+            ->assertTableColumnStateSet('branch.city', 'Salem', $g)
+            ->assertCanSeeTableRecords([$g, $c])
+            ->filterTable('material', 'cash')->assertCanSeeTableRecords([$c])->assertCanNotSeeTableRecords([$g])
+            ->filterTable('material', 'gold')->assertCanSeeTableRecords([$g])->assertCanNotSeeTableRecords([$c]);
+
+        // a branch login sees its stock without the Head Office columns
+        $this->actingAs($login);
+        Livewire::test(\App\Filament\Resources\StockResource\Pages\ListStock::class)
+            ->assertTableColumnHidden('branch_id')->assertTableColumnHidden('staff_phone')
+            ->assertCanSeeTableRecords([$g, $c]);
+    }
 }

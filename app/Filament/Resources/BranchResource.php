@@ -171,6 +171,8 @@ class BranchResource extends BaseResource
     {
         return $table
             ->columns([
+                // Board 2026-11-25: the branch id first — it is what the audit lists and the stock page show
+                Tables\Columns\TextColumn::make('id')->label('Branch ID')->sortable()->searchable(),
                 Tables\Columns\TextColumn::make('name')
                     ->searchable(),
                 Tables\Columns\TextColumn::make('kind')

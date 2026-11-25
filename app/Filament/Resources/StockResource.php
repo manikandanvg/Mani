@@ -19,7 +19,15 @@ use Filament\Tables\Table;
  */
 class StockResource extends BaseResource
 {
-    use BranchScoped;
+    use BranchScoped {
+        getEloquentQuery as protected branchScopedQuery;
+    }
+
+    /** The branch, its login (staff phone) and the product come with the list — no query per row. */
+    public static function getEloquentQuery(): \Illuminate\Database\Eloquent\Builder
+    {
+        return static::branchScopedQuery()->with(['branch.distributorUser', 'catalogProduct']);
+    }
     protected static ?string $model = Stock::class;
 
     protected static ?string $navigationGroup = 'Trade';
@@ -31,6 +39,14 @@ class StockResource extends BaseResource
     public static function canCreate(): bool
     {
         return false;
+    }
+
+    /** Head Office (not a branch login, not the support desk). */
+    protected static function isHq(): bool
+    {
+        $u = auth()->user();
+
+        return $u !== null && ! $u->isDistributor() && ! $u->isSupport();
     }
 
     public static function table(Table $table): Table
@@ -52,7 +68,19 @@ class StockResource extends BaseResource
             ])
             ->defaultGroup('catalogProduct.material')
             ->columns([
+                // Board 2026-11-25 — Head Office only: who the branch is (id, in-charge, staff phone, city)
+                Tables\Columns\TextColumn::make('branch_id')->label('Branch ID')->sortable()->searchable()
+                    ->visible(fn () => static::isHq()),
                 Tables\Columns\TextColumn::make('branch.name')->label('Branch')->sortable(),
+                Tables\Columns\TextColumn::make('branch.incharge')->label('Branch Incharge')->placeholder('—')->searchable()->wrap()
+                    ->visible(fn () => static::isHq())->toggleable(),
+                Tables\Columns\TextColumn::make('staff_phone')->label('Staff Phone')->placeholder('—')->copyable()
+                    ->state(fn (Stock $record) => $record->branch?->distributorUser?->phone ?: $record->branch?->phone)
+                    ->searchable(query: fn ($query, string $search) => $query->whereHas('branch', fn ($b) => $b
+                        ->where('phone', 'like', "%{$search}%")->orWhereHas('users', fn ($u) => $u->where('phone', 'like', "%{$search}%"))))
+                    ->visible(fn () => static::isHq())->toggleable(),
+                Tables\Columns\TextColumn::make('branch.city')->label('City')->placeholder('—')->searchable()->sortable()
+                    ->visible(fn () => static::isHq())->toggleable(),
                 Tables\Columns\TextColumn::make('catalogProduct.code')->label('Code')->searchable(),
                 Tables\Columns\TextColumn::make('catalogProduct.name')->label('Product')
                     // custom pieces show their own label — "Gold 15 g necklace (ORD-000123)"
@@ -104,6 +132,14 @@ class StockResource extends BaseResource
                     ->default(auth()->user()?->isDistributor()
                         ? null
                         : (auth()->user()?->branch_id ?? \App\Services\SalesService::HQ_BRANCH_ID)),
+                // Board 2026-11-25: gold stock / silver stock / cash stock
+                Tables\Filters\SelectFilter::make('material')
+                    ->label('Stock of')
+                    ->options(['gold' => 'Gold stock', 'silver' => 'Silver stock', 'cash' => 'Cash stock', 'vessel' => 'Vessels'])
+                    ->query(fn ($query, array $data) => filled($data['value'] ?? null)
+                        ? $query->whereHas('catalogProduct', fn ($p) => $p->where('material', $data['value'])) : $query),
+                Tables\Filters\Filter::make('below_zero')->label('Below zero')->toggle()
+                    ->query(fn ($query) => $query->where('quantity', '<', 0)),
             ])
             // Head Office only: ONE button sets both the stock and its opening level
             // (board 2026-08-13). Dealers see their figures but change nothing.

@@ -220,13 +220,20 @@ class RdCollection extends Page implements HasForms
     {
         $data = $this->form->getState();
 
-        $entry = app(RdCollectionService::class)->collect([
-            'bond_id' => $data['bond_id'],
-            'branch_id' => $data['branch_id'],
-            'amount' => $data['amount'],
-            'cash_stock_id' => $data['cash_stock_id'] ?? null,
-            'created_by' => auth()->id(),
-        ]);
+        // a refusal (not enough cash stock, 2026-11-25; scheme rules) is shown as a message, never an error page
+        try {
+            $entry = app(RdCollectionService::class)->collect([
+                'bond_id' => $data['bond_id'],
+                'branch_id' => $data['branch_id'],
+                'amount' => $data['amount'],
+                'cash_stock_id' => $data['cash_stock_id'] ?? null,
+                'created_by' => auth()->id(),
+            ]);
+        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
+            Notification::make()->danger()->title('Renewal not saved')->body($e->getMessage())->persistent()->send();
+
+            return;
+        }
 
         // A multi-month payment covers a run of dues — say so ("Due #2–4"), not just the first.
         $bond = Bond::find($data['bond_id']);
