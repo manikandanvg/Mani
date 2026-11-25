@@ -165,6 +165,13 @@ class RedemptionCancelService
      */
     public function cancel(RedemptionInvoice $invoice, ?int $userId, ?string $reason, bool $reopenQr = true): void
     {
+        // Board 2026-11-25: Head Office issues a settlement QR and the branch complies with it —
+        // no branch login may cancel or reverse a redemption (a settlement QR least of all).
+        $actor = $userId ? User::find($userId) : null;
+        abort_if($actor && $actor->isDistributor(), 403, $invoice->qr?->kind === 'settlement'
+            ? 'A settlement QR is issued by Head Office — a branch cannot cancel or reverse it.'
+            : 'Only Head Office can cancel a redemption.');
+
         DB::transaction(function () use ($invoice, $userId, $reason, $reopenQr) {
             $invoice = RedemptionInvoice::lockForUpdate()->findOrFail($invoice->id);
             abort_if(($why = $this->blocker($invoice)) !== null, 422, 'Cannot cancel: ' . $why);

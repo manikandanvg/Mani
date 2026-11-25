@@ -82,7 +82,15 @@ class RedemptionService
         }
 
         // Settlement QR (user 2026-11-19): only at the contract's own branch — Head Office excepted.
+        // Board 2026-11-25: only dealers settle — a Reseller, Sub Dealer or Area Distributor can
+        // never redeem a settlement QR; one issued to such a branch earlier goes to the dealer above.
         $only = (int) ($qr->only_branch_id ?? 0);
+        $only = $only ? (int) (Branch::settlementBranchId($only) ?: $only) : 0;
+        if ($qr->kind === 'settlement' && $currentBranchId !== null) {
+            abort_if(in_array(Branch::whereKey($currentBranchId)->value('level'), Branch::noSettlementLevels(), true), 422,
+                'This branch has no access to the Settlement. A settlement QR is redeemed only by a dealer branch — this one at '
+                . (($only ? Branch::whereKey($only)->value('name') : null) ?: 'the dealer branch of the contract') . ' (or at Head Office).');
+        }
         if ($only && $currentBranchId !== null && (int) $currentBranchId !== $only) {
             abort_unless(Branch::whereKey($currentBranchId)->value('level') === 'hq', 422,
                 'This settlement QR can be redeemed only at ' . (Branch::whereKey($only)->value('name') ?: 'its own branch') . ' (or at Head Office).');

@@ -28,10 +28,18 @@
             <div style="font-size:12px;opacity:.7;">Taken back from wallets</div>
             <div style="font-size:18px;font-weight:700;">{{ $money($s['totals']['recover']) }}</div>
         </div>
-        <div style="{{ $box }}border-color:#dc2626;">
-            <div style="font-size:12px;opacity:.7;">Charged to branch cash stock</div>
-            <div style="font-size:18px;font-weight:700;color:#dc2626;">{{ $money($s['totals']['charge']) }}</div>
-        </div>
+        @if ($s['charges'])
+            <div style="{{ $box }}border-color:#dc2626;">
+                <div style="font-size:12px;opacity:.7;">Charged to branch cash stock</div>
+                <div style="font-size:18px;font-weight:700;color:#dc2626;">{{ $money($s['totals']['charge']) }}</div>
+            </div>
+        @else
+            <div style="{{ $box }}">
+                <div style="font-size:12px;opacity:.7;">Not recoverable — counted in the settlement</div>
+                <div style="font-size:18px;font-weight:700;">{{ $money($s['totals']['kept'] ?? 0) }}</div>
+                <div style="font-size:11px;opacity:.7;">The branch's stock is not deducted</div>
+            </div>
+        @endif
         <div style="{{ $box }}">
             <div style="font-size:12px;opacity:.7;">Not paid yet — simply removed</div>
             <div style="font-size:18px;font-weight:700;">{{ $money($s['totals']['reverse']) }}</div>
@@ -98,8 +106,10 @@
                                         @if ($r['recover'] > 0)
                                             <div>{{ $money($r['recover']) }} taken back from the wallet of {{ $r['wallet_member'] }}</div>
                                         @endif
-                                        @if ($r['charge'] > 0)
+                                        @if ($r['charge'] > 0 && $s['charges'])
                                             <div style="color:#dc2626;font-weight:600;">{{ $money($r['charge']) }} charged to {{ $r['branch'] }}{{ $r['action'] === 'recover' ? ' (already withdrawn)' : '' }}</div>
+                                        @elseif ($r['charge'] > 0)
+                                            <div>{{ $money($r['charge']) }} {{ $r['action'] === 'recover' ? 'already withdrawn — cannot be recovered' : 'already handed over' }}; counted in the settlement, the branch is not charged</div>
                                         @endif
                                     @endif
                                 </td>
@@ -143,6 +153,36 @@
         </div>
     @endif
 
+    {{-- Board 2026-11-25: the stock of a force-closed bill goes to Head Office, never back to the branch --}}
+    <div>
+        <div style="font-weight:600;margin-bottom:4px;">Stock that goes to Head Office (not back to the branch)</div>
+        @if (! empty($s['stock']))
+            <div style="overflow-x:auto;">
+                <table style="width:100%;border-collapse:collapse;">
+                    <thead><tr>
+                        <th style="{{ $th }}">Bill</th><th style="{{ $th }}">Stock</th><th style="{{ $th }}">Taken from</th>
+                        <th style="{{ $th }}">Item</th><th style="{{ $th }}text-align:right;">Quantity / ₹</th>
+                    </tr></thead>
+                    <tbody>
+                        @foreach ($s['stock'] as $k)
+                            <tr>
+                                <td style="{{ $td }}white-space:nowrap;">{{ $k['bill'] }}</td><td style="{{ $td }}">{{ $k['kind'] }}</td>
+                                <td style="{{ $td }}">{{ $k['branch'] }}</td><td style="{{ $td }}">{{ $k['item'] }}</td>
+                                <td style="{{ $num }}">{{ $k['material'] === 'cash' ? $money($k['quantity']) : rtrim(rtrim(number_format($k['quantity'], 4), '0'), '.') . ' pc' }}</td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+            <div style="font-size:12px;opacity:.75;margin-top:4px;">
+                Head Office decides whether to give this stock to a branch again, through Branch Sales.
+                Every entry is listed under Report → Other Report → Force Close stock.
+            </div>
+        @else
+            <div style="font-size:13px;opacity:.7;">No stock on record for {{ empty($s['only']) ? 'these bills' : 'this bill' }}.</div>
+        @endif
+    </div>
+
     @if ($s['totals']['forfeit'] > 0 || $s['forfeit']['gold_g'] > 0 || $s['forfeit']['silver_g'] > 0)
         <div style="{{ $box }}font-size:13px;">
             <b>Member's own wallet:</b> what is left after the recoveries above is forfeited —
@@ -153,7 +193,8 @@
     @endif
 
     <div style="font-size:12px;opacity:.75;">
-        Sold stock returns to each billing branch and the network volumes (BV / GBV) are rolled back, as with "Cancel invoice".
+        The sold stock goes to Head Office — it does NOT return to the billing branch — and the network volumes (BV / GBV) are rolled back.
+        For a bill entered by mistake use "New Close" instead: that returns the stock to the branch.
         @if (! empty($s['only']))
             The member's profile, wallet and other contracts stay as they are; this bill stays on record as CANCELLED. This cannot be undone.
         @else

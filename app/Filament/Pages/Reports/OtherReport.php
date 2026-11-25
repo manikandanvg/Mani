@@ -34,6 +34,7 @@ class OtherReport extends ReportPage
         'stock_transfers' => 'Stock transfers',
         'rd_collections' => 'GS collections (Gold Saving)',
         'redemption_register' => 'Redemption register',
+        'force_close_stock' => 'Force Close stock (to Head Office)',
         'deductions' => 'Deductions (TDS + service charge)',
         'statutory' => 'Statutory register (PF / ESI / salary TDS)',
     ];
@@ -75,6 +76,7 @@ class OtherReport extends ReportPage
             'stock_transfers' => $this->stockTransfers($from, $to, $branch, $bn),
             'rd_collections' => $this->rdCollections($from, $to, $branch, $bn),
             'redemption_register' => $this->redemptions($from, $to, $branch, $bn),
+            'force_close_stock' => $this->forceCloseStock($from, $to, $branch),
             'deductions' => $this->deductions($from, $to, $branch),
             'statutory' => $this->statutory($from, $to),
             default => null,
@@ -135,6 +137,41 @@ class OtherReport extends ReportPage
                 ucfirst((string) $m->type), number_format((float) $m->qty_change, 4),
                 number_format((float) $m->balance_after, 4),
                 trim(($m->ref_type ?? '') . ' #' . ($m->ref_id ?? ''), ' #'),
+            ])->all()];
+    }
+
+    /**
+     * Board 2026-11-25: stock recovered by "Force Close(Old)" goes to Head Office only. One line
+     * per movement — the branch it was taken from (id, in-charge, staff phone, city), the bill,
+     * the member, the item and where it went. The branch filter is the branch it was taken from.
+     */
+    private function forceCloseStock($from, $to, ?int $branch): void
+    {
+        $rows = \App\Models\ForceCloseStock::with(['fromBranch.distributorUser', 'toBranch', 'catalogProduct', 'createdBy'])
+            ->whereDate('moved_on', '>=', $from)->whereDate('moved_on', '<=', $to)
+            ->when($branch, fn ($q) => $q->where('from_branch_id', $branch))
+            ->latest('moved_on')->latest('id')->limit(self::LIMIT)->get();
+        $toHq = $rows->where('kind', '!=', 'charge');
+        $of = fn (string $material) => (float) $toHq->filter(fn ($r) => $r->catalogProduct?->material === $material)->sum('quantity');
+        $qty = fn ($r) => $r->catalogProduct?->material === 'cash'
+            ? $this->money($r->quantity) : rtrim(rtrim(number_format((float) $r->quantity, 4), '0'), '.') . ' pc';
+        $this->sections[] = ['heading' => self::REPORTS['force_close_stock'],
+            'kv' => [
+                __('Cash stock to Head Office') => $this->money($of('cash')),
+                __('Gold to Head Office (pieces)') => number_format($of('gold'), 2),
+                __('Silver to Head Office (pieces)') => number_format($of('silver'), 2),
+                __('Charged to branch cash stock') => $this->money($rows->where('kind', 'charge')->sum('quantity')),
+            ],
+            'columns' => [__('Date'), __('Branch ID'), __('Branch'), __('Branch Incharge'), __('Staff phone'), __('City'), __('Bill'),
+                __('Member'), __('What'), __('Item'), __('Quantity / ₹'), __('Went to'), __('Entered by'), __('Note')],
+            'rows' => $rows->map(fn ($r) => [
+                $this->dmy($r->moved_on), $r->from_branch_id ?: '—', $r->fromBranch?->name ?? '—', $r->fromBranch?->incharge ?: '—',
+                ($r->fromBranch?->distributorUser?->phone ?: $r->fromBranch?->phone) ?: '—', $r->fromBranch?->city ?: '—',
+                $r->invoice_no ?: '—', trim(($r->member_code ?? '') . ' ' . ($r->member_name ?? '')) ?: '—',
+                \App\Models\ForceCloseStock::KINDS[$r->kind] ?? $r->kind, Translatable::pick($r->catalogProduct?->name),
+                ($r->kind === 'charge' ? '− ' : '') . $qty($r),
+                $r->kind === 'charge' ? __('Deducted — not moved') : ($r->toBranch?->name ?? __('Head Office')),
+                $r->createdBy?->name ?? '—', $r->note ?: '—',
             ])->all()];
     }
 

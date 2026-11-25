@@ -52,6 +52,31 @@ class MemberContractResource extends BaseResource
         return 'warning';
     }
 
+    /**
+     * Board / user 2026-11-25: a branch whose scheme has the Settlement switched off (Plans →
+     * "Settlement access"; Reseller, Sub Dealer and Area Distributor to begin with) does not get
+     * this page at all — neither in the menu nor by its address.
+     */
+    protected static function branchMayAccess(): bool
+    {
+        $user = auth()->user();
+        if (! $user || ! method_exists($user, 'isDistributor') || ! $user->isDistributor() || ! $user->branch_id) {
+            return true;
+        }
+
+        return (bool) \App\Models\Branch::find($user->branch_id)?->canAccessSettlement();
+    }
+
+    public static function canAccess(): bool
+    {
+        return static::branchMayAccess() && parent::canAccess();
+    }
+
+    public static function shouldRegisterNavigation(): bool
+    {
+        return static::branchMayAccess() && parent::shouldRegisterNavigation();
+    }
+
     public static function getEloquentQuery(): Builder
     {
         $query = parent::getEloquentQuery()->with(['member', 'plan', 'branch', 'bond', 'settlements.qr.redemptionInvoices.branch',
@@ -269,6 +294,12 @@ class MemberContractResource extends BaseResource
                     ->form(fn (MemberContract $record) => [
                         Forms\Components\Placeholder::make('summary')->label('')
                             ->content(fn () => self::qrSettlementSummary($record)),
+                        // Board 2026-11-25: the popup names the branch — the dealer that billed the
+                        // contract does the settlement; the QR is redeemed only there, or at Head Office.
+                        Forms\Components\Placeholder::make('settling_branch')
+                            ->label('Branch settling (redeems the QR)')
+                            ->content(fn () => (\App\Models\Branch::whereKey(\App\Services\ContractSettlementService::homeBranchId($record))->value('name')
+                                ?: 'Head Office') . ' — the settlement QR can be redeemed only there, or at Head Office.'),
                         // User 2026-11-15: the admin decides — interim or final — and when.
                         Forms\Components\Radio::make('stage')
                             ->label('Which settlement are you issuing?')
@@ -339,9 +370,10 @@ class MemberContractResource extends BaseResource
                                     ?: \App\Models\Branch::where('level', 'hq')->value('id'))
                                 ->disabled(fn () => \App\Services\ContractSettlementService::homeBranchId($record) !== null)
                                 ->dehydrated()
-                                ->helperText('The branch where this contract was billed. The settlement QR can be redeemed only there, or at Head Office.')
+                                ->helperText('The dealer branch of this contract (where it was billed, or the dealer above a Reseller / Sub Dealer / Area Distributor). The settlement QR can be redeemed only there, or at Head Office.')
                                 ->required(),
-                            fn ($q) => $q),
+                            // board 2026-11-25: only dealers settle
+                            fn ($q) => $q->where('is_active', true)->where(fn ($w) => $w->whereNull('level')->orWhereNotIn('level', \App\Models\Branch::noSettlementLevels()))),
                         // Board 2026-11-15: the QR is issued for the amount the admin APPROVES.
                         Forms\Components\TextInput::make('approved_worth')
                             ->label('Approved settlement amount (₹)')

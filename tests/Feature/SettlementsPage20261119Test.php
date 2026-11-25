@@ -46,8 +46,8 @@ class SettlementsPage20261119Test extends TestCase
         parent::setUp();
         $this->seed(DatabaseSeeder::class);
         $this->hq = Branch::where('level', 'hq')->firstOrFail();
-        $this->home = Branch::create(['name' => 'Home Branch', 'country' => 'IN', 'level' => 'reseller', 'is_active' => true]);
-        $this->other = Branch::create(['name' => 'Other Branch', 'country' => 'IN', 'level' => 'reseller', 'is_active' => true]);
+        $this->home = Branch::create(['name' => 'Home Branch', 'country' => 'IN', 'level' => 'taluk', 'is_active' => true]);
+        $this->other = Branch::create(['name' => 'Other Branch', 'country' => 'IN', 'level' => 'taluk', 'is_active' => true]);
         LiveRate::create(['country' => 'IN', 'gold' => 7000, 'silver' => 100, 'diamond' => 0, 'source' => 'manual', 'effective_at' => now()]);
         $this->actingAs(User::whereHas('roles', fn ($q) => $q->where('name', 'super_admin'))->firstOrFail());
     }
@@ -119,6 +119,71 @@ class SettlementsPage20261119Test extends TestCase
             $this->fail('Another branch must not redeem a settlement QR.');
         } catch (HttpException $e) {
             $this->assertStringContainsString('Home Branch', $e->getMessage());
+        }
+    }
+
+    /** Board 2026-11-25: only dealers settle — never a Reseller, Sub Dealer or Area Distributor. */
+    public function test_a_reseller_sub_dealer_or_area_distributor_takes_no_part_in_a_settlement(): void
+    {
+        // the switch on the dealership schemes: OFF for Reseller, Sub Dealer and Area Distributor
+        $this->settlementSwitch([5, 6, 8], false);
+        // billed by a Reseller supplied by the dealer "Home Branch": the dealer settles it
+        $reseller = Branch::create(['name' => 'Reseller R', 'country' => 'IN', 'level' => 'reseller', 'is_active' => true, 'source_branch_id' => $this->home->id]);
+        $contract = $this->contract($this->qrPlan(), 'NOSETL1', '9000000071', now()->subDay()->toDateString());
+        $contract->bond->update(['branch_id' => $reseller->id]);
+        $contract->update(['branch_id' => $reseller->id]);
+        $this->assertSame($this->home->id, \App\Services\ContractSettlementService::homeBranchId($contract->fresh()));
+
+        $row = app(\App\Services\ContractSettlementService::class)->generateQr($contract->fresh(), null, null, null, stage: 'final');
+        $this->assertSame($this->home->id, (int) $row->qr->only_branch_id);
+        $svc = app(RedemptionService::class);
+        $this->assertSame($row->qr->id, $svc->lookup($row->qr->qr_code, $this->home->id)['qr']->id);
+        $this->assertSame($row->qr->id, $svc->lookup($row->qr->qr_code, $this->hq->id)['qr']->id);
+        try {
+            $svc->lookup($row->qr->qr_code, $reseller->id);
+            $this->fail('A Reseller must not redeem a settlement QR.');
+        } catch (HttpException $e) {
+            $this->assertStringContainsString('only by a dealer branch', $e->getMessage());
+            $this->assertStringContainsString('Home Branch', $e->getMessage());
+        }
+
+        // a QR issued to such a branch BEFORE the rule goes to the dealer above it
+        $row->qr->update(['only_branch_id' => $reseller->id]);
+        $this->assertSame($row->qr->id, $svc->lookup($row->qr->qr_code, $this->home->id)['qr']->id);
+
+        // no dealer above (Sub Dealer / Area Distributor on its own): Head Office settles
+        foreach (['sub_dealer', 'area_dealer'] as $level) {
+            $alone = Branch::create(['name' => 'Alone ' . $level, 'country' => 'IN', 'level' => $level, 'is_active' => true]);
+            $this->assertSame($this->hq->id, Branch::settlementBranchId($alone->id));
+        }
+
+        // a login of such a branch does not get the Settlements page; a dealer's login does
+        $login = fn (Branch $b) => tap(User::create(['name' => 'L' . $b->id, 'email' => 'l' . $b->id . '@test.local', 'password' => 'secret123',
+            'status' => 'active', 'branch_id' => $b->id]), fn ($u) => $u->assignRole('distributor'));
+        app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+        $this->actingAs($login($reseller));
+        $this->assertFalse(\App\Filament\Resources\MemberContractResource::canAccess());
+        $this->assertFalse(\App\Filament\Resources\MemberContractResource::shouldRegisterNavigation());
+        $this->actingAs($login($this->home));
+        $this->assertTrue(\App\Filament\Resources\MemberContractResource::canAccess());
+
+        // Head Office switches the Reseller scheme ON: its branches settle what they billed
+        $this->settlementSwitch([5], true);
+        $this->assertNotContains('reseller', Branch::noSettlementLevels());
+        $this->assertSame($reseller->id, Branch::settlementBranchId($reseller->id));
+        $this->assertSame($row->qr->id, $svc->lookup($row->qr->qr_code, $reseller->id)['qr']->id);
+        $this->actingAs($login(Branch::create(['name' => 'Reseller 2', 'country' => 'IN', 'level' => 'reseller', 'is_active' => true])));
+        $this->assertTrue(\App\Filament\Resources\MemberContractResource::canAccess());
+    }
+
+    /** The "Settlement access" switch of the dealership schemes with these hierarchy ids. */
+    protected function settlementSwitch(array $hids, bool $on): void
+    {
+        foreach ($hids as $hid) {
+            Plan::where('hid', $hid)->exists()
+                ? Plan::where('hid', $hid)->update(['settlement_enabled' => $on])
+                : Plan::create(['code' => 'DS' . $hid, 'name' => ['en' => 'Dealership ' . $hid], 'plan_type' => 2, 'type' => 'digital', 'hid' => $hid,
+                    'min_value' => 0, 'allocation_bv' => 100, 'is_active' => true, 'settlement_enabled' => $on]);
         }
     }
 

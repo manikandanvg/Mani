@@ -122,8 +122,10 @@ class SalesCancelService
     }
 
     /**
-     * @param array{force?: bool, silent?: bool, team_leaves?: bool} $opt  force = part of a member's
+     * @param array{force?: bool, silent?: bool, team_leaves?: bool, stock_to?: int} $opt  force = part of a member's
      *        force delete (paid rows stay on record, their money is settled by the caller);
+     *        stock_to = the branch the sold stock goes to instead of the issuing branch
+     *        (board 2026-11-25: Force Close(Old) routes it to Head Office);
      *        silent = no push to the member; team_leaves = say outright whether the member leaves
      *        the ancestors' team count with this bill (the caller counts it once itself).
      */
@@ -179,7 +181,7 @@ class SalesCancelService
             // --- stock back to the branch (and out of the Area Distributor branch the bill
             //     stocked; a branch + login this bill opened are closed)
             app(AreaDistributorService::class)->reverse($invoice, $userId);
-            $this->restoreStock($invoice, $userId);
+            $this->restoreStock($invoice, $userId, isset($opt['stock_to']) ? (int) $opt['stock_to'] : null);
 
             $invoice->update([
                 'status' => 'cancelled',
@@ -303,22 +305,20 @@ class SalesCancelService
     }
 
     /**
-     * Put the sold pieces back. Bills written after this change carry their stock movements
-     * with ref_id = invoice id, so the exact pieces come back; older bills fall back to the
-     * sale lines (weight → pieces via the catalog unit weight).
+     * What the bill took out of the branch stock: catalog_product_id => pieces (cash: rupees).
+     * Bills written after 2026-11 carry their stock movements with ref_id = invoice id, so the
+     * exact quantity is known; older bills fall back to the sale lines (weight → pieces via the
+     * catalog unit weight).
+     *
+     * @return array<int, float>
      */
-    protected function restoreStock(SalesInvoice $invoice, ?int $userId): void
+    public function soldPieces(SalesInvoice $invoice): array
     {
-        $branchId = (int) $invoice->branch_id;
-        if (! $branchId) {
-            return;
-        }
+        $out = [];
         $movements = StockMovement::where('ref_type', 'sale')->where('ref_id', $invoice->id)->get();
-
-        $restore = [];   // catalog_product_id => pieces
         if ($movements->isNotEmpty()) {
             foreach ($movements as $m) {
-                $restore[$m->catalog_product_id] = ($restore[$m->catalog_product_id] ?? 0) + abs((float) $m->qty_change);
+                $out[$m->catalog_product_id] = ($out[$m->catalog_product_id] ?? 0) + abs((float) $m->qty_change);
             }
         } else {
             foreach ($invoice->lines as $line) {
@@ -327,31 +327,52 @@ class SalesCancelService
                 }
                 $cp = CatalogProduct::withTrashed()->find($line->catalog_product_id);
                 $pieces = $cp ? $cp->piecesFromWeight((float) $line->qty) : (float) $line->qty;
-                $restore[$line->catalog_product_id] = ($restore[$line->catalog_product_id] ?? 0) + $pieces;
+                $out[$line->catalog_product_id] = ($out[$line->catalog_product_id] ?? 0) + $pieces;
             }
         }
 
-        foreach ($restore as $productId => $pieces) {
-            if ($pieces <= 0) {
-                continue;
-            }
+        return array_filter($out, fn ($pieces) => $pieces > 0);
+    }
+
+    /**
+     * Put the sold pieces back — to the issuing branch ("New Close": the bill was a mistake), or
+     * to $toBranch (board 2026-11-25, "Force Close(Old)": the stock is NOT returned to the branch,
+     * it goes to Head Office, which may hand it out again through Branch Sales). The second kind
+     * is also written to force_close_stock, the register behind the Force Close stock report.
+     */
+    protected function restoreStock(SalesInvoice $invoice, ?int $userId, ?int $toBranch = null): void
+    {
+        $issuer = (int) $invoice->branch_id;
+        $branchId = $toBranch ?: $issuer;
+        if (! $branchId) {
+            return;
+        }
+        $member = $toBranch && $invoice->customer_member_id ? Member::find($invoice->customer_member_id) : null;
+
+        foreach ($this->soldPieces($invoice) as $productId => $pieces) {
             $stock = Stock::firstOrCreate(
                 ['branch_id' => $branchId, 'catalog_product_id' => $productId, 'order_line_id' => 0],
                 ['quantity' => 0],
             );
             $stock->increment('quantity', $pieces);
-            StockMovement::create([
+            $movement = StockMovement::create([
                 'branch_id' => $branchId,
                 'catalog_product_id' => $productId,
                 'type' => 'adjustment',
                 'qty_change' => $pieces,
                 'balance_after' => $stock->fresh()->quantity,
-                'ref_type' => 'sale_cancel',
+                'ref_type' => $toBranch ? \App\Models\ForceCloseStock::MOVEMENT_REF : 'sale_cancel',
                 'ref_id' => $invoice->id,
-                'note' => 'Invoice ' . $invoice->invoice_no . ' cancelled',
+                'note' => $toBranch
+                    ? mb_substr('Force Close — stock of bill ' . $invoice->invoice_no . ' (branch #' . $issuer . ') taken to Head Office', 0, 250)
+                    : 'Invoice ' . $invoice->invoice_no . ' cancelled',
                 'moved_on' => Carbon::now()->toDateString(),
                 'created_by' => $userId,
             ]);
+            if ($toBranch) {
+                \App\Models\ForceCloseStock::record('bill_stock', $issuer ?: null, $branchId, (int) $productId, (float) $pieces,
+                    $invoice->invoice_no, $member, $movement->id, $userId, 'Stock sold on the bill');
+            }
         }
     }
 }

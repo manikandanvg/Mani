@@ -250,10 +250,11 @@ class BranchSalesAndForceDeleteTest extends TestCase
         // the coupon cash is still in the member's wallet → taken back; the incentive: ₹100 from
         // the upline's wallet, the withdrawn rest + the redeemed QR fall on the issuing branch
         $this->assertEqualsWithDelta($couponCash + 100, $s['totals']['recover'], 0.01);
-        $this->assertEqualsWithDelta(($icNet - 100) + 14420, $s['totals']['charge'], 0.01);
-        $this->assertCount(1, $s['charges']);
-        $this->assertSame((int) $dealer->id, $s['charges'][0]['branch_id']);
-        $this->assertEqualsWithDelta(1000 - (($icNet - 100) + 14420), $s['charges'][0]['after'], 0.01);
+        // user 2026-11-25: the branch is NOT charged — the figure is shown as "stays"
+        $this->assertEqualsWithDelta(($icNet - 100) + 14420, $s['totals']['kept'], 0.01);
+        $this->assertSame(0.0, $s['totals']['charge']);
+        $this->assertSame([], $s['charges']);
+        $this->assertNotNull($dealer->id);
         $this->assertSame((int) $upline->id, collect($s['wallet_debits'])->firstWhere('member_id', $upline->id)['member_id']);
     }
 
@@ -280,7 +281,7 @@ class BranchSalesAndForceDeleteTest extends TestCase
         $this->assertSame('Duplicate profile', $kept->reason);
         $this->assertSame($member->name, $kept->profile['name']);
         $this->assertSame(2, (int) $kept->bills_count);
-        $this->assertEqualsWithDelta(($icNet - 100) + 14420, (float) $kept->charged_total, 0.01);
+        $this->assertEqualsWithDelta(0, (float) $kept->charged_total, 0.01);
         $this->assertSame(2, $kept->records()->where('source_table', 'bonds')->count());
         $this->assertSame(6, $kept->records()->where('source_table', 'cbc_entries')->count(), 'paid AND unpaid coupons are kept');
         $this->assertSame(2, $kept->records()->where('source_table', 'sales_invoices')->where('purged', false)->count());
@@ -292,12 +293,10 @@ class BranchSalesAndForceDeleteTest extends TestCase
         $this->assertSame(1, CommissionLedger::where('member_id', $upline->id)->where('invoice_no', $first->invoice_no)->where('status', 'paid')->count());
         // the code is never handed out again
         $this->assertTrue(\App\Models\DeletedMember::codeTaken($member->member_code));
-        // the issuing branch's cash stock went BELOW ZERO by the withdrawn incentive + the redeemed QR
-        $expected = 1000 - (($icNet - 100) + 14420);
-        $this->assertLessThan(0, $expected);
-        $this->assertEqualsWithDelta($expected, (float) Stock::where('branch_id', $dealer->id)->where('catalog_product_id', $cashCp->id)->value('quantity'), 0.01);
-        $this->assertEqualsWithDelta(-(($icNet - 100) + 14420),
-            (float) StockMovement::where('ref_type', MemberForceDeleteService::MOVEMENT_REF)->where('ref_id', $member->id)->sum('qty_change'), 0.01);
+        // user 2026-11-25: the issuing branch's stock is NOT deducted (withdrawn incentive ₹' . $icNet . ', redeemed QR)
+        $this->assertGreaterThan(100, $icNet);
+        $this->assertEqualsWithDelta(1000, (float) Stock::where('branch_id', $dealer->id)->where('catalog_product_id', $cashCp->id)->value('quantity'), 0.01);
+        $this->assertSame(0, StockMovement::where('ref_type', MemberForceDeleteService::MOVEMENT_REF)->count());
         // network: both bills leave the upline's GBV, the member leaves the team count ONCE
         $this->assertEqualsWithDelta($gbvBefore - 2 * 14420, (float) $upline->fresh()->gbv, 0.01);
         $this->assertSame($teamBefore - 1, (int) $upline->fresh()->downline_count);
@@ -318,13 +317,14 @@ class BranchSalesAndForceDeleteTest extends TestCase
         $this->assertSame([], $s['blockers']);
         $this->assertContains('Wallet withdrawal — not paid yet', array_column($s['rows'], 'kind'));
         // the coupon is still recovered from the wallet, not charged to the branch
-        $this->assertEqualsWithDelta(($icNet - 100) + 14420, $s['totals']['charge'], 0.01);
+        $this->assertEqualsWithDelta(($icNet - 100) + 14420, $s['totals']['kept'], 0.01);
 
         $svc->delete($member, $this->admin()->id, 'Duplicate profile');
         $this->assertNull(\App\Models\WalletWithdrawal::find($w->id), 'the request left the live table with the member');
         $kept = \App\Models\DeletedMember::where('member_code', $member->member_code)->firstOrFail();
         $this->assertSame(1, $kept->records()->where('source_table', 'wallet_withdrawals')->count());
-        $this->assertEqualsWithDelta(1000 - (($icNet - 100) + 14420), (float) Stock::where('branch_id', $dealer->id)->where('catalog_product_id', $cashCp->id)->value('quantity'), 0.01);
+        // user 2026-11-25: the branch's cash stock is not deducted
+        $this->assertEqualsWithDelta(1000, (float) Stock::where('branch_id', $dealer->id)->where('catalog_product_id', $cashCp->id)->value('quantity'), 0.01);
         $this->assertDatabaseMissing('members', ['id' => $member->id]);
     }
 
@@ -404,23 +404,25 @@ class BranchSalesAndForceDeleteTest extends TestCase
 
     public function test_each_contract_is_settled_paid_in_plus_bonus_minus_already_given(): void
     {
-        ['member' => $member, 'first' => $first, 'second' => $second, 'dealer' => $dealer] = $this->scenario();
+        ['member' => $member, 'first' => $first, 'second' => $second, 'dealer' => $dealer, 'icNet' => $icNet] = $this->scenario();
+        $lost = $icNet - 100;   // the incentive the upline already withdrew: not recoverable
 
         $s = app(MemberForceDeleteService::class)->statement($member);
         $this->assertCount(2, $s['settlements'], 'one settlement per contract — the statement covers ALL bills');
         $byBill = collect($s['settlements'])->keyBy('bill');
 
-        // bill 1: the coupon cash is still in the wallet (taken back) → nothing is held against the member
+        // bill 1: the coupon cash is still in the wallet (taken back); the part of the incentive that
+        // cannot be recovered is counted into the settlement (user 2026-11-25)
         $one = $byBill[$first->invoice_no];
         $this->assertEqualsWithDelta((float) $first->grand_total, $one['contributed'], 0.01);
         $this->assertSame(0.0, $one['bonus']);
-        $this->assertSame(0.0, $one['given']);
-        $this->assertEqualsWithDelta((float) $first->grand_total, $one['payable'], 0.01);
+        $this->assertEqualsWithDelta($lost, $one['given'], 0.01);
+        $this->assertEqualsWithDelta((float) $first->grand_total - $lost, $one['payable'], 0.01);
         // bill 2: the goods of the redeemed QR were handed over → deducted in full
         $two = $byBill[$second->invoice_no];
         $this->assertEqualsWithDelta(14420, $two['given'], 0.01);
         $this->assertEqualsWithDelta((float) $second->grand_total - 14420, $two['balance'], 0.01);
-        $this->assertEqualsWithDelta((float) $first->grand_total + max(0, (float) $second->grand_total - 14420), $s['settlement_totals']['payable'], 0.01);
+        $this->assertEqualsWithDelta((float) $first->grand_total - $lost + max(0, (float) $second->grand_total - 14420), $s['settlement_totals']['payable'], 0.01);
 
         app(MemberForceDeleteService::class)->delete($member, $this->admin()->id, 'Duplicate profile');
 
@@ -438,7 +440,7 @@ class BranchSalesAndForceDeleteTest extends TestCase
         $this->assertSame('payable', $kept->status);
         $this->assertSame((int) $dealer->id, (int) $kept->branch_id);
         $this->assertSame($member->name, $kept->member_name);
-        $this->assertEqualsWithDelta((float) $first->grand_total, (float) $kept->payable, 0.01);
+        $this->assertEqualsWithDelta((float) $first->grand_total - $lost, (float) $kept->payable, 0.01);
         $this->assertSame('Duplicate profile', $kept->reason);
         $this->assertSame('Force closed', \App\Filament\Resources\MemberContractResource::stateLabel($contract));
 
@@ -492,10 +494,10 @@ class BranchSalesAndForceDeleteTest extends TestCase
         $this->assertSame('active', \App\Models\MemberContract::where('invoice_no', $first->invoice_no)->value('status'));
         // what was paid out on THIS bill is settled: the upline's unpaid line of bill 2 simply goes,
         // the redeemed goods fall on the issuing branch
-        $charged = -(float) StockMovement::where('ref_type', MemberForceDeleteService::MOVEMENT_REF)->where('ref_id', $member->id)->sum('qty_change');
-        $this->assertEqualsWithDelta($s['totals']['charge'], $charged, 0.01);
-        $this->assertGreaterThanOrEqual(14420, $charged);
-        $this->assertEqualsWithDelta(1000 - $charged, (float) Stock::where('branch_id', $dealer->id)->where('catalog_product_id', $cashCp->id)->value('quantity'), 0.01);
+        // (user 2026-11-25: … but the branch's stock is not deducted for them)
+        $this->assertGreaterThanOrEqual(14420, $s['totals']['kept']);
+        $this->assertSame(0, StockMovement::where('ref_type', MemberForceDeleteService::MOVEMENT_REF)->count());
+        $this->assertEqualsWithDelta(1000, (float) Stock::where('branch_id', $dealer->id)->where('catalog_product_id', $cashCp->id)->value('quantity'), 0.01);
         $this->assertEqualsWithDelta($uplineBefore - $s['totals']['recover'], (float) MemberWallet::find($upline->id)->cash_balance, 0.01);
 
         // the popup follows the tick: unticked = this contract, ticked = all of them
@@ -507,6 +509,100 @@ class BranchSalesAndForceDeleteTest extends TestCase
             ->assertSee('this bill / contract only')
             ->setTableActionData(['delete_all' => true])
             ->assertSee('bill(s) / contract(s)</b> of ' . $member->member_code, false);
+    }
+
+    // ───────────── 3b. Force Close stock goes to Head Office (board 2026-11-25, final) ─────────────
+
+    public function test_force_close_sends_the_bill_stock_and_the_renewal_cash_stock_to_head_office_not_the_branch(): void
+    {
+        ['member' => $member, 'second' => $second, 'dealer' => $dealer, 'cashCp' => $cashCp] = $this->scenario();
+        $gold = $this->gold();
+        $hq = SalesService::HQ_BRANCH_ID;
+        $hqStock = fn (CatalogProduct $cp) => (float) Stock::where('branch_id', $hq)->where('catalog_product_id', $cp->id)->sum('quantity');
+        $dealerStock = fn (CatalogProduct $cp) => (float) Stock::where('branch_id', $dealer->id)->where('catalog_product_id', $cp->id)->sum('quantity');
+        // two Gold Saving renewals were collected on the contract of bill 2: one saved here (it
+        // carries its stock movement), one carried over from the old system (no movement)
+        $bond = Bond::where('invoice_no', $second->invoice_no)->firstOrFail();
+        foreach ([300, 200] as $i => $value) {
+            $id = \Illuminate\Support\Facades\DB::table('rd_entries')->insertGetId(['bond_id' => $bond->id, 'member_id' => $member->id,
+                'paid_on' => '2026-11-10', 'value' => $value, 'due_count' => $i + 1, 'branch_id' => $dealer->id, 'created_at' => now(), 'updated_at' => now()]);
+            if ($i === 0) {
+                StockMovement::create(['branch_id' => $dealer->id, 'catalog_product_id' => $cashCp->id, 'type' => 'sale', 'qty_change' => -$value,
+                    'balance_after' => 0, 'ref_type' => 'rd_entry', 'ref_id' => $id, 'moved_on' => '2026-11-10']);
+            }
+        }
+        $goldAtDealer = $dealerStock($gold);
+        $goldAtHq = $hqStock($gold);
+        $cashAtHq = $hqStock($cashCp);
+        $svc = app(MemberForceDeleteService::class);
+
+        // the popup lists what goes to Head Office before the admin confirms
+        $s = $svc->statement($member, $second);
+        $this->assertEqualsWithDelta(2, collect($s['stock'])->firstWhere('kind', 'Stock sold on the bill')['quantity'], 0.001);
+        $this->assertEqualsWithDelta(500, collect($s['stock'])->firstWhere('material', 'cash')['quantity'], 0.01);
+
+        $svc->closeContract($second, $this->admin()->id, 'Old bill closed');
+
+        // nothing returns to the branch: its gold stays where the sale left it …
+        $this->assertEqualsWithDelta($goldAtDealer, $dealerStock($gold), 0.001);
+        $this->assertSame(0, StockMovement::where('branch_id', $dealer->id)->where('ref_type', 'sale_cancel')->count());
+        // … the 2 pieces of the bill and the ₹500 of the renewals are at Head Office
+        $this->assertEqualsWithDelta($goldAtHq + 2, $hqStock($gold), 0.001);
+        $this->assertEqualsWithDelta($cashAtHq + 500, $hqStock($cashCp), 0.01);
+        // the register: bill stock and renewal cash stock
+        $rows = \App\Models\ForceCloseStock::where('invoice_no', $second->invoice_no)->get();
+        $this->assertEqualsWithDelta(2, (float) $rows->firstWhere('kind', 'bill_stock')->quantity, 0.001);
+        $this->assertSame((int) $dealer->id, (int) $rows->firstWhere('kind', 'bill_stock')->from_branch_id);
+        $this->assertSame($hq, (int) $rows->firstWhere('kind', 'bill_stock')->to_branch_id);
+        $this->assertEqualsWithDelta(500, (float) $rows->firstWhere('kind', 'renewal')->quantity, 0.01);
+        $this->assertSame(0, $rows->where('kind', 'charge')->count(), 'the branch is not charged');
+        $this->assertSame($member->member_code, $rows->firstWhere('kind', 'bill_stock')->member_code);
+
+        // the report lists it; "New Close" (a plain cancel) still returns the stock to the branch
+        $this->actingAs($this->admin());
+        $this->get('/admin/login');
+        \Livewire\Livewire::test(\App\Filament\Pages\Reports\OtherReport::class)
+            ->set('data.report', 'force_close_stock')->call('run')
+            ->assertSee('Bill stock → Head Office')->assertSee('Renewal cash stock → Head Office')
+            ->assertSee($second->invoice_no)->assertSee('Dealer FD');
+
+        $plain = $this->bill($dealer);
+        $before = $dealerStock($gold);
+        app(SalesCancelService::class)->cancel($plain, $this->admin()->id, 'Wrong entry');
+        $this->assertEqualsWithDelta($before + 2, $dealerStock($gold), 0.001);
+        $this->assertSame(0, \App\Models\ForceCloseStock::where('invoice_no', $plain->invoice_no)->count());
+    }
+
+    public function test_deleting_the_member_sends_the_stock_of_every_bill_to_head_office(): void
+    {
+        ['member' => $member, 'first' => $first, 'second' => $second, 'dealer' => $dealer] = $this->scenario();
+        $gold = $this->gold();
+        $at = fn (int $branch) => (float) Stock::where('branch_id', $branch)->where('catalog_product_id', $gold->id)->sum('quantity');
+        [$dealerBefore, $hqBefore] = [$at($dealer->id), $at(SalesService::HQ_BRANCH_ID)];
+
+        app(MemberForceDeleteService::class)->delete($member, $this->admin()->id, 'Duplicate profile');
+
+        $this->assertEqualsWithDelta($dealerBefore, $at($dealer->id), 0.001);
+        $this->assertEqualsWithDelta($hqBefore + 4, $at(SalesService::HQ_BRANCH_ID), 0.001);
+        $this->assertSame(2, \App\Models\ForceCloseStock::where('kind', 'bill_stock')->whereIn('invoice_no', [$first->invoice_no, $second->invoice_no])->count());
+    }
+
+    public function test_a_branch_login_can_never_cancel_a_redemption(): void
+    {
+        $dealer = Branch::create(['name' => 'Dealer RC', 'country' => 'IN', 'is_active' => true]);
+        $login = $this->dealerLogin($dealer);
+        $qr = RedeemableQr::create(['qr_code' => 'SETTLE-T1', 'kind' => 'settlement', 'status' => 'redeemed', 'branch_id' => $dealer->id, 'cash_worth' => 1000]);
+        $invoice = \App\Models\RedemptionInvoice::create(['invoice_no' => 'RDM-T-1', 'invoice_date' => now()->toDateString(), 'redeemable_qr_id' => $qr->id, 'branch_id' => $dealer->id, 'grand_total' => 1000]);
+
+        try {
+            app(\App\Services\Redeem\RedemptionCancelService::class)->cancel($invoice, $login->id, 'Wrong');
+            $this->fail('a branch login cancelled a settlement QR redemption');
+        } catch (HttpException $e) {
+            $this->assertSame(403, $e->getStatusCode());
+            $this->assertStringContainsString('settlement QR is issued by Head Office', $e->getMessage());
+        }
+        $this->assertSame('redeemed', $qr->fresh()->status);
+        $this->assertNull($invoice->fresh()->deleted_at);
     }
 
     // ───────────── 4. Branch bank details + change log (board 2026-11-25) ─────────────

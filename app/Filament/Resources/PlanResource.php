@@ -74,6 +74,11 @@ class PlanResource extends BaseResource
                     Forms\Components\TextInput::make('rank_factor')->label('Rank BV %')->numeric()->default(100)
                         ->helperText('% of billed value counted as pure/ranking BV'),
                 ]),
+                // Board / user 2026-11-25: Head Office gives the privilege per dealership scheme
+                Forms\Components\Section::make('Settlement access')->schema([
+                    Forms\Components\Toggle::make('settlement_enabled')->label('Branches of this scheme can access the Settlement')->default(true)
+                        ->helperText('For a dealership scheme. On = its branches see the Settlements page, are the settling branch of the contracts they billed and redeem their settlement QR. Off = they cannot access the Settlement at all: a contract they billed is settled by the dealer above them, or by Head Office.'),
+                ]),
                 Forms\Components\Section::make('Promotional Incentive (CBC)')->columns(2)->schema([
                     Forms\Components\TextInput::make('cbc_value')->label('Promotional Incentive (CBC) %')->numeric()->default(0),
                     Forms\Components\TextInput::make('cbc_count')->label('Promotional Incentive (CBC) months')->numeric()->default(0),

@@ -355,7 +355,7 @@ class SalesInvoiceResource extends BaseResource
                         \Filament\Notifications\Notification::make()->success()
                             ->title($all ? $member->member_code . ' force deleted' : 'Bill ' . $r->invoice_no . ' force closed')
                             ->body(count($done['bills']) . ' bill(s) / contract(s) closed. ₹' . \App\Support\Money::group($done['totals']['recover'])
-                                . ' taken back from wallets, ₹' . \App\Support\Money::group($done['totals']['charge']) . ' charged to branch cash stock.'
+                                . ' taken back from wallets. The stock went to Head Office; the branch stock was not deducted.'
                                 . ($done['settlements'] ? ' Settle the force-closed contract(s) on the Settlements page.' : ''))
                             ->persistent()->send();
                     }),

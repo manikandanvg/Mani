@@ -50,14 +50,11 @@ class ContractSettlementService
      */
     public static function homeBranchId(MemberContract $contract): ?int
     {
-        // "Who billed" (user 2026-11-19): the bond's billing branch, whatever its kind. A branch
-        // that has since closed (inactive / removed) hands its settlements to Head Office.
-        $id = (int) ($contract->bond?->branch_id ?: $contract->branch_id);
-        if ($id && \App\Models\Branch::whereKey($id)->where('is_active', true)->exists()) {
-            return $id;
-        }
-
-        return $id ? ((int) \App\Models\Branch::where('level', 'hq')->orderBy('id')->value('id') ?: null) : null;
+        // "Who billed" (user 2026-11-19): the bond's billing branch. A branch that has since
+        // closed hands its settlements up. Board 2026-11-25: only dealers settle — a contract
+        // billed by a Reseller, Sub Dealer or Area Distributor is settled by the dealer above it
+        // (else Head Office).
+        return \App\Models\Branch::settlementBranchId((int) ($contract->bond?->branch_id ?: $contract->branch_id) ?: null);
     }
 
     public const STAGES = ['interim' => 'Interim settlement', 'final' => 'Final settlement (closes the contract)'];

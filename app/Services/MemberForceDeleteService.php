@@ -70,6 +70,15 @@ class MemberForceDeleteService
 {
     public const MOVEMENT_REF = 'force_delete';
 
+    /**
+     * User 2026-11-25 (after the board's final decision): a force close does NOT deduct the
+     * branch's stock — "the branch has ended up on the bill, it's enough". The stock of the bill
+     * goes straight to Head Office; what was already withdrawn or handed over as goods stays
+     * where it is (it still counts as "already given" in the member's closure settlement).
+     * true = the ruling of 2026-11-22 (that value is deducted from the issuing branch's cash stock).
+     */
+    public const CHARGES_BRANCH = false;
+
     public function __construct(protected SalesCancelService $cancel)
     {
     }
@@ -182,6 +191,7 @@ class MemberForceDeleteService
         };
         // $own = the value reached the MEMBER (goods, a settlement, their own coupon) — it counts
         // as "already given" in the closure settlement of that contract (board 2026-11-25)
+        $stockRows = [];
         $add = function (string $bill, ?int $branchId, string $kind, string $detail, float $amount, string $action, ?int $walletMemberId = null, bool $own = false)
             use (&$rows, &$available, $walletCash, $branchName, $memberName) {
             $amount = round($amount, 2);
@@ -284,7 +294,21 @@ class MemberForceDeleteService
             $rd = RdEntry::where('bond_id', $bond->id);
             if (($n = (clone $rd)->count()) > 0) {
                 $add($bill, $branchId, 'Gold Saving instalments collected', $n . ' instalment' . ($n === 1 ? '' : 's')
-                    . ' received from the member — refund to the member is settled by the branch, outside the system', (float) (clone $rd)->sum('value'), 'info');
+                    . ' received from the member — the cash stock these renewals took goes to Head Office', (float) (clone $rd)->sum('value'), 'info');
+            }
+            foreach ($this->renewalStock($bond) as $r) {
+                $stockRows[] = ['bill' => $bill, 'kind' => 'Gold Saving renewals (' . $r['count'] . ')', 'branch_id' => $r['branch_id'],
+                    'branch' => $branchName($r['branch_id']), 'item' => $r['item'], 'material' => 'cash', 'quantity' => $r['amount']];
+            }
+        }
+
+        // ── the stock the bills took (board 2026-11-25): it goes to Head Office, not back to the branch ──
+        foreach ($invoices as $invoice) {
+            foreach ($this->cancel->soldPieces($invoice) as $productId => $pieces) {
+                $cp = CatalogProduct::withTrashed()->find($productId);
+                $stockRows[] = ['bill' => $invoice->invoice_no, 'kind' => 'Stock sold on the bill', 'branch_id' => (int) $invoice->branch_id,
+                    'branch' => $branchName((int) $invoice->branch_id), 'item' => (string) \App\Support\Translatable::pick($cp?->name),
+                    'material' => (string) $cp?->material, 'quantity' => round((float) $pieces, 4)];
             }
         }
 
@@ -345,7 +369,7 @@ class MemberForceDeleteService
         $charges = [];
         $debits = [];
         foreach ($rows as $r) {
-            if ($r['charge'] > 0) {
+            if (self::CHARGES_BRANCH && $r['charge'] > 0) {
                 $id = (int) $r['branch_id'];
                 $charges[$id] ??= ['branch_id' => $id, 'branch' => $r['branch'], 'amount' => 0.0];
                 $charges[$id]['amount'] = round($charges[$id]['amount'] + $r['charge'], 2);
@@ -378,10 +402,15 @@ class MemberForceDeleteService
         // over, and the part of their own coupons they had withdrawn (what is still in the wallet
         // is taken back above, so it is not held against them twice). What OTHER people were paid
         // on the bill is recovered from them / the branch — never from the member's balance.
+        //
+        // User 2026-11-25 (the branch is no longer charged): a paid incentive / margin is taken
+        // back from the wallet it went to where possible; the part that CANNOT be recovered
+        // (already withdrawn) is summed and counted into the settlement of that contract too.
         foreach ($rows as $r) {
-            if ($r['own'] && $r['charge'] > 0 && isset($closures[$r['bill']])) {
+            if (($r['own'] || ! self::CHARGES_BRANCH) && $r['charge'] > 0 && isset($closures[$r['bill']])) {
                 $closures[$r['bill']]['given'] = round($closures[$r['bill']]['given'] + $r['charge'], 2);
-                $closures[$r['bill']]['lines'][] = ['side' => 'given', 'label' => $r['kind'], 'detail' => $r['detail'], 'amount' => $r['charge']];
+                $closures[$r['bill']]['lines'][] = ['side' => 'given', 'label' => $r['kind'] . ($r['own'] ? '' : ' — not recoverable'),
+                    'detail' => $r['detail'], 'amount' => $r['charge']];
             }
         }
         foreach ($closures as &$c) {
@@ -402,10 +431,15 @@ class MemberForceDeleteService
                 'issued' => round($sum('recover') + $sum('charge'), 2),
                 'reverse' => $sum('reverse'),
                 'recover' => round(array_sum(array_column($rows, 'recover')), 2),
-                'charge' => round(array_sum(array_column($rows, 'charge')), 2),
+                // deducted from branch cash stock — nothing since the branch is no longer charged
+                'charge' => self::CHARGES_BRANCH ? round(array_sum(array_column($rows, 'charge')), 2) : 0.0,
+                // paid out / handed over and not taken back from anybody
+                'kept' => self::CHARGES_BRANCH ? 0.0 : round(array_sum(array_column($rows, 'charge')), 2),
                 'forfeit' => round($forfeit['cash'] + $forfeit['coupon'] + $forfeit['epin'], 2),
             ],
             'charges' => array_values($charges),
+            // board 2026-11-25: the stock that goes to Head Office (never back to the branch)
+            'stock' => $stockRows,
             'wallet_debits' => array_values($debits),
             'forfeit' => $forfeit,
             'settlements' => $closures,
@@ -519,7 +553,7 @@ class MemberForceDeleteService
             // 2. what was withdrawn / handed over is charged to the issuing branch's cash stock
             $perBill = [];
             foreach ($statement['rows'] as $r) {
-                if ($r['charge'] > 0) {
+                if (self::CHARGES_BRANCH && $r['charge'] > 0) {
                     $key = $r['branch_id'] . '|' . $r['bill'];
                     $perBill[$key] ??= ['branch_id' => (int) $r['branch_id'], 'bill' => $r['bill'], 'amount' => 0.0, 'kinds' => []];
                     $perBill[$key]['amount'] = round($perBill[$key]['amount'] + $r['charge'], 2);
@@ -527,13 +561,18 @@ class MemberForceDeleteService
                 }
             }
             foreach ($perBill as $c) {
-                $this->chargeCashStock($c['branch_id'], $c['amount'], (int) $member->id, $userId,
-                    $tag . ' — bill ' . $c['bill'] . ': ' . implode(', ', array_keys($c['kinds'])));
+                $this->chargeCashStock($c['branch_id'], $c['amount'], $member, $userId,
+                    $tag . ' — bill ' . $c['bill'] . ': ' . implode(', ', array_keys($c['kinds'])), $c['bill']);
             }
 
-            // 3. every bill is cancelled (stock back, pending lines removed, volumes rolled back) …
+            // 3. every bill is cancelled (pending lines removed, volumes rolled back); the stock it
+            //    sold and the cash stock of the renewals go to HEAD OFFICE, not back to the branch
+            foreach ($this->bonds($member) as $bond) {
+                $this->renewalStockToHq($bond, $member, $userId);
+            }
             foreach ($this->invoices($member) as $invoice) {
-                $this->cancel->cancel($invoice, $userId, $tag . ': ' . $reason, false, ['force' => true, 'silent' => true, 'team_leaves' => false]);
+                $this->cancel->cancel($invoice, $userId, $tag . ': ' . $reason, false,
+                    ['force' => true, 'silent' => true, 'team_leaves' => false, 'stock_to' => SalesService::HQ_BRANCH_ID]);
             }
             // … and so is every contract that has no bill in this system
             foreach ($this->bonds($member) as $bond) {
@@ -571,13 +610,14 @@ class MemberForceDeleteService
 
             \App\Services\Activity\ActivityLogger::log('member', 'force_deleted',
                 'Member ' . $member->member_code . ' (' . $member->name . ') FORCE DELETED — ' . count($statement['bills']) . ' bill(s) / contract(s) cancelled; ₹'
-                    . Money::group($statement['totals']['recover']) . ' taken back from wallets, ₹' . Money::group($statement['totals']['charge'])
-                    . ' charged to branch cash stock; closure settlement payable to the member ₹'
+                    . Money::group($statement['totals']['recover']) . ' taken back from wallets, ₹' . Money::group($statement['totals']['kept'])
+                    . ' already paid out / handed over (branch not charged), stock to Head Office; closure settlement payable to the member ₹'
                     . Money::group($statement['settlement_totals']['payable']) . '. Reason: ' . $reason, [
                     'member' => $member->id,
                     'details' => [
                         'reason' => $reason, 'bills' => $statement['bills'], 'rows' => $statement['rows'], 'totals' => $statement['totals'],
-                        'charges' => $statement['charges'], 'wallet_debits' => $statement['wallet_debits'], 'forfeit' => $statement['forfeit'],
+                        'charges' => $statement['charges'], 'stock_to_head_office' => $statement['stock'],
+                        'wallet_debits' => $statement['wallet_debits'], 'forfeit' => $statement['forfeit'],
                         'settlements' => $statement['settlements'], 'settlement_totals' => $statement['settlement_totals'],
                     ],
                 ]);
@@ -621,16 +661,21 @@ class MemberForceDeleteService
             $tag = 'Force close of bill ' . $invoice->invoice_no . ' (' . $member->member_code . ')';
 
             $this->settleMoney($statement, $member, $userId, $tag, 'the bill ' . $invoice->invoice_no . ' of ' . $member->member_code . ' (' . $member->name . ') was');
-            $this->cancel->cancel($invoice, $userId, 'Force closed: ' . $reason, false, ['force' => true, 'team_leaves' => false]);
+            foreach (Bond::where('invoice_no', $invoice->invoice_no)->get() as $bond) {
+                $this->renewalStockToHq($bond, $member, $userId);
+            }
+            $this->cancel->cancel($invoice, $userId, 'Force closed: ' . $reason, false,
+                ['force' => true, 'team_leaves' => false, 'stock_to' => SalesService::HQ_BRANCH_ID]);
             $this->recordClosures($statement, $member, $userId, $reason, null, false);
 
             \App\Services\Activity\ActivityLogger::log('contract', 'force_closed',
                 'Bill ' . $invoice->invoice_no . ' of ' . $member->member_code . ' (' . $member->name . ') FORCE CLOSED — ₹'
-                    . Money::group($statement['totals']['recover']) . ' taken back from wallets, ₹' . Money::group($statement['totals']['charge'])
-                    . ' charged to branch cash stock. The member stays. Reason: ' . $reason, [
+                    . Money::group($statement['totals']['recover']) . ' taken back from wallets, ₹' . Money::group($statement['totals']['kept'])
+                    . ' already paid out / handed over (branch not charged), stock to Head Office. The member stays. Reason: ' . $reason, [
                     'subject' => $invoice, 'member' => $member->id,
                     'details' => ['reason' => $reason, 'rows' => $statement['rows'], 'totals' => $statement['totals'],
-                        'charges' => $statement['charges'], 'wallet_debits' => $statement['wallet_debits'], 'settlements' => $statement['settlements']],
+                        'charges' => $statement['charges'], 'stock_to_head_office' => $statement['stock'],
+                        'wallet_debits' => $statement['wallet_debits'], 'settlements' => $statement['settlements']],
                 ]);
             foreach ($statement['charges'] as $c) {
                 \App\Services\Push\Notifier::to(Branch::find($c['branch_id'])?->distributorUser?->memberAccount, 'stock',
@@ -657,7 +702,7 @@ class MemberForceDeleteService
         }
         $perBill = [];
         foreach ($statement['rows'] as $r) {
-            if ($r['charge'] > 0) {
+            if (self::CHARGES_BRANCH && $r['charge'] > 0) {
                 $key = $r['branch_id'] . '|' . $r['bill'];
                 $perBill[$key] ??= ['branch_id' => (int) $r['branch_id'], 'bill' => $r['bill'], 'amount' => 0.0, 'kinds' => []];
                 $perBill[$key]['amount'] = round($perBill[$key]['amount'] + $r['charge'], 2);
@@ -665,8 +710,79 @@ class MemberForceDeleteService
             }
         }
         foreach ($perBill as $c) {
-            $this->chargeCashStock($c['branch_id'], $c['amount'], (int) $member->id, $userId,
-                $tag . ' — bill ' . $c['bill'] . ': ' . implode(', ', array_keys($c['kinds'])));
+            $this->chargeCashStock($c['branch_id'], $c['amount'], $member, $userId,
+                $tag . ' — bill ' . $c['bill'] . ': ' . implode(', ', array_keys($c['kinds'])), $c['bill']);
+        }
+    }
+
+    /**
+     * The cash stock the Gold Saving renewals of a contract took, per branch that collected them
+     * (board 2026-11-25). A renewal saved in this system carries its stock movement (ref rd_entry);
+     * one carried over from the old system has none — its collected value is what the branch's
+     * cash stock fell by there.
+     *
+     * @return array<int, array{branch_id:int, product_id:int, item:string, amount:float, count:int}>
+     */
+    public function renewalStock(Bond $bond): array
+    {
+        $entries = RdEntry::where('bond_id', $bond->id)->get(['id', 'branch_id', 'value']);
+        if ($entries->isEmpty()) {
+            return [];
+        }
+        $cash = CatalogProduct::where('material', 'cash')->orderByDesc('is_active')->orderBy('id')->first();
+        if (! $cash) {
+            return [];
+        }
+        $moved = [];
+        foreach (StockMovement::where('ref_type', 'rd_entry')->whereIn('ref_id', $entries->pluck('id'))->get() as $m) {
+            $moved[$m->ref_id][] = $m;
+        }
+        $out = [];
+        foreach ($entries as $e) {
+            $parts = isset($moved[$e->id])
+                ? array_map(fn ($m) => [(int) $m->branch_id, (int) $m->catalog_product_id, abs((float) $m->qty_change)], $moved[$e->id])
+                : [[(int) ($e->branch_id ?: $bond->branch_id), (int) $cash->id, (float) $e->value]];
+            foreach ($parts as $i => [$branchId, $productId, $amount]) {
+                if ($amount <= 0) {
+                    continue;
+                }
+                $key = $branchId . '|' . $productId;
+                $out[$key] ??= ['branch_id' => $branchId, 'product_id' => $productId, 'item' => '', 'amount' => 0.0, 'count' => 0];
+                $out[$key]['amount'] = round($out[$key]['amount'] + $amount, 2);
+                $out[$key]['count'] += $i === 0 ? 1 : 0;
+            }
+        }
+        foreach ($out as &$r) {
+            $r['item'] = (string) \App\Support\Translatable::pick(CatalogProduct::withTrashed()->find($r['product_id'])?->name);
+        }
+        unset($r);
+
+        return array_values($out);
+    }
+
+    /** That cash stock is added to Head Office (never back to the branch) and entered in the register. */
+    protected function renewalStockToHq(Bond $bond, Member $member, ?int $userId): void
+    {
+        $bill = $bond->invoice_no ?: 'Contract #' . $bond->id;
+        foreach ($this->renewalStock($bond) as $r) {
+            $stock = Stock::where('branch_id', SalesService::HQ_BRANCH_ID)->where('catalog_product_id', $r['product_id'])
+                ->where('order_line_id', 0)->lockForUpdate()->first()
+                ?? Stock::create(['branch_id' => SalesService::HQ_BRANCH_ID, 'catalog_product_id' => $r['product_id'], 'order_line_id' => 0, 'quantity' => 0]);
+            $stock->increment('quantity', $r['amount']);
+            $movement = StockMovement::create([
+                'branch_id' => SalesService::HQ_BRANCH_ID,
+                'catalog_product_id' => $r['product_id'],
+                'type' => 'adjustment',
+                'qty_change' => $r['amount'],
+                'balance_after' => $stock->fresh()->quantity,
+                'ref_type' => \App\Models\ForceCloseStock::MOVEMENT_REF,
+                'ref_id' => $bond->id,
+                'note' => mb_substr('Force Close — cash stock of ' . $r['count'] . ' Gold Saving renewal(s) of ' . $bill . ' (branch #' . $r['branch_id'] . ') taken to Head Office', 0, 250),
+                'moved_on' => Carbon::now()->toDateString(),
+                'created_by' => $userId,
+            ]);
+            \App\Models\ForceCloseStock::record('renewal', $r['branch_id'] ?: null, SalesService::HQ_BRANCH_ID, $r['product_id'], $r['amount'],
+                $bill, $member, $movement->id, $userId, $r['count'] . ' Gold Saving renewal(s)');
         }
     }
 
@@ -704,8 +820,9 @@ class MemberForceDeleteService
      * Deduct ₹ from a branch's cash stock — it MAY go below zero (user 2026-11-22): the branch
      * owes Head Office what was paid out on the bill it issued.
      */
-    protected function chargeCashStock(int $branchId, float $amount, int $memberId, ?int $userId, string $note): void
+    protected function chargeCashStock(int $branchId, float $amount, Member $member, ?int $userId, string $note, ?string $bill = null): void
     {
+        $memberId = (int) $member->id;
         if ($amount <= 0) {
             return;
         }
@@ -717,7 +834,7 @@ class MemberForceDeleteService
             $stock = Stock::firstOrCreate(['branch_id' => $branchId, 'catalog_product_id' => $cp->id, 'order_line_id' => 0], ['quantity' => 0]);
         }
         $stock->decrement('quantity', $amount);
-        StockMovement::create([
+        $movement = StockMovement::create([
             'branch_id' => $branchId,
             'catalog_product_id' => $stock->catalog_product_id,
             'type' => 'adjustment',
@@ -729,5 +846,7 @@ class MemberForceDeleteService
             'moved_on' => Carbon::now()->toDateString(),
             'created_by' => $userId,
         ]);
+        \App\Models\ForceCloseStock::record('charge', $branchId, null, (int) $stock->catalog_product_id, $amount,
+            $bill, $member, $movement->id, $userId, mb_substr($note, 0, 250));
     }
 }

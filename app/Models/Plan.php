@@ -35,6 +35,7 @@ class Plan extends Model
         'settlement_suspend' => 'boolean',
         'counts_for_rank' => 'boolean',
         'counts_for_ep' => 'boolean',
+        'settlement_enabled' => 'boolean',
         'rank_factor' => 'decimal:2',
     ];
 

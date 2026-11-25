@@ -49,6 +49,62 @@ class Branch extends Model
     public const NO_PAYMENT_QR_LEVELS = ['reseller', 'area_dealer', 'sub_dealer'];
 
     /** Admin override on the branch form (user 2026-11-03): null = by level, on, off. */
+    /**
+     * Board 2026-11-25: only DEALERS do a settlement — a Reseller, Sub Dealer or Area Distributor
+     * takes no part in it. User, the same day: Head Office decides it per dealership scheme
+     * (plans.settlement_enabled, the "Settlement access" switch); these three are how it starts.
+     */
+    public const NO_SETTLEMENT_LEVELS = ['reseller', 'sub_dealer', 'area_dealer'];
+
+    /** The branch levels whose scheme has the Settlement switched OFF. */
+    public static function noSettlementLevels(): array
+    {
+        if (! \Illuminate\Support\Facades\Schema::hasColumn('plans', 'settlement_enabled')) {
+            return self::NO_SETTLEMENT_LEVELS;
+        }
+        $on = [];
+        $off = [];
+        foreach (\Illuminate\Support\Facades\DB::table('plans')->whereNotNull('hid')->where('hid', '>', 0)
+            ->get(['hid', 'settlement_enabled']) as $p) {
+            if ($level = self::levelForHid($p->hid)) {
+                $p->settlement_enabled ? $on[$level] = true : $off[$level] = true;
+            }
+        }
+
+        // a level is out only when no scheme of that level has it on
+        return array_values(array_diff(array_keys($off), array_keys($on)));
+    }
+
+    /** May this branch access the Settlement (Head Office always may)? */
+    public function canAccessSettlement(): bool
+    {
+        return $this->level === 'hq' || ! in_array($this->level, self::noSettlementLevels(), true);
+    }
+
+    /**
+     * The branch that settles a contract billed at $branchId: that branch when it is an active
+     * dealer (or Head Office); otherwise the first active dealer up its supply chain; otherwise
+     * Head Office. Null only when no branch is given.
+     */
+    public static function settlementBranchId(?int $branchId): ?int
+    {
+        if (! $branchId) {
+            return null;
+        }
+        $seen = [];
+        $out = self::noSettlementLevels();
+        $branch = static::find($branchId);
+        while ($branch && ! isset($seen[$branch->id])) {
+            $seen[$branch->id] = true;
+            if ($branch->is_active && ! in_array($branch->level, $out, true)) {
+                return (int) $branch->id;
+            }
+            $branch = $branch->source_branch_id ? static::find($branch->source_branch_id) : null;
+        }
+
+        return (int) static::where('level', 'hq')->orderBy('id')->value('id') ?: null;
+    }
+
     public const STATIC_QR_OPTIONS = ['on' => 'Enabled', 'off' => 'Disabled'];
 
     public function showsPaymentQr(): bool
