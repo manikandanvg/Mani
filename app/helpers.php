@@ -22,7 +22,9 @@ if (! function_exists('inr_words')) {
      */
     function inr_words(float $amount): string
     {
-        $n = (int) round($amount);
+        // clamp: a mistyped amount (negative, or far past any real bill) must still
+        // spell out instead of failing the page it is shown on
+        $n = (int) round(min(abs($amount), 9.0e15));
         if ($n === 0) {
             return 'Zero Rupees';
         }
@@ -55,7 +57,8 @@ if (! function_exists('inr_words')) {
         $n %= 1000;
 
         if ($crore) {
-            $parts[] = $three($crore) . ' Crore';
+            // 1,000 crore and above: the crore count is itself spelt in lakh / crore
+            $parts[] = ($crore < 1000 ? $three($crore) : mb_substr(inr_words($crore), 0, -mb_strlen(' Rupees'))) . ' Crore';
         }
         if ($lakh) {
             $parts[] = $two($lakh) . ' Lakh';
@@ -99,6 +102,7 @@ if (! function_exists('tamil_number_words')) {
      */
     function tamil_number_words(int $n): string
     {
+        $n = min(abs($n), 9000000000000000);   // same clamp as inr_words()
         if ($n === 0) {
             return 'பூஜ்ஜியம்';
         }
@@ -171,7 +175,7 @@ if (! function_exists('tamil_number_words')) {
 
         $parts = [];
         if ($crore) {
-            $parts[] = ($crore === 1 ? 'ஒரு' : ($crore < 100 ? $two($crore) : $three($crore)))
+            $parts[] = ($crore === 1 ? 'ஒரு' : ($crore < 100 ? $two($crore) : ($crore < 1000 ? $three($crore) : tamil_number_words($crore))))
                 . ' ' . (($lakh || $thou || $rest) ? 'கோடியே' : 'கோடி');
         }
         if ($lakh) {
@@ -210,7 +214,7 @@ if (! function_exists('amount_words')) {
         $unit = $unitWords[$currency][$lang] ?? $unitWords[$currency]['en'] ?? $currency;
 
         if ($lang === 'ta') {
-            return tamil_number_words((int) round($amount)) . ' ' . $unit;
+            return tamil_number_words((int) round(min(abs($amount), 9.0e15))) . ' ' . $unit;
         }
 
         $en = inr_words($amount);   // ends in " Rupees"

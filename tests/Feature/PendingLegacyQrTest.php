@@ -13,6 +13,7 @@ use App\Models\DigiWithdrawal;
 use App\Models\LiveRate;
 use App\Models\Member;
 use App\Models\MemberWallet;
+use App\Models\PendingLegacyQr;
 use App\Models\Plan;
 use App\Models\Rank;
 use App\Models\RedeemableQr;
@@ -186,9 +187,13 @@ class PendingLegacyQrTest extends TestCase
         $this->get('/admin/pending-gold-qr')->assertSuccessful()->assertSee('Pending Gold QR');
         $qr = RedeemableQr::where('qr_code', 'RXJOBMW')->firstOrFail();
 
+        $row = PendingLegacyQr::findOrFail('I-' . $qr->id);
+        $this->assertSame('INVOICE', $row->route);
+
         Livewire::test(PendingGoldQr::class)
-            ->assertCanSeeTableRecords([$qr])
-            ->callTableAction('send', $qr)
+            ->assertCanSeeTableRecords([$row])
+            ->assertTableActionHidden('toDigi', $row)   // an invoice QR is never converted
+            ->callTableAction('send', $row)
             ->assertHasNoTableActionErrors();
         $this->assertTrue($qr->fresh()->qr_sent);
         $this->assertNotNull($qr->fresh()->sent_at);
@@ -218,5 +223,53 @@ class PendingLegacyQrTest extends TestCase
         $this->assertEquals(20000.0, (float) $invoice->grand_total);
         $this->assertSame('redeemed', $qr->fresh()->status);
         $this->assertEquals(8.0, (float) Stock::where('branch_id', $other->id)->value('quantity'));
+    }
+
+    /** Board 2026-11-26: the page lists both routes; only DIGIWD converts, into the gold wallet as a purchase. */
+    public function test_pending_gold_qr_page_lists_both_routes_and_sends_only_digiwd_to_the_digi_gold_wallet(): void
+    {
+        $f = $this->stageFixtures();
+        $this->artisan('legacy:stage-pending-qrs')->assertSuccessful();
+
+        $invoice = PendingLegacyQr::findOrFail('I-' . RedeemableQr::where('qr_code', 'RXJOBMW')->value('id'));
+        $wd = PendingLegacyQr::findOrFail('W-' . $f['req']->id);                       // 0.25 g, ticket CASH0001
+        $ticket = PendingLegacyQr::findOrFail('W-' . DigiWithdrawal::where('qr_code', 'CASH0002')->value('id'));   // 0.4 g
+        $this->assertSame('DIGIWD', $wd->route);
+        $this->assertSame('CASH0001', $wd->qr_code);
+        $this->assertSame('pending', $wd->status);
+
+        Livewire::test(PendingGoldQr::class)
+            ->assertCanSeeTableRecords([$invoice, $wd, $ticket])
+            ->assertTableActionHidden('send', $wd)
+            ->assertTableActionVisible('toDigi', $wd)
+            ->callTableAction('toDigi', $wd)
+            ->assertHasNoTableActionErrors();
+
+        $wallet = MemberWallet::find($this->member->id);
+        $this->assertEquals(1.25, (float) $wallet->digi_gold_grams, '1.0 + 0.25 g of the QR');
+        $this->assertEquals(100.0, (float) $wallet->cash_balance, 'no cash moves');
+        $txn = DigiGoldTxn::where('reference', 'WD-' . $f['req']->id)->firstOrFail();
+        $this->assertSame('credit', $txn->type);
+        $this->assertEquals(0.25, (float) $txn->grams);
+        $this->assertEquals(2500.0, (float) $txn->value);
+        $this->assertSame(DigiWithdrawal::DECISION_DIGI, $f['req']->fresh()->decision);
+        // the QR is redeemed from here on — on the page and on the dealer ticket
+        $this->assertSame('redeemed', PendingLegacyQr::findOrFail($wd->uid)->status);
+        $this->assertSame('redeemed', DigiQueue::where('qr_code', 'CASH0001')->value('delivery_status'));
+
+        // gone from the pending list, not convertible twice
+        Livewire::test(PendingGoldQr::class)
+            ->assertCanNotSeeTableRecords([PendingLegacyQr::findOrFail($wd->uid)])
+            ->filterTable('status', 'redeemed')
+            ->assertCanSeeTableRecords([PendingLegacyQr::findOrFail($wd->uid)])
+            ->assertTableActionHidden('toDigi', PendingLegacyQr::findOrFail($wd->uid));
+
+        // bulk: a mixed selection converts only the DIGIWD row, the invoice QR stays pending
+        Livewire::test(PendingGoldQr::class)
+            ->callTableBulkAction('bulkDigi', [$invoice, $ticket])
+            ->assertHasNoTableBulkActionErrors();
+        $this->assertEquals(1.65, (float) MemberWallet::find($this->member->id)->digi_gold_grams);
+        $this->assertSame('pending', RedeemableQr::where('qr_code', 'RXJOBMW')->value('status'));
+        $this->assertSame('redeemed', DigiQueue::where('qr_code', 'CASH0002')->value('delivery_status'));
     }
 }
