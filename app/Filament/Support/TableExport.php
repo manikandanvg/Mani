@@ -41,9 +41,21 @@ class TableExport
         ];
     }
 
+    /** CSV / Excel carry up to this many rows. */
+    public const MAX_ROWS = 25000;
+
+    /**
+     * PDF / Print carry up to this many rows: dompdf needs about 10 s per 100 rows, so a longer
+     * table runs past the server's time limit and the browser shows "500 Server Error".
+     */
+    public const MAX_PDF_ROWS = 500;
+
     /** Build [headers[], rows[][], title] from the live (filtered/sorted) table. */
-    protected static function data($livewire): array
+    protected static function data($livewire, int $limit = self::MAX_ROWS): array
     {
+        @ini_set('memory_limit', '512M');
+        @set_time_limit(300);
+
         $table = $livewire->getTable();
 
         /** @var Column[] $columns */
@@ -53,7 +65,7 @@ class TableExport
 
         $headers = $columns->map(fn (Column $c) => (string) $c->getLabel())->all();
 
-        $records = $livewire->getFilteredSortedTableQuery()->limit(5000)->get();
+        $records = $livewire->getFilteredSortedTableQuery()->limit($limit)->get();
 
         $rows = $records->map(fn ($record) => $columns
             ->map(fn (Column $c) => static::cell($c, $record))
@@ -139,7 +151,18 @@ class TableExport
         // 128M and 500. Lift the ceiling for this request so the export never crashes.
         @ini_set('memory_limit', '512M');
 
-        [$headers, $rows, $title] = static::data($livewire);
+        $total = (int) $livewire->getFilteredSortedTableQuery()->reorder()->count();
+        if ($total > self::MAX_PDF_ROWS) {
+            \Filament\Notifications\Notification::make()->warning()->persistent()
+                ->title('Too many rows for a PDF')
+                ->body(number_format($total) . ' rows are listed; PDF / Print takes up to ' . self::MAX_PDF_ROWS
+                    . '. Use Export → Excel for the full list, or filter the table first.')
+                ->send();
+
+            return null;
+        }
+
+        [$headers, $rows, $title] = static::data($livewire, self::MAX_PDF_ROWS);
 
         $output = Pdf::setOptions(['isRemoteEnabled' => false, 'defaultFont' => 'DejaVu Sans'], true)
             ->loadView('pdf.table', [

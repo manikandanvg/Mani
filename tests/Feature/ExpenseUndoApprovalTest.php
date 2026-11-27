@@ -50,6 +50,27 @@ class ExpenseUndoApprovalTest extends TestCase
         $this->assertStringContainsString('Wrong amount', $approved->reject_reason);
     }
 
+    public function test_summary_pdf_folds_the_ledger_month_by_month(): void
+    {
+        $this->expense(Expense::APPROVED);
+        $this->expense(Expense::SUBMITTED);
+        Expense::create(['expense_date' => '2026-05-02', 'category' => 'asset_vehicles', 'title' => 'Cars', 'amount' => 6000000,
+            'payment_mode' => 'bank', 'status' => Expense::APPROVED, 'approved_at' => now()]);
+
+        $s = \App\Filament\Resources\ExpenseResource::summary(Expense::query());
+        $this->assertSame(3, $s['count']);
+        $this->assertEquals(180000.0, $s['expenses']);
+        $this->assertEquals(6000000.0, $s['assets']);
+        $this->assertEquals(6090000.0, $s['approved']);
+        $this->assertEquals(90000.0, $s['waiting']);
+        $this->assertSame('Apr 2026', $s['rows'][0][0]);
+        $this->assertSame('2', $s['rows'][0][3]);                 // two fuel rows on one line
+        $this->assertSame('TOTAL — Apr 2026', $s['rows'][1][2]);
+        $this->assertSame('GRAND TOTAL', end($s['rows'])[2]);
+
+        Livewire::test(ListExpenses::class)->callAction('summaryPdf')->assertFileDownloaded();
+    }
+
     public function test_the_bulk_button_undoes_only_the_approved_rows(): void
     {
         $a = $this->expense(Expense::APPROVED);

@@ -50,6 +50,27 @@ class TableExportTest extends TestCase
             ->assertFileDownloaded();
     }
 
+    /** A long table used to run dompdf past the server's time limit (500 on live, 27-11-2026). */
+    public function test_pdf_of_a_long_table_is_refused_with_a_message_instead_of_crashing(): void
+    {
+        $rows = [];
+        for ($i = 1; $i <= \App\Filament\Support\TableExport::MAX_PDF_ROWS + 1; $i++) {
+            $rows[] = ['expense_no' => 'EXP-' . str_pad((string) $i, 6, '0', STR_PAD_LEFT), 'expense_date' => '2026-04-10', 'category' => 'fuel',
+                'kind' => 'expense', 'title' => 'Fuel', 'amount' => 3000, 'payment_mode' => 'bank', 'status' => 'submitted',
+                'created_at' => now(), 'updated_at' => now()];
+        }
+        \Illuminate\Support\Facades\DB::table('expenses')->insert($rows);
+
+        Livewire::test(\App\Filament\Resources\ExpenseResource\Pages\ListExpenses::class)
+            ->callTableAction('export_pdf')
+            ->assertNoFileDownloaded()
+            ->assertNotified('Too many rows for a PDF');
+
+        Livewire::test(\App\Filament\Resources\ExpenseResource\Pages\ListExpenses::class)
+            ->callTableAction('export_csv')
+            ->assertFileDownloaded();
+    }
+
     public function test_export_actions_are_registered_on_the_table(): void
     {
         Livewire::test(ListBranches::class)

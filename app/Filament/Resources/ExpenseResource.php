@@ -84,6 +84,57 @@ class ExpenseResource extends BaseResource
         ]);
     }
 
+    /**
+     * The ledger folded to one line per month per head (a TBP award per stage), with a total per
+     * month and the grand totals — the row-by-row list is too long for a PDF.
+     *
+     * @return array{rows: array<int, array<int, string>>, count: int, expenses: float, assets: float, approved: float, waiting: float}
+     */
+    public static function summary(\Illuminate\Database\Eloquent\Builder $query): array
+    {
+        $records = $query->clone()->reorder()->toBase()->get(['expense_date', 'category', 'rank_id', 'amount', 'status']);
+        $stages = \App\Models\Rank::all()->mapWithKeys(fn ($r) => [$r->id => \App\Support\Translatable::pick($r->name) ?: $r->code]);
+
+        $months = [];
+        $out = ['rows' => [], 'count' => $records->count(), 'expenses' => 0.0, 'assets' => 0.0, 'approved' => 0.0, 'waiting' => 0.0];
+        foreach ($records as $r) {
+            $asset = isset(Expense::ASSET_CATEGORIES[$r->category]);
+            $head = Expense::categoryLabel($r->category) . ($r->rank_id ? ' — ' . ($stages[$r->rank_id] ?? '') : '');
+            $key = ($asset ? '1' : '0') . '|' . $r->category . '|' . str_pad((string) (int) $r->rank_id, 6, '0', STR_PAD_LEFT);
+            $ym = substr((string) $r->expense_date, 0, 7);
+            $months[$ym][$key] ??= ['kind' => $asset ? 'Capital asset' : 'Expense', 'head' => $head, 'n' => 0, 'sum' => 0.0];
+            $months[$ym][$key]['n']++;
+            $months[$ym][$key]['sum'] += (float) $r->amount;
+            $out[$asset ? 'assets' : 'expenses'] += (float) $r->amount;
+            if ($r->status === Expense::APPROVED) {
+                $out['approved'] += (float) $r->amount;
+            } elseif ($r->status === Expense::SUBMITTED) {
+                $out['waiting'] += (float) $r->amount;
+            }
+        }
+        ksort($months);
+
+        foreach ($months as $ym => $heads) {
+            ksort($heads);
+            $label = \Illuminate\Support\Carbon::parse($ym . '-01')->format('M Y');
+            $n = 0;
+            $sum = 0.0;
+            foreach ($heads as $h) {
+                $out['rows'][] = [$label, $h['kind'], $h['head'], (string) $h['n'], Money::group($h['sum'])];
+                $n += $h['n'];
+                $sum += $h['sum'];
+            }
+            $out['rows'][] = ['', '', 'TOTAL — ' . $label, (string) $n, Money::group($sum)];
+        }
+        if ($out['rows'] !== []) {
+            $out['rows'][] = ['', '', 'TOTAL EXPENSES', '', Money::group($out['expenses'])];
+            $out['rows'][] = ['', '', 'TOTAL CAPITAL ASSETS', '', Money::group($out['assets'])];
+            $out['rows'][] = ['', '', 'GRAND TOTAL', (string) $out['count'], Money::group($out['expenses'] + $out['assets'])];
+        }
+
+        return $out;
+    }
+
     public static function getNavigationBadge(): ?string
     {
         $n = Expense::where('status', Expense::SUBMITTED)->count();
