@@ -91,11 +91,51 @@ class Board20261127Test extends TestCase
         $rank = \App\Models\Rank::create(['code' => 'MEMBER', 'name' => 'Member', 'depth' => 0, 'is_active' => true])->id;
         $member = Member::forceCreate(['member_code' => 'LJT01', 'name' => 'Buyer', 'phone' => '9000000001', 'branch_id' => $this->branch->id, 'joined_on' => '2026-01-01', 'placement' => 'level', 'status' => 'active', 'rank_id' => $rank]);
         $other = Member::forceCreate(['member_code' => 'LJT02', 'name' => 'Other', 'phone' => '9000000002', 'branch_id' => $this->branch->id, 'joined_on' => '2026-01-01', 'placement' => 'level', 'status' => 'active', 'rank_id' => $rank]);
-        DB::table('sales_invoices')->insert([
+        $invoiceId = DB::table('sales_invoices')->insertGetId([
             'invoice_no' => 'INV-RB-0001', 'date' => '2026-11-01', 'customer_member_id' => $member->id, 'customer_name' => 'Buyer',
             'branch_id' => $this->branch->id, 'grand_total' => 50000, 'status' => 'paid', 'created_at' => now(), 'updated_at' => now(),
         ]);
+        // the bill sold 2 coins of 4 g (a sale line holds grams), a silver bar and some cash stock
+        $silver = CatalogProduct::create(['code' => '26', 'name' => ['en' => '50 g Silver'], 'material' => 'silver', 'default_weight' => 50,
+            'gm_margin' => 0, 'gst_pct' => 3, 'is_active' => true]);
+        $cash = CatalogProduct::create(['code' => '3', 'name' => ['en' => 'CASH'], 'material' => 'cash', 'default_weight' => 0,
+            'gm_margin' => 0, 'gst_pct' => 0, 'is_active' => true]);
+        $unsold = CatalogProduct::create(['code' => '14', 'name' => ['en' => '8 g Gold'], 'material' => 'gold', 'default_weight' => 8,
+            'gm_margin' => 0, 'gst_pct' => 3, 'is_active' => true]);
+        DB::table('sale_lines')->insert([
+            ['invoice_id' => $invoiceId, 'catalog_product_id' => $this->coin->id, 'material' => 'gold', 'description' => 'gold', 'qty' => 8, 'rate' => 10000, 'line_total' => 80000],
+            ['invoice_id' => $invoiceId, 'catalog_product_id' => $silver->id, 'material' => 'silver', 'description' => 'silver', 'qty' => 50, 'rate' => 100, 'line_total' => 5000],
+            ['invoice_id' => $invoiceId, 'catalog_product_id' => $cash->id, 'material' => 'cash', 'description' => 'cash', 'qty' => 10000, 'rate' => 1, 'line_total' => 10000],
+        ]);
         $svc = app(SalesReturnService::class);
+
+        // only the billed gold / silver items are offered — never the cash stock, never another coin
+        $items = $svc->billItems('INV-RB-0001', $member->id, $this->branch->id);
+        $this->assertEqualsCanonicalizing([$this->coin->id, $silver->id], array_keys($items));
+        $this->assertEquals(2.0, $items[$this->coin->id]['left']);
+        $this->assertSame([], $svc->billItems('INV-RB-0001', $other->id, $this->branch->id));
+
+        // a bill carried over from the old system holds PIECES on its lines, not grams
+        $oldId = DB::table('sales_invoices')->insertGetId(['invoice_no' => '26865', 'date' => '2026-09-18', 'customer_member_id' => $member->id,
+            'customer_name' => 'Buyer', 'branch_id' => $this->branch->id, 'grand_total' => 41000, 'status' => 'active', 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('sale_lines')->insert(['invoice_id' => $oldId, 'catalog_product_id' => $this->coin->id, 'material' => 'gold', 'description' => '4 g Gold', 'qty' => 1, 'rate' => 10000, 'line_total' => 41000]);
+        $this->assertEquals(1.0, $svc->billItems('26865', $member->id, $this->branch->id)[$this->coin->id]['billed']);
+        DB::table('sales_invoices')->where('id', $oldId)->delete();
+
+        // the distributor dropdown offers only those this branch has billed
+        $this->assertSame([$member->id], $svc->billedMembers($this->branch->id)->pluck('id')->all());
+        $this->assertSame([], $svc->billedMembers(1)->pluck('id')->all());
+
+        // the bill dropdown offers the distributor's own bills at this branch only
+        $this->assertSame(['INV-RB-0001'], array_keys($svc->billOptions($member->id, $this->branch->id)));
+        $this->assertSame([], $svc->billOptions($other->id, $this->branch->id));
+        $this->assertSame([], $svc->billOptions($member->id, 1));
+
+        // convenience charge: gold ₹50 a gram, silver none
+        $this->assertEquals(50.0, SalesReturnService::convenienceCharge('gold', 1));
+        $this->assertEquals(5.0, SalesReturnService::convenienceCharge('gold', 0.1));
+        $this->assertEquals(500.0, SalesReturnService::convenienceCharge('gold', 10));
+        $this->assertEquals(0.0, SalesReturnService::convenienceCharge('silver', 50));
 
         $this->assertTrue($svc->checkBill('INV-RB-0001', $member->id, $this->branch->id)['ok']);
         $this->assertFalse($svc->checkBill('INV-RB-0001', $other->id, $this->branch->id)['ok']);      // someone else's bill
@@ -106,6 +146,51 @@ class Board20261127Test extends TestCase
         $return = $svc->create(['branch_id' => $this->branch->id, 'member_id' => $member->id, 'bill_no' => 'INV-RB-0001',
             'catalog_product_id' => $this->coin->id, 'quantity' => 1, 'require_bill' => true]);
         $this->assertSame('INV-RB-0001', $return->bill_no);
+        // 1 coin of 4 g at 10,000 = 40,000 + 4 × 50
+        $this->assertEquals(40000.0, (float) $return->credit_value);
+        $this->assertEquals(200.0, (float) $return->convenience_charge);
+        $this->assertEquals(40200.0, (float) $return->total_value);
+
+        // admin confirms the coins: they go to Head Office stock (not the branch's) and the
+        // total is credited to the branch's Digi cash
+        $svc->markCollected($return);
+        $return->refresh();
+        $this->assertSame(\App\Models\SalesReturn::STATUS_COLLECTED, $return->status);
+        $this->assertEquals(40200.0, (float) $return->settled_amount);
+        $this->assertEquals(1.0, (float) Stock::where('branch_id', 1)->where('catalog_product_id', $this->coin->id)->value('quantity'));
+        $this->assertEquals(5.0, (float) Stock::where('branch_id', $this->branch->id)->where('catalog_product_id', $this->coin->id)->value('quantity'));
+        $this->assertEquals(40200.0, (float) $this->branch->fresh()->digi_cash_balance);
+
+        // the admin's own rate replaces the ₹50
+        SalesReturnService::saveConvenienceRate(60);
+        $this->assertEquals(60.0, SalesReturnService::convenienceCharge('gold', 1));
+        SalesReturnService::saveConvenienceRate(50);
+
+        $bar = $svc->create(['branch_id' => $this->branch->id, 'member_id' => $member->id, 'bill_no' => 'INV-RB-0001',
+            'catalog_product_id' => $silver->id, 'quantity' => 1, 'require_bill' => true]);
+        $this->assertEquals(0.0, (float) $bar->convenience_charge);
+        $this->assertEquals((float) $bar->credit_value, (float) $bar->total_value);
+
+        foreach ([[$this->coin->id, 2], [$cash->id, 1], [$unsold->id, 1]] as [$product, $qty]) {   // 1 coin left · cash stock · not on the bill
+            try {
+                $svc->create(['branch_id' => $this->branch->id, 'member_id' => $member->id, 'bill_no' => 'INV-RB-0001',
+                    'catalog_product_id' => $product, 'quantity' => $qty, 'require_bill' => true]);
+                $this->fail('A return the bill does not cover was accepted.');
+            } catch (HttpException) {
+            }
+        }
+        $this->assertSame(2, \App\Models\SalesReturn::count());
+
+        // the redemption invoice of the same contract names the same coins: the coin returned
+        // on the sales bill is already counted there
+        $plan = \App\Models\Plan::create(['code' => 'P1', 'name' => ['en' => 'P1'], 'plan_type' => 1, 'type' => 'digital', 'min_value' => 0, 'allocation_bv' => 100, 'is_active' => true]);
+        $bondId = \App\Models\Bond::create(['member_id' => $member->id, 'plan_id' => $plan->id, 'branch_id' => $this->branch->id,
+            'invoice_no' => 'INV-RB-0001', 'bond_date' => '2026-11-01', 'value' => 50000, 'status' => 'active'])->id;
+        $rdmId = DB::table('redemption_invoices')->insertGetId(['invoice_no' => 'RDM-RB-1', 'invoice_date' => '2026-11-05', 'bond_id' => $bondId,
+            'member_id' => $member->id, 'branch_id' => $this->branch->id, 'grand_total' => 80000, 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('redemption_lines')->insert(['redemption_invoice_id' => $rdmId, 'catalog_product_id' => $this->coin->id, 'description' => '4 G GOLD',
+            'material' => 'gold', 'unit_weight' => 4, 'quantity' => 2, 'rate' => 10000, 'amount' => 80000, 'line_total' => 80000]);
+        $this->assertEquals(1.0, $svc->billItems('RDM-RB-1', $member->id, $this->branch->id)[$this->coin->id]['left']);
 
         $this->expectException(HttpException::class);
         $svc->create(['branch_id' => $this->branch->id, 'member_id' => $other->id, 'bill_no' => 'INV-RB-0001',

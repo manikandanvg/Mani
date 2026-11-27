@@ -64,6 +64,7 @@ class CommissionSetup extends Page implements HasForms
             'gst_pct' => \App\Support\CustomizeOrderPricing::gstPct(),
             'coin_product_id' => \App\Support\CustomizeOrderPricing::coinProduct()?->id,
         ];
+        $fill['sales_return'] = ['convenience_per_g' => \App\Services\SalesReturnService::convenienceRate()];
         $this->form->fill($fill);
     }
 
@@ -161,6 +162,15 @@ class CommissionSetup extends Page implements HasForms
                     ->searchable()->native(false),
             ]);
 
+        // 2026-11-28: what Head Office adds per gram on a returned gold coin (Sales Returns).
+        $sections[] = Forms\Components\Section::make(__('Sales Return'))
+            ->compact()
+            ->schema([
+                Forms\Components\TextInput::make('sales_return.convenience_per_g')
+                    ->label('Convenience charge on a returned gold coin (₹/g)')
+                    ->numeric()->minValue(0)->required()->prefix('₹'),
+            ]);
+
         return $form->schema([
             Forms\Components\Grid::make(2)->schema($sections),
         ])->statePath('data');
@@ -208,6 +218,8 @@ class CommissionSetup extends Page implements HasForms
             'gst_pct' => (float) ($d['customize']['gst_pct'] ?? \App\Support\CustomizeOrderPricing::DEFAULT_GST_PCT),
             'coin_product_id' => $d['customize']['coin_product_id'] ?? null,
         ]);
+
+        \App\Services\SalesReturnService::saveConvenienceRate((float) ($d['sales_return']['convenience_per_g'] ?? \App\Services\SalesReturnService::CONVENIENCE_PER_GRAM));
 
         Notification::make()->success()
             ->title(__('Commission charges saved'))

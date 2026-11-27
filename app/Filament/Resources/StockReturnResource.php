@@ -60,21 +60,8 @@ class StockReturnResource extends BaseResource
     {
         return $form
             ->schema([
-                // Board 2026-11-27: the branch names the bill the stock came on and attaches a copy.
-                Forms\Components\Section::make('Bill the stock came on')->columns(2)->schema([
-                    Forms\Components\TextInput::make('bill_no')
-                        ->label('Branch bill number')
-                        ->helperText('The bill / order number this stock was received on.')
-                        ->required()->maxLength(60)
-                        ->datalist(fn () => static::billSuggestions()),
-                    Forms\Components\FileUpload::make('attachments')
-                        ->label('Copy of the bill (photo / PDF)')
-                        ->multiple()->maxFiles(5)->maxSize(8192)->appendFiles()
-                        ->disk('local')->directory('stock-return-bills')->visibility('private')
-                        ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/webp', 'application/pdf'])
-                        ->required()
-                        ->validationMessages(['required' => 'Attach a photo or PDF of the bill.']),
-                ]),
+                // The bill number and the copy of the bill asked for on 27-11-2026 were both
+                // dropped the next day (user 2026-11-28): the form is items + purpose only.
                 // Plain (non-relationship) repeater: creation funnels through
                 // StockReturnService::submit, which prices lines at the live rate.
                 Forms\Components\Repeater::make('lines')
@@ -215,7 +202,8 @@ class StockReturnResource extends BaseResource
                 Infolists\Components\TextEntry::make('branch.name')->label('Branch')
                     ->formatStateUsing(fn ($state, StockReturn $r) => $r->branch ? $r->branch->name . ' (ID ' . $r->branch_id . ')' : '—'),
                 Infolists\Components\TextEntry::make('creator.name')->label('Raised by')->placeholder('—'),
-                Infolists\Components\TextEntry::make('bill_no')->label('Branch bill number')->placeholder('— not given —')->copyable(),
+                Infolists\Components\TextEntry::make('bill_no')->label('Branch bill number')->copyable()
+                    ->visible(fn (StockReturn $r) => filled($r->bill_no)),
                 Infolists\Components\TextEntry::make('created_at')->label('Raised')->dateTime(),
                 Infolists\Components\TextEntry::make('approved_at')->label('Decided')->dateTime()->placeholder('—'),
                 Infolists\Components\TextEntry::make('approver.name')->label('Decided by')->placeholder('—'),
@@ -225,7 +213,8 @@ class StockReturnResource extends BaseResource
                 Infolists\Components\TextEntry::make('items')->label('')
                     ->state(fn (StockReturn $r) => static::summaryHtml(static::storedQuote($r))),
             ]),
-            Infolists\Components\Section::make('Attached bill')->schema([
+            // only returns sent while a bill copy was asked for carry one
+            Infolists\Components\Section::make('Attached bill')->visible(fn (StockReturn $r) => count((array) $r->attachments) > 0)->schema([
                 Infolists\Components\TextEntry::make('files')->label('')
                     ->state(fn (StockReturn $r) => new HtmlString(collect((array) $r->attachments)->values()
                         ->map(fn ($path, $i) => '<a href="' . e(route('stock-return.attachment', ['stockReturn' => $r->id, 'index' => $i])) . '" target="_blank" rel="noopener"'
@@ -243,11 +232,7 @@ class StockReturnResource extends BaseResource
             ->columns([
                 Tables\Columns\TextColumn::make('return_no')->label('Voucher')->searchable()->sortable(),
                 Tables\Columns\TextColumn::make('branch.name')->label('Branch')->searchable(),
-                Tables\Columns\TextColumn::make('bill_no')->label('Branch bill no')->searchable()->placeholder('—'),
                 Tables\Columns\TextColumn::make('lines_count')->counts('lines')->label('Items'),
-                Tables\Columns\TextColumn::make('files')->label('Bill copy')
-                    ->state(fn (StockReturn $r) => count((array) $r->attachments) ?: null)
-                    ->icon('heroicon-m-paper-clip')->alignCenter()->placeholder('—'),
                 Tables\Columns\TextColumn::make('total_amount')->label('Voucher amount')->baseMoney()->sortable(),
                 Tables\Columns\TextColumn::make('status')->badge()
                     ->color(fn (?string $state) => match ($state) {

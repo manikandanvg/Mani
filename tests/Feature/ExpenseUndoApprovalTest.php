@@ -71,6 +71,29 @@ class ExpenseUndoApprovalTest extends TestCase
         Livewire::test(ListExpenses::class)->callAction('summaryPdf')->assertFileDownloaded();
     }
 
+    /** Report → Returned Coins lists the coins the admin has confirmed, never a pending return. */
+    public function test_returned_coins_report_lists_collected_returns_only(): void
+    {
+        $branch = \App\Models\Branch::create(['name' => 'RC Branch', 'country' => 'IN', 'is_active' => true]);
+        $row = fn (string $no, string $status, array $extra = []) => \App\Models\SalesReturn::create($extra + [
+            'return_no' => $no, 'branch_id' => $branch->id, 'material' => 'gold', 'quantity' => 1, 'grams' => 1, 'rate' => 10000,
+            'credit_value' => 10000, 'convenience_charge' => 50, 'total_value' => 10050, 'status' => $status]);
+        $atHq = $row('SR-T1', \App\Models\SalesReturn::STATUS_COLLECTED, ['bill_no' => 'INV-1', 'collected_at' => now(), 'settled_amount' => 10050, 'settled_at' => now()]);
+        $atBranch = $row('SR-T2', \App\Models\SalesReturn::STATUS_COLLECTED, ['collected_at' => now()]);
+        $pending = $row('SR-T3', \App\Models\SalesReturn::STATUS_PENDING);
+
+        $page = \App\Filament\Pages\Reports\ReturnedCoins::class;
+        Livewire::test($page)
+            ->assertCanSeeTableRecords([$atHq, $atBranch])
+            ->assertCanNotSeeTableRecords([$pending])
+            ->filterTable('went_to', 'hq')
+            ->assertCanSeeTableRecords([$atHq])
+            ->assertCanNotSeeTableRecords([$atBranch]);
+
+        $this->assertSame('Head Office stock', $page::wentTo($atHq));
+        $this->assertSame('Branch stock', $page::wentTo($atBranch));
+    }
+
     public function test_the_bulk_button_undoes_only_the_approved_rows(): void
     {
         $a = $this->expense(Expense::APPROVED);

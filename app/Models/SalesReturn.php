@@ -32,6 +32,10 @@ class SalesReturn extends Model
         'grams' => 'decimal:4',
         'rate' => 'decimal:2',
         'credit_value' => 'decimal:2',
+        'convenience_charge' => 'decimal:2',   // gold only, ₹50 a gram (board 2026-11-27)
+        'total_value' => 'decimal:2',
+        'settled_amount' => 'decimal:2',       // credited to the branch's Digi cash on collection
+        'settled_at' => 'datetime',
         'collect_on' => 'datetime',
         'collected_at' => 'datetime',
         'relayed_at' => 'datetime',
