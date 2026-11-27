@@ -140,9 +140,18 @@ class Board20261127Test extends TestCase
         // 4 assets + per month (Oct, Nov): rent, fuel, monthly meeting, weekly meetings
         $this->assertSame(12, Expense::count());
         $this->assertSame(0, Expense::where('status', Expense::APPROVED)->count());   // waits for the owner
-        $this->assertEquals(17 * 3000, (float) Expense::where('source_key', 'fuel:2026-10')->value('amount'));   // 15–31 Oct
-        $this->assertEquals(27 * 3000, (float) Expense::where('source_key', 'fuel:2026-11')->value('amount'));
-        $this->assertEquals(2 * 25000, (float) Expense::where('source_key', 'meeting-weekly:2026-10')->value('amount'));   // Sundays 18 and 25 Oct
+        // Sunday is a holiday: no fuel that day, the weekly meeting is counted on the Saturday
+        $this->assertEquals(15 * 3000, (float) Expense::where('source_key', 'fuel:2026-10')->value('amount'));   // 15–31 Oct less Sundays 18, 25
+        $this->assertEquals(23 * 3000, (float) Expense::where('source_key', 'fuel:2026-11')->value('amount'));   // 1–27 Nov less 4 Sundays
+        $this->assertEquals(3 * 25000, (float) Expense::where('source_key', 'meeting-weekly:2026-10')->value('amount'));   // Saturdays 17, 24, 31 Oct
+
+        // a waiting row with an old figure is corrected, an approved one is left alone
+        Expense::where('source_key', 'fuel:2026-10')->update(['amount' => 51000]);
+        Expense::where('source_key', 'fuel:2026-11')->update(['amount' => 81000, 'status' => Expense::APPROVED]);
+        $this->artisan('expenses:calibrate', $args + ['--apply' => true])->assertSuccessful();
+        $this->assertEquals(45000.0, (float) Expense::where('source_key', 'fuel:2026-10')->value('amount'));
+        $this->assertEquals(81000.0, (float) Expense::where('source_key', 'fuel:2026-11')->value('amount'));
+        Expense::where('source_key', 'fuel:2026-11')->update(['amount' => 69000, 'status' => Expense::SUBMITTED]);
         $this->assertSame('2026-10-15', Expense::where('source_key', 'asset:asset_vehicles')->value('expense_date')->toDateString());
 
         $this->artisan('expenses:calibrate', $args + ['--apply' => true])->assertSuccessful();

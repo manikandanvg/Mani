@@ -18,11 +18,12 @@ use Illuminate\Support\Facades\DB;
  *
  *   TBP award        one row per distributor per stage reached (Rank Changes register), at the
  *                    stage's award value on the TBP Stages page
- *   Meetings         weekly ₹25,000 (one row a month = Sundays of the month × 25,000), monthly ₹5,00,000
+ *   Meetings         weekly ₹25,000 (one row a month = Saturdays of the month × 25,000), monthly ₹5,00,000
  *   Office rent      corporate office ₹12,000 a month
  *   Food             office food & beverages ₹10,000 a month
  *   Travel           branch visits / transit of material ₹30,000 a month
- *   Fuel             ₹3,000 a day for the 5 cars (one row a month = days × 3,000)
+ *   Fuel             ₹3,000 a working day for the 5 cars (one row a month = days without the
+ *                    Sundays × 3,000 — Sunday is a holiday, board 27-11-2026)
  *   Capital assets   computers 5,00,000 · interior 30,000 · factory machinery & tools 50,00,000 ·
  *                    cars (5 nos) 60,00,000
  *
@@ -99,7 +100,7 @@ class ExpensesCalibrate extends Command
             }
             if ($want('meeting')) {
                 $rows[] = $this->row("meeting-monthly:$ym", $date, 'meeting', "Monthly meeting — $label", self::MONTHLY_MEETING, ['period_month' => $ym]);
-                $weeks = $this->sundays($start, $end);
+                $weeks = $this->countDays($start, $end, fn (Carbon $d) => $d->isSaturday());   // Sunday is a holiday
                 if ($weeks > 0) {
                     $rows[] = $this->row("meeting-weekly:$ym", $date, 'meeting',
                         "Weekly meetings — $label ($weeks × ₹" . Money::group(self::WEEKLY_MEETING) . ')', $weeks * self::WEEKLY_MEETING, ['period_month' => $ym]);
@@ -109,23 +110,40 @@ class ExpensesCalibrate extends Command
                 $rows[] = $this->row("travel:$ym", $date, 'travel', "Branch visits / transit of material (gold, silver) — $label", self::TRAVEL, ['period_month' => $ym]);
             }
             if ($want('fuel')) {
-                $days = (int) $start->diffInDays($end) + 1;
+                $days = $this->countDays($start, $end, fn (Carbon $d) => ! $d->isSunday());   // Sunday is a holiday
                 $perDay = self::FUEL_PER_DAY * ($this->option('fuel-per-car') ? self::CARS : 1);
                 $rows[] = $this->row("fuel:$ym", $date, 'fuel',
-                    'Fuel — ' . self::CARS . " cars — $label ($days days × ₹" . Money::group($perDay) . ')', $days * $perDay, ['period_month' => $ym]);
+                    'Fuel — ' . self::CARS . " cars — $label ($days working days × ₹" . Money::group($perDay) . ')', $days * $perDay, ['period_month' => $ym]);
             }
         }
         if ($want('tbp')) {
             array_push($rows, ...$this->tbpRows($from, $to));
         }
 
-        $have = Expense::whereNotNull('source_key')->pluck('source_key')->flip();
+        $have = DB::table('expenses')->whereNotNull('source_key')->get(['id', 'source_key', 'source', 'amount', 'status'])->keyBy('source_key');
         $new = array_values(array_filter($rows, fn (array $r) => ! isset($have[$r['source_key']])));
+        // a calibrated row whose figure changed (a rule changed since it was written): corrected
+        // while it still waits for approval, only reported once it is approved
+        $changed = $locked = [];
+        foreach ($rows as $r) {
+            $old = $have[$r['source_key']] ?? null;
+            if ($old && $old->source === 'calibration' && abs((float) $old->amount - $r['amount']) > 0.005) {
+                $old->status === Expense::APPROVED ? $locked[] = $r : $changed[$old->id] = $r;
+            }
+        }
 
-        $this->info(sprintf('Expense ledger %s → %s — %d row(s) worked out, %d already in the ledger, %d new.',
-            $from->format('d-m-Y'), $to->format('d-m-Y'), count($rows), count($rows) - count($new), count($new)));
+        $this->info(sprintf('Expense ledger %s → %s — %d row(s) worked out, %d already in the ledger, %d new, %d to correct.',
+            $from->format('d-m-Y'), $to->format('d-m-Y'), count($rows), count($rows) - count($new), count($new), count($changed)));
         $this->summary($new);
         $this->csv($new);
+        if ($changed !== []) {
+            $was = (float) collect($have)->whereIn('id', array_keys($changed))->sum('amount');
+            $this->line(count($changed) . ' waiting row(s) carry an old figure: ' . Money::inr($was) . ' → ' . Money::inr((float) array_sum(array_column($changed, 'amount'))));
+        }
+        if ($locked !== []) {
+            $this->warn(count($locked) . ' APPROVED row(s) carry an old figure and are left alone — undo their approval on Report → Expenses, then run again: '
+                . implode(', ', array_slice(array_column($locked, 'source_key'), 0, 8)) . (count($locked) > 8 ? ' …' : ''));
+        }
 
         if (! $apply) {
             $this->warn('DRY RUN — nothing was written. Add --apply to write the new rows'
@@ -135,6 +153,12 @@ class ExpensesCalibrate extends Command
         }
 
         $this->write($new, (bool) $this->option('approve'));
+        foreach ($changed as $id => $r) {
+            DB::table('expenses')->where('id', $id)->update(['amount' => $r['amount'], 'title' => $r['title'], 'updated_at' => now()]);
+        }
+        if ($changed !== []) {
+            $this->info(count($changed) . ' waiting row(s) corrected.');
+        }
         $this->info(count($new) . ' row(s) written' . ($this->option('approve') ? ', approved.' : ', waiting for approval.'));
 
         return self::SUCCESS;
@@ -173,11 +197,11 @@ class ExpensesCalibrate extends Command
         return $out;
     }
 
-    protected function sundays(Carbon $start, Carbon $end): int
+    protected function countDays(Carbon $start, Carbon $end, \Closure $counts): int
     {
         $n = 0;
         for ($d = $start->copy(); $d->lte($end); $d->addDay()) {
-            $n += $d->isSunday() ? 1 : 0;
+            $n += $counts($d) ? 1 : 0;
         }
 
         return $n;
