@@ -101,6 +101,18 @@ Route::get('/admin/order-attachments/{attachment}', [\App\Http\Controllers\Order
 Route::get('/admin/ticket-attachments/{ticket}/{index}', [\App\Http\Controllers\TicketAttachmentController::class, 'show'])
     ->whereNumber('index')->middleware(['web', 'auth'])->name('ticket.attachment');
 
+// Admin: open the bill copy attached to a stock return (Head Office, or the branch that raised it) - private disk.
+Route::get('/admin/stock-return-attachments/{stockReturn}/{index}', function (\App\Models\StockReturn $stockReturn, int $index) {
+    $user = auth()->user();
+    abort_unless($user && ! $user->isSupport(), 403);
+    abort_if($user->isDistributor() && (int) $user->branch_id !== (int) $stockReturn->branch_id, 403);
+    $path = array_values((array) $stockReturn->attachments)[$index] ?? null;
+    $disk = \Illuminate\Support\Facades\Storage::disk('local');
+    abort_unless($path && $disk->exists($path), 404, 'File not found on the server.');
+
+    return $disk->response($path);
+})->whereNumber('index')->middleware(['web', 'auth'])->name('stock-return.attachment');
+
 // Admin: open the bill / receipt of an expense (Head Office only) - private disk.
 Route::get('/admin/expense-attachments/{expense}/{index}', function (\App\Models\Expense $expense, int $index) {
     abort_unless(auth()->check() && ! auth()->user()->isDistributor() && ! auth()->user()->isSupport(), 403);

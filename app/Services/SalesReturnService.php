@@ -43,9 +43,18 @@ class SalesReturnService
         $perGram = CustomizeOrderPricing::liveRate($material, $rate);
         abort_if($perGram <= 0, 422, 'No live ' . $material . ' rate configured — set it before valuing returned coins.');
 
+        // A return typed by hand names its bill (board 2026-11-27); the one the Customize Order
+        // Form raises for a customer's Gold Saving coins carries none.
+        $billNo = filled($data['bill_no'] ?? null) ? trim((string) $data['bill_no']) : null;
+        if ($billNo !== null || ! empty($data['require_bill'])) {
+            $check = $this->checkBill($billNo, ! empty($data['member_id']) ? (int) $data['member_id'] : null, $branchId);
+            abort_unless($check['ok'], 422, $check['message']);
+        }
+
         return SalesReturn::create([
             'return_no' => $this->nextReturnNo(),
             'branch_id' => $branchId,
+            'bill_no' => $billNo,
             'member_id' => $data['member_id'] ?? null,
             'catalog_product_id' => $cp->id,
             'material' => $material,
@@ -58,6 +67,59 @@ class SalesReturnService
             'notes' => $data['notes'] ?? null,
             'created_by' => $data['created_by'] ?? auth()->id(),
         ]);
+    }
+
+    /**
+     * Board 2026-11-27: a sales return names the bill the distributor bought on. The bill must
+     * exist, be a bill of THIS branch and be billed to THIS distributor — a branch takes back
+     * only what it sold, from the person it sold it to.
+     *
+     * @return array{ok: bool, message: string, bill?: array{no: string, kind: string, date: ?string, amount: float}}
+     */
+    public function checkBill(?string $billNo, ?int $memberId, ?int $branchId): array
+    {
+        $billNo = trim((string) $billNo);
+        if ($billNo === '') {
+            return ['ok' => false, 'message' => 'Enter the branch bill number.'];
+        }
+        if (! $memberId) {
+            return ['ok' => false, 'message' => 'Pick the distributor the bill was made for.'];
+        }
+
+        // the three kinds of bill a distributor holds: the sale, its contract, the redemption
+        $found = collect();
+        foreach (DB::table('sales_invoices')->where('invoice_no', $billNo)->get() as $b) {
+            $found->push(['kind' => 'Sales bill', 'member' => $b->customer_member_id, 'branch' => $b->branch_id, 'date' => $b->date,
+                'amount' => (float) $b->grand_total, 'dead' => $b->status === 'cancelled' || $b->cancelled_at !== null]);
+        }
+        foreach (DB::table('bonds')->where('invoice_no', $billNo)->get() as $b) {
+            $found->push(['kind' => 'Contract bill', 'member' => $b->member_id, 'branch' => $b->branch_id, 'date' => $b->bond_date,
+                'amount' => (float) ($b->epin_value ?: $b->value), 'dead' => false]);
+        }
+        foreach (DB::table('redemption_invoices')->where('invoice_no', $billNo)->get() as $b) {
+            $found->push(['kind' => 'Redemption invoice', 'member' => $b->member_id, 'branch' => $b->branch_id, 'date' => $b->invoice_date,
+                'amount' => (float) $b->grand_total, 'dead' => $b->deleted_at !== null]);
+        }
+
+        if ($found->isEmpty()) {
+            return ['ok' => false, 'message' => 'Bill ' . $billNo . ' was not found.'];
+        }
+        $live = $found->where('dead', false);
+        if ($live->isEmpty()) {
+            return ['ok' => false, 'message' => 'Bill ' . $billNo . ' is cancelled.'];
+        }
+        $ofMember = $live->filter(fn ($b) => (int) $b['member'] === (int) $memberId);
+        if ($ofMember->isEmpty()) {
+            return ['ok' => false, 'message' => 'Bill ' . $billNo . ' was not billed to this distributor.'];
+        }
+        $bill = $branchId ? $ofMember->first(fn ($b) => (int) $b['branch'] === (int) $branchId) : $ofMember->first();
+        if (! $bill) {
+            return ['ok' => false, 'message' => 'Bill ' . $billNo . ' is not a bill of this branch — the return is taken by the branch that billed it.'];
+        }
+
+        return ['ok' => true, 'message' => $bill['kind'] . ' ' . $billNo . ' — ' . Carbon::parse($bill['date'])->format('d M Y')
+            . ' — ₹' . \App\Support\Money::group($bill['amount']),
+            'bill' => ['no' => $billNo, 'kind' => $bill['kind'], 'date' => $bill['date'], 'amount' => $bill['amount']]];
     }
 
     /** Preview the credit a coin return would carry, without persisting. */

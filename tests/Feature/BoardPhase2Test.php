@@ -228,7 +228,7 @@ class BoardPhase2Test extends TestCase
 
         Livewire::actingAs($this->admin)->test(CreateSupportTicket::class)
             ->fillForm([
-                'subject' => 'Printer jam', 'priority' => 'medium',
+                'subject' => 'Printer jam', 'priority' => 'medium', 'category' => 'device',   // required since 2026-11-27
                 'attachments' => [UploadedFile::fake()->image('jam.jpg', 200, 200)],
             ])
             ->call('create')

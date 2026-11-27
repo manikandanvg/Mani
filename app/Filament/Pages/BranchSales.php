@@ -39,11 +39,6 @@ class BranchSales extends OrderForm
         return static::hqUser();
     }
 
-    public function getSubheading(): ?string
-    {
-        return 'Head Office only. The stock is added to the selected branch immediately — no order request, no approval.';
-    }
-
     /** Nothing pre-selected: the receiving branch is always chosen on purpose. */
     protected function defaultBranchId(): ?int
     {

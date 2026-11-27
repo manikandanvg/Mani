@@ -90,15 +90,33 @@ class BranchPayoutRequestResource extends BaseResource
                 Tables\Columns\TextColumn::make('branch.city')->label('City')->sortable()->searchable()->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('branch.phone')->label('Phone')->searchable()->copyable()->placeholder('—'),
                 Tables\Columns\TextColumn::make('bank')->label('Branch bank details')
-                    ->getStateUsing(fn (BranchPayoutRequest $r) => $r->dealerBank()?->bank_acno)
+                    // Complaint 2026-11-27: this column kept showing the dealer's OLD member bank after
+                    // the branch updated its bank on My Bank Details. The branch's own bank account
+                    // (branches.bank_*, with its change log) comes first; the member's is the fallback.
+                    ->getStateUsing(fn (BranchPayoutRequest $r) => filled($r->branch?->bank_acno) ? $r->branch->bank_acno : $r->dealerBank()?->bank_acno)
                     ->copyable()->placeholder('— no bank on file —')
-                    ->searchable(query: fn ($query, string $search) => $query->whereHas('branch.distributorUser.memberAccount', fn ($m) => $m->where('bank_acno', 'like', "%{$search}%")
-                        ->orWhere('bank_name', 'like', "%{$search}%")
-                        ->orWhere('ifsc', 'like', "%{$search}%")
-                        ->orWhere('name', 'like', "%{$search}%")))
-                    ->description(fn (BranchPayoutRequest $r) => ($d = $r->dealerBank())
-                        ? trim(($d->bank_name ?? '') . ($d->ifsc ? ' · IFSC ' . $d->ifsc : '') . ' · ' . $d->name)
-                        : null),
+                    ->searchable(query: fn ($query, string $search) => $query
+                        ->whereHas('branch', fn ($b) => $b->where('bank_acno', 'like', "%{$search}%")
+                            ->orWhere('bank_name', 'like', "%{$search}%")
+                            ->orWhere('bank_ifsc', 'like', "%{$search}%")
+                            ->orWhere('bank_holder', 'like', "%{$search}%"))
+                        ->orWhereHas('branch.distributorUser.memberAccount', fn ($m) => $m->where('bank_acno', 'like', "%{$search}%")
+                            ->orWhere('bank_name', 'like', "%{$search}%")
+                            ->orWhere('ifsc', 'like', "%{$search}%")
+                            ->orWhere('name', 'like', "%{$search}%")))
+                    ->description(function (BranchPayoutRequest $r) {
+                        if (filled($r->branch?->bank_acno)) {
+                            $n = $r->branch->bankChangeCount();
+
+                            return trim(($r->branch->bank_name ?? '') . ($r->branch->bank_ifsc ? ' · IFSC ' . $r->branch->bank_ifsc : '')
+                                . ($r->branch->bank_holder ? ' · ' . $r->branch->bank_holder : '')
+                                . ($n > 0 ? ' · changed ' . $n . '×' : ''));
+                        }
+
+                        return ($d = $r->dealerBank())
+                            ? trim(($d->bank_name ?? '') . ($d->ifsc ? ' · IFSC ' . $d->ifsc : '') . ' · ' . $d->name . ' · (distributor\'s own bank — branch bank not entered)')
+                            : null;
+                    }),
                 Tables\Columns\TextColumn::make('rows_count')->label('No. of requests')->numeric()->sortable()->searchable()->alignEnd(),
                 // The screen groups the amount (₹1,20,000) while the column holds 120000.00.
                 Tables\Columns\TextColumn::make('amount')->label('Net amount')->baseMoney()->sortable()

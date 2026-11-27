@@ -76,15 +76,13 @@ class OrderForm extends Page implements HasForms
             || (int) $user->branch_id === \App\Services\SalesService::HQ_BRANCH_ID));
     }
 
+    /** The one line kept under the title (user 2026-11-27): the dealers' ordering hours. */
     public function getSubheading(): ?string
     {
-        if (static::windowExempt()) {
-            return 'HQ / super admin — ordering open round the clock.';
-        }
-
-        return static::orderingOpen()
-            ? 'Ordering window 9:00 AM – 9:00 PM · OPEN now.'
-            : 'Ordering window 9:00 AM – 9:00 PM · CLOSED now — orders cannot be submitted.';
+        // Head Office may order at any hour, so for it the window is never closed
+        return static::windowExempt() || static::orderingOpen()
+            ? 'Ordering window 9:00 AM – 9:00 PM · OPEN now'
+            : 'Ordering window 9:00 AM – 9:00 PM · CLOSED now';
     }
 
     public function mount(): void

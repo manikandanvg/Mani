@@ -73,6 +73,14 @@ class AdminPanelProvider extends PanelProvider
                     . '<script src="' . asset('js/table-scroll.js') . '?v=' . @filemtime(public_path('js/table-scroll.js')) . '" defer></script>'
                 )
             )
+            // Admin To-do (board 2026-11-27): a floating button on the DASHBOARD that opens the list
+            // of everything waiting for Head Office, each line with its pending count.
+            ->renderHook(
+                'panels::body.end',
+                fn (): \Illuminate\Contracts\View\View|string => request()->routeIs('filament.admin.pages.dashboard') && \App\Support\AdminTodo::visible()
+                    ? view('filament.admin-todo')
+                    : ''
+            )
             // "View as Dealer" banner — shown while a super-admin is impersonating a distributor.
             ->renderHook(
                 'panels::body.start',

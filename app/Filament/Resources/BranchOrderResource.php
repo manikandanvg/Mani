@@ -235,9 +235,12 @@ class BranchOrderResource extends BaseResource
                         BranchOrderService::SOURCE_REDEMPTION => 'Redemption',
                         'settlement_redemption' => 'Settlement Redemption',
                         BranchOrderService::SOURCE_BRANCH_SALES => 'Branch Sales (HQ)',
+                        // the admin To-do opens the list with this (board 2026-11-27)
+                        'not_legacy' => 'All except old-system (LEG-) orders',
                     ])
                     ->query(fn (Builder $query, array $data) => match ($data['value'] ?? null) {
                         null, '' => $query,
+                        'not_legacy' => $query->where('source', '<>', 'legacy'),
                         'settlement_redemption' => $query->settlementRedemption(),
                         BranchOrderService::SOURCE_REDEMPTION => $query->where('source', BranchOrderService::SOURCE_REDEMPTION)->settlementRedemption(false),
                         default => $query->where('source', $data['value']),

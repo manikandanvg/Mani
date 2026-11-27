@@ -11,10 +11,6 @@ class ListRankChanges extends ListRecords
 
     protected static ?string $title = 'Rank Changes';
 
-    public function getSubheading(): ?string
-    {
-        return 'Every TBP-stage shift with its date: billing-time promotions, cut-off recomputes, invoice cancellations and the calibration from bond history.';
-    }
 
     protected function getHeaderActions(): array
     {

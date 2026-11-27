@@ -460,13 +460,18 @@ class BalanceSheetReport extends ReportPage
         $bs['total_liabilities'] = $bs['net_capital'] + $bs['bank_gold_loan'] + $bs['working_capital_loan'] + $bs['directors_loan']
             + $bs['sundry_creditors'] + $bs['customer_advances'] + $bs['scheme_collections'] + $bs['gst_payable'] + $bs['other_payables'] + $bs['provisions_payable'];
 
-        $bs['land_building'] = $m('land_building');
-        $bs['furniture'] = $m('furniture');
-        $bs['showroom_interior'] = $m('showroom_interior');
-        $bs['computers'] = $m('computers');
-        $bs['vehicles'] = $m('vehicles');
+        // Fixed assets = the manual input of the year + the approved capital assets of the expense
+        // register bought up to the To date (board 2026-11-27) — new-system book only.
+        $assets = $src instanceof \App\Support\Accounts\NextAccountsSource ? \App\Models\Expense::assetTotals($to) : [];
+        $fa = fn (string $line) => $m($line) + (float) ($assets[$line] ?? 0);
+        $bs['land_building'] = $fa('land_building');
+        $bs['furniture'] = $fa('furniture');
+        $bs['showroom_interior'] = $fa('showroom_interior');
+        $bs['computers'] = $fa('computers');
+        $bs['plant_machinery'] = (float) ($assets['plant_machinery'] ?? 0);
+        $bs['vehicles'] = $fa('vehicles');
         $bs['accumulated_depreciation'] = $m('accumulated_depreciation');
-        $bs['net_fixed_assets'] = $bs['land_building'] + $bs['furniture'] + $bs['showroom_interior'] + $bs['computers'] + $bs['vehicles'] - $bs['accumulated_depreciation'];
+        $bs['net_fixed_assets'] = $bs['land_building'] + $bs['furniture'] + $bs['showroom_interior'] + $bs['computers'] + $bs['plant_machinery'] + $bs['vehicles'] - $bs['accumulated_depreciation'];
         $bs['gold_jewellery_stock'] = round($stockValue('gold', 'jewellery') * $rollback('gold'), 2);
         $bs['gold_bullion'] = round($stockValue('gold', 'bullion') * $rollback('gold'), 2);
         $bs['silver_jewellery_stock'] = round($stockValue('silver', 'jewellery') * $rollback('silver'), 2);
@@ -544,6 +549,7 @@ class BalanceSheetReport extends ReportPage
             [__('Furniture & Fixtures'), $bs['furniture']],
             [__('Showroom Interior'), $bs['showroom_interior']],
             [__('Computers & Equipment'), $bs['computers']],
+            [__('Plant, Machinery & Tools'), $bs['plant_machinery']],
             [__('Vehicles'), $bs['vehicles']],
             [__('Accumulated Depreciation'), -$bs['accumulated_depreciation']],
             [__('Net Fixed Assets'), $bs['net_fixed_assets']],

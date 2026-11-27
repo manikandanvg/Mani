@@ -27,6 +27,8 @@ class CreateSalesReturn extends CreateRecord
             return app(SalesReturnService::class)->create([
                 'branch_id' => $branchId,
                 'member_id' => $data['member_id'] ?? null,
+                'bill_no' => $data['bill_no'] ?? null,
+                'require_bill' => true,
                 'catalog_product_id' => $data['catalog_product_id'] ?? null,
                 'quantity' => $data['quantity'] ?? 0,
                 'collect_on' => $data['collect_on'] ?? null,

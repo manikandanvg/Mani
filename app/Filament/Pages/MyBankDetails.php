@@ -88,10 +88,22 @@ class MyBankDetails extends Page implements HasForms
 
             return;
         }
-        $branch->save();   // the Branch model writes the change log
+        try {
+            $branch->save();   // the Branch model writes the change log
+        } catch (\Throwable $e) {
+            // never a blank error page: say it failed and keep what was typed (complaint 2026-11-27)
+            report($e);
+            Notification::make()->danger()->title(__('Bank details were NOT saved'))
+                ->body(__('Please try again; if it fails again, send this to Head Office: ') . mb_substr($e->getMessage(), 0, 200))
+                ->persistent()->send();
 
+            return;
+        }
+
+        // read back what the database now holds, so the screen never shows an unsaved value
+        $saved = $branch->fresh();
         Notification::make()->success()->title(__('Bank details saved'))
-            ->body(__('The change was recorded in the log.'))->send();
-        $this->form->fill($branch->only(Branch::BANK_FIELDS));
+            ->body(__('A/c :no · IFSC :ifsc — the change was recorded in the log.', ['no' => $saved->bank_acno, 'ifsc' => $saved->bank_ifsc]))->send();
+        $this->form->fill($saved->only(Branch::BANK_FIELDS));
     }
 }

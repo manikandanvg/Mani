@@ -83,6 +83,9 @@ class BranchOrderService
                 'description' => $r['description'] ?: strtoupper((string) $r['cp']->material),
                 'material' => $r['cp']->material,
                 'weight' => $r['weight'],
+                // "4 g × 3" on the popup (board 2026-11-27): the coin and how many of it
+                'unit_weight' => $r['unit_weight'],
+                'pieces' => $r['pieces'],
                 'line_total' => $r['p']['line_total'],
             ], $priced),
             'cross' => round($cross, 2),
@@ -117,7 +120,13 @@ class BranchOrderService
                 continue;
             }
             $p = $this->priceLine($cp, $weight, $rate);
-            $priced[] = ['cp' => $cp, 'weight' => $weight, 'description' => $line->description, 'p' => $p];
+            // the coin size and the number of coins: from the redemption line when it recorded the
+            // unit weight, else from the catalog item (grams ÷ its piece weight)
+            $unit = $cp->material === 'vessel' ? 0.0 : ((float) $line->unit_weight > 0 ? (float) $line->unit_weight : $cp->unitWeight());
+            $pieces = $cp->material === 'vessel' || $qtyWeight > 0
+                ? (float) $line->quantity
+                : ($unit > 0 ? round($weight / $unit, 4) : 0.0);
+            $priced[] = ['cp' => $cp, 'weight' => $weight, 'unit_weight' => $unit, 'pieces' => $pieces, 'description' => $line->description, 'p' => $p];
             $cross += $p['subtotal'];
             $gst += $p['gst'];
         }

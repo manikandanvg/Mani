@@ -64,6 +64,26 @@ class ExpenseResource extends BaseResource
         return (bool) auth()->user()?->isSuperAdmin() && $record->status === Expense::SUBMITTED;
     }
 
+    /**
+     * Undo approval (user 2026-11-27, a safeguard): the owner alone can take an approved row
+     * back to Submitted. It then leaves the auditor reports and can be corrected, re-approved or
+     * deleted. A reason is required; who, when and why stay on the row and in the Activity Log.
+     */
+    public static function canUndoApproval(Expense $record): bool
+    {
+        return (bool) auth()->user()?->isSuperAdmin() && $record->status === Expense::APPROVED;
+    }
+
+    public static function undoApproval(Expense $record, string $reason): void
+    {
+        $record->update([
+            'status' => Expense::SUBMITTED,
+            'approved_by' => null,
+            'approved_at' => null,
+            'reject_reason' => mb_substr('Approval undone by ' . (auth()->user()?->name ?? 'system') . ' on ' . now()->format('d M Y, h:i A') . ' — ' . trim($reason), 0, 255),
+        ]);
+    }
+
     public static function getNavigationBadge(): ?string
     {
         $n = Expense::where('status', Expense::SUBMITTED)->count();
@@ -83,7 +103,9 @@ class ExpenseResource extends BaseResource
                 Forms\Components\DatePicker::make('expense_date')->label('Paid on')
                     ->required()->native(false)->default(fn () => now()->toDateString())->maxDate(now()),
                 Forms\Components\Select::make('category')
-                    ->options(Expense::categoryOptions())->required()->live()->native(false),
+                    ->options(Expense::groupedCategoryOptions())->required()->live()->native(false)
+                    ->helperText(fn (Forms\Get $get) => isset(Expense::ASSET_CATEGORIES[$get('category')])
+                        ? 'Capital asset: shown on the Balance Sheet under Fixed Assets, not in the Profit & Loss.' : null),
                 Forms\Components\TextInput::make('amount')->label('Amount (₹)')
                     ->required()->numeric()->minValue(0.01)->step('0.01'),
 
@@ -124,7 +146,7 @@ class ExpenseResource extends BaseResource
                     ->visible(fn (Forms\Get $get) => in_array($get('category'), ['tbp_reward', 'office_rent'], true)),
                 Forms\Components\TextInput::make('period_month')
                     ->label('For the month')->type('month')
-                    ->visible(fn (Forms\Get $get) => in_array($get('category'), ['office_rent', 'salary', 'electricity'], true))
+                    ->visible(fn (Forms\Get $get) => in_array($get('category'), ['office_rent', 'salary', 'electricity', 'meeting', 'food', 'travel', 'fuel'], true))
                     ->required(fn (Forms\Get $get) => $get('category') === 'office_rent'),
 
                 Forms\Components\TextInput::make('title')
@@ -186,8 +208,10 @@ class ExpenseResource extends BaseResource
                 Tables\Columns\TextColumn::make('category')->badge()
                     ->formatStateUsing(fn (?string $state) => Expense::categoryLabel($state))
                     ->color(fn (?string $state) => match ($state) {
-                        'tbp_reward' => 'warning', 'office_rent' => 'info', default => 'gray',
-                    }),
+                        'tbp_reward' => 'warning', 'office_rent' => 'info',
+                        default => isset(Expense::ASSET_CATEGORIES[$state]) ? 'success' : 'gray',
+                    })
+                    ->description(fn (Expense $r) => $r->isAsset() ? 'Capital asset' : null),
                 Tables\Columns\TextColumn::make('title')->label('Paid for')->searchable()->wrap(),
                 Tables\Columns\TextColumn::make('member.name')->label('Distributor')
                     ->formatStateUsing(fn ($state, Expense $r) => $r->member ? "{$r->member->name} ({$r->member->member_code})" : '—')
@@ -222,14 +246,23 @@ class ExpenseResource extends BaseResource
                     ->description(fn (Expense $r) => match ($r->status) {
                         Expense::APPROVED => trim('by ' . ($r->approver?->name ?? '—') . ' ' . ($r->approved_at?->format('d M Y') ?? '')),
                         Expense::REJECTED => $r->reject_reason,
-                        default => 'by ' . ($r->submitter?->name ?? '—'),
-                    }),
+                        // a row whose approval was undone says so (who, when, why)
+                        default => $r->reject_reason ?: 'by ' . ($r->submitter?->name ?? '—'),
+                    })
+                    ->wrap(),
                 Tables\Columns\TextColumn::make('remarks')->wrap()->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('created_at')->label('Entered at')->dateTime()->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
-                Tables\Filters\SelectFilter::make('category')->options(Expense::categoryOptions()),
+                Tables\Filters\SelectFilter::make('category')->options(Expense::groupedCategoryOptions())->multiple(),
+                Tables\Filters\SelectFilter::make('source')->label('Entered')
+                    ->options(['calibration' => 'Calibrated (board figures)', 'manual' => 'Typed by hand'])
+                    ->query(fn (Builder $query, array $data) => match ($data['value'] ?? null) {
+                        'calibration' => $query->where('source', 'calibration'),
+                        'manual' => $query->whereNull('source'),
+                        default => $query,
+                    }),
                 Tables\Filters\SelectFilter::make('status')
                     ->options([Expense::SUBMITTED => 'Submitted', Expense::APPROVED => 'Approved', Expense::REJECTED => 'Rejected']),
                 CommonFilters::dateRange('expense_date', 'Paid'),
@@ -260,6 +293,17 @@ class ExpenseResource extends BaseResource
                         $r->update(['status' => Expense::REJECTED, 'approved_by' => auth()->id(), 'approved_at' => now(), 'reject_reason' => $data['reason']]);
                         Notification::make()->warning()->title($r->expense_no . ' rejected')->send();
                     }),
+                Tables\Actions\Action::make('undoApproval')
+                    ->label('Undo approval')
+                    ->icon('heroicon-o-arrow-uturn-left')->color('warning')
+                    ->visible(fn (Expense $r) => static::canUndoApproval($r))
+                    ->modalHeading(fn (Expense $r) => 'Undo approval of ' . $r->expense_no . ' — ' . Money::inr((float) $r->amount))
+                    ->modalDescription('The row goes back to Submitted: it leaves the auditor reports and can be edited, approved again or deleted. The undo is recorded with your name and the reason.')
+                    ->form([Forms\Components\Textarea::make('reason')->label('Reason')->required()->rows(2)->maxLength(150)])
+                    ->action(function (Expense $r, array $data) {
+                        static::undoApproval($r, $data['reason']);
+                        Notification::make()->warning()->title('Approval of ' . $r->expense_no . ' undone')->send();
+                    }),
                 Tables\Actions\DeleteAction::make(),
             ])
             ->bulkActions([
@@ -271,10 +315,24 @@ class ExpenseResource extends BaseResource
                     ->action(function (\Illuminate\Database\Eloquent\Collection $records) {
                         $n = 0;
                         foreach ($records->where('status', Expense::SUBMITTED) as $r) {
-                            $r->update(['status' => Expense::APPROVED, 'approved_by' => auth()->id(), 'approved_at' => now()]);
+                            $r->update(['status' => Expense::APPROVED, 'approved_by' => auth()->id(), 'approved_at' => now(), 'reject_reason' => null]);
                             $n++;
                         }
                         Notification::make()->success()->title($n . ' expense(s) approved')->send();
+                    }),
+                Tables\Actions\BulkAction::make('undoApprovalSelected')
+                    ->label('Undo approval of selected')->icon('heroicon-o-arrow-uturn-left')->color('warning')
+                    ->visible(fn () => (bool) auth()->user()?->isSuperAdmin())
+                    ->modalDescription('The approved rows among the selected go back to Submitted and leave the auditor reports. The undo is recorded with your name and the reason.')
+                    ->form([Forms\Components\Textarea::make('reason')->label('Reason')->required()->rows(2)->maxLength(150)])
+                    ->deselectRecordsAfterCompletion()
+                    ->action(function (\Illuminate\Database\Eloquent\Collection $records, array $data) {
+                        $n = 0;
+                        foreach ($records->where('status', Expense::APPROVED) as $r) {
+                            static::undoApproval($r, $data['reason']);
+                            $n++;
+                        }
+                        Notification::make()->warning()->title('Approval undone on ' . $n . ' expense(s)')->send();
                     }),
             ]);
     }

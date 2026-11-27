@@ -27,6 +27,8 @@ class CreateStockReturn extends CreateRecord
                 'branch_id' => auth()->user()->branch_id,
                 'created_by' => auth()->id(),
                 'notes' => $data['notes'] ?? null,
+                'bill_no' => $data['bill_no'] ?? null,
+                'attachments' => $data['attachments'] ?? [],
                 'lines' => $data['lines'] ?? [],
             ]);
         } catch (HttpException $e) {

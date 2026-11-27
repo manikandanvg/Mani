@@ -205,25 +205,32 @@ class RedemptionInvoiceResource extends BaseResource
             ? rtrim(rtrim(number_format($l['weight'], 2), '0'), '.') . ' pc'
             : rtrim(rtrim(number_format($l['weight'], 3), '0'), '.') . ' g';
 
+        // Board 2026-11-27: how many coins the quantity means — "4 g × 3".
+        $num = fn ($n) => rtrim(rtrim(number_format((float) $n, 3), '0'), '.');
+        $coins = fn ($l) => $l['material'] === 'vessel' ? $num($l['pieces']) . ' pc'
+            : (($l['unit_weight'] ?? 0) > 0 && ($l['pieces'] ?? 0) > 0 ? $num($l['unit_weight']) . ' g × ' . $num($l['pieces']) : '—');
+
         $rows = '';
         foreach ($p['lines'] as $l) {
             $rows .= '<tr>'
                 . '<td style="padding:6px 8px;border-bottom:1px solid #eee">' . e($l['description'])
                 . ($l['code'] ? ' <span style="color:#9ca3af">[' . e($l['code']) . ']</span>' : '') . '</td>'
+                . '<td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:right;font-weight:600;white-space:nowrap">' . e($coins($l)) . '</td>'
                 . '<td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:right">' . e($wt($l)) . '</td>'
                 . '<td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:right;font-variant-numeric:tabular-nums">' . $fmt($l['line_total']) . '</td>'
                 . '</tr>';
         }
 
         $foot = fn (string $k, $v, string $extra = '') =>
-            '<tr><td colspan="2" style="padding:4px 8px;text-align:right;color:#6b7280;' . $extra . '">' . $k . '</td>'
+            '<tr><td colspan="3" style="padding:4px 8px;text-align:right;color:#6b7280;' . $extra . '">' . $k . '</td>'
             . '<td style="padding:4px 8px;text-align:right;font-variant-numeric:tabular-nums;' . $extra . '">' . $fmt($v) . '</td></tr>';
 
         $html = '<div style="border:1px solid #e5e7eb;border-radius:.6rem;overflow:hidden">'
             . '<table style="width:100%;border-collapse:collapse;font-size:.85rem">'
             . '<thead><tr style="background:#f9fafb">'
             . '<th style="padding:6px 8px;text-align:left">Item</th>'
-            . '<th style="padding:6px 8px;text-align:right">Qty</th>'
+            . '<th style="padding:6px 8px;text-align:right">Coins (size × nos)</th>'
+            . '<th style="padding:6px 8px;text-align:right">Total qty</th>'
             . '<th style="padding:6px 8px;text-align:right">Value</th>'
             . '</tr></thead>'
             . '<tbody>' . $rows . '</tbody>'

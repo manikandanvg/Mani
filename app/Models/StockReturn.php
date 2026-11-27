@@ -15,6 +15,7 @@ class StockReturn extends Model
     protected $casts = [
         'total_amount' => 'decimal:2',
         'approved_at' => 'datetime',
+        'attachments' => 'array',   // copy of the bill the stock came on (board 2026-11-27)
     ];
 
     public function branch() { return $this->belongsTo(Branch::class); }

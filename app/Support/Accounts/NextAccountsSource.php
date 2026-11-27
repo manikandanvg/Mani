@@ -291,6 +291,8 @@ class NextAccountsSource implements AccountsSource
         // The expense register (board 2026-11-17): approved rows only. `line` names the
         // Profit & Loss line of the auditor workbook the row belongs to.
         return \App\Models\Expense::with('member')->where('status', \App\Models\Expense::APPROVED)
+            // capital assets (computers, vehicles …) are Balance Sheet lines, never an expense
+            ->whereNotIn('category', array_keys(\App\Models\Expense::ASSET_CATEGORIES))
             ->whereBetween('expense_date', [$from->toDateString(), $to->toDateString()])
             ->orderBy('expense_date')->orderBy('id')->limit(5000)->get()
             ->map(fn (\App\Models\Expense $e) => (object) [

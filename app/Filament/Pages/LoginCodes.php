@@ -54,11 +54,6 @@ class LoginCodes extends Page implements HasTable
         return static::canAccess();
     }
 
-    public function getSubheading(): ?string
-    {
-        return __('A distributor presses "Get OTP" in the app; the code appears here within seconds — tell it to them. Codes are valid :m minutes, single use.', ['m' => OtpService::ttl()]);
-    }
-
     /** "Name (member code / phone)" — phone masked for dealer logins (board 2026-10-31 item 19). */
     protected static function optionLabel(Member $m): string
     {

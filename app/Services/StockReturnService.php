@@ -22,46 +22,110 @@ class StockReturnService
 {
     public const HQ_BRANCH_ID = 1;
 
-    /** @param array $data keys: branch_id, created_by?, notes?, lines[[catalog_product_id, weight]] */
+    /**
+     * Price the lines of a return at the live rate — metal value + making + wastage + GST, the
+     * same way a stock order is priced (board 2026-11-27). Used by the form's summary before the
+     * return is sent and by submit(), so the branch sees exactly what Head Office will see.
+     *
+     * A line gives `quantity` (pieces) or, as before, `weight` (grams).
+     *
+     * @return array{lines: array<int, array>, metal_value: float, making: float, wastage: float, gst: float, total: float}
+     */
+    public function quote(array $lines): array
+    {
+        $rate = LiveRate::latestFor('IN') ?? LiveRate::query()->latest('id')->first();
+        $pricer = app(BranchOrderService::class);
+        $out = ['lines' => [], 'metal_value' => 0.0, 'making' => 0.0, 'wastage' => 0.0, 'gst' => 0.0, 'total' => 0.0];
+
+        foreach ($lines as $l) {
+            $cp = ! empty($l['catalog_product_id']) ? CatalogProduct::find($l['catalog_product_id']) : null;
+            $pieces = (float) ($l['quantity'] ?? 0);
+            $weight = (float) ($l['weight'] ?? 0);
+            if (! $cp || ($pieces <= 0 && $weight <= 0)) {
+                continue;
+            }
+            // pieces and grams always agree: one is worked out from the other
+            if ($pieces > 0) {
+                $weight = $cp->gramsFromPieces($pieces);
+            } else {
+                $pieces = $cp->piecesFromWeight($weight);
+            }
+            $p = $pricer->priceLine($cp, $weight, $rate);
+            $metal = $cp->material === 'cash' ? (float) $p['subtotal'] : round($weight * (float) $p['rate'], 2);
+            $making = round($metal * (float) $p['making_charge_pct'] / 100, 2);
+            $wastage = round($metal * (float) $p['wastage_charge_pct'] / 100, 2);
+            $line = [
+                'cp' => $cp,
+                'label' => trim($cp->code . ' — ' . (\App\Support\Translatable::pick($cp->name) ?? '')),
+                'material' => $cp->material,
+                'quantity' => round($pieces, 4),
+                'unit_weight' => $cp->unitWeight(),
+                'weight' => round($weight, 4),
+                'rate' => (float) $p['rate'],
+                'metal_value' => $metal,
+                'making' => $making,
+                'wastage' => $wastage,
+                'gst' => (float) $p['gst'],
+                'line_total' => (float) $p['line_total'],
+            ];
+            $out['lines'][] = $line;
+            foreach (['metal_value', 'making', 'wastage', 'gst'] as $k) {
+                $out[$k] = round($out[$k] + $line[$k], 2);
+            }
+            $out['total'] = round($out['total'] + $line['line_total'], 2);
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param array $data keys: branch_id, created_by?, notes?, bill_no?, attachments?,
+     *                    lines[[catalog_product_id, quantity (pieces) | weight (grams)]]
+     */
     public function submit(array $data): StockReturn
     {
         $return = DB::transaction(function () use ($data) {
             $branchId = (int) $data['branch_id'];
             abort_if($branchId === self::HQ_BRANCH_ID, 422, 'Head Office cannot return stock to itself.');
 
-            $rate = LiveRate::latestFor('IN') ?? LiveRate::query()->latest('id')->first();
-            $pricer = app(BranchOrderService::class);
+            $quote = $this->quote($data['lines'] ?? []);
+            abort_if($quote['lines'] === [], 422, 'Add at least one item to return.');
 
-            $lines = collect($data['lines'] ?? [])
-                ->filter(fn ($l) => ! empty($l['catalog_product_id']) && (float) ($l['weight'] ?? 0) > 0)
-                ->values();
-            abort_if($lines->isEmpty(), 422, 'Add at least one item to return.');
+            // the same item on two lines counts together against what the branch holds
+            $asked = [];
+            foreach ($quote['lines'] as $l) {
+                $asked[$l['cp']->id] = ($asked[$l['cp']->id] ?? 0) + $l['quantity'];
+            }
+            foreach ($asked as $cpId => $pieces) {
+                $this->assertBranchHolds($branchId, CatalogProduct::find($cpId), (float) $pieces);
+            }
 
             $return = StockReturn::create([
                 'return_no' => $this->nextReturnNo(),
                 'branch_id' => $branchId,
                 'status' => 'pending',
+                'bill_no' => filled($data['bill_no'] ?? null) ? trim((string) $data['bill_no']) : null,
+                'attachments' => array_values((array) ($data['attachments'] ?? [])) ?: null,
                 'notes' => $data['notes'] ?? null,
                 'created_by' => $data['created_by'] ?? auth()->id(),
             ]);
 
-            $total = 0.0;
-            foreach ($lines as $l) {
-                $cp = CatalogProduct::findOrFail($l['catalog_product_id']);
-                $weight = (float) $l['weight'];
-                $this->assertBranchHolds($branchId, $cp, $weight);
-                $p = $pricer->priceLine($cp, $weight, $rate);
+            foreach ($quote['lines'] as $l) {
                 StockReturnLine::create([
                     'stock_return_id' => $return->id,
-                    'catalog_product_id' => $cp->id,
-                    'material' => $cp->material,
-                    'weight' => $weight,
-                    'rate' => $p['rate'],
-                    'line_total' => $p['line_total'],
+                    'catalog_product_id' => $l['cp']->id,
+                    'material' => $l['material'],
+                    'quantity' => $l['quantity'],
+                    'weight' => $l['weight'],
+                    'rate' => $l['rate'],
+                    'metal_value' => $l['metal_value'],
+                    'making' => $l['making'],
+                    'wastage' => $l['wastage'],
+                    'gst' => $l['gst'],
+                    'line_total' => $l['line_total'],
                 ]);
-                $total += $p['line_total'];
             }
-            $return->update(['total_amount' => round($total, 2)]);
+            $return->update(['total_amount' => $quote['total']]);
 
             return $return->fresh('lines');
         });
@@ -88,18 +152,20 @@ class StockReturnService
             $today = Carbon::now()->toDateString();
             foreach ($return->lines as $line) {
                 // Return lines are priced in grams; stock (and its guard) move in PIECES.
-                $pieces = \App\Models\CatalogProduct::find($line->catalog_product_id)
-                    ?->piecesFromWeight((float) $line->weight) ?? (float) $line->weight;
+                $pieces = (float) $line->quantity > 0
+                    ? (float) $line->quantity
+                    : (\App\Models\CatalogProduct::find($line->catalog_product_id)
+                        ?->piecesFromWeight((float) $line->weight) ?? (float) $line->weight);
 
                 $stock = Stock::where('branch_id', $return->branch_id)
-                    ->where('catalog_product_id', $line->catalog_product_id)
+                    ->where('catalog_product_id', $line->catalog_product_id)->where('order_line_id', 0)
                     ->lockForUpdate()->first();
                 abort_if(! $stock || (float) $stock->quantity + 1e-6 < $pieces, 422,
                     'Branch no longer holds enough stock for line #' . $line->id . '.');
 
                 $stock->decrement('quantity', $pieces);
                 $hq = Stock::firstOrCreate(
-                    ['branch_id' => self::HQ_BRANCH_ID, 'catalog_product_id' => $line->catalog_product_id],
+                    ['branch_id' => self::HQ_BRANCH_ID, 'catalog_product_id' => $line->catalog_product_id, 'order_line_id' => 0],
                     ['quantity' => 0],
                 );
                 $hq->increment('quantity', $pieces);
@@ -159,14 +225,16 @@ class StockReturnService
         );
     }
 
-    protected function assertBranchHolds(int $branchId, CatalogProduct $cp, float $weight): void
+    /** Stock is counted in PIECES — the return is checked in pieces too (it was checked in grams). */
+    protected function assertBranchHolds(int $branchId, CatalogProduct $cp, float $pieces): void
     {
         $held = (float) Stock::where('branch_id', $branchId)
-            ->where('catalog_product_id', $cp->id)->value('quantity');
+            ->where('catalog_product_id', $cp->id)->where('order_line_id', 0)->value('quantity');
         $label = trim($cp->code . ' ' . (\App\Support\Translatable::pick($cp->name) ?? ''));
-        abort_if($held + 1e-6 < $weight, 422, sprintf(
+        $fmt = fn (float $n) => rtrim(rtrim(number_format($n, 3), '0'), '.');
+        abort_if($held + 1e-6 < $pieces, 422, sprintf(
             'Your branch holds only %s of %s — cannot return %s. Order stock from HQ first if needed.',
-            number_format($held, 3), $label, number_format($weight, 3)
+            $fmt($held), $label, $fmt($pieces)
         ));
     }
 

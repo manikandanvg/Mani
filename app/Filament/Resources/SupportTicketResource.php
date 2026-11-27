@@ -115,7 +115,8 @@ class SupportTicketResource extends BaseResource
         return $form->schema([
             Forms\Components\Section::make()->columns(2)->schema([
                 Forms\Components\TextInput::make('subject')->required()->maxLength(200)->columnSpanFull(),
-                Forms\Components\Select::make('category')->options(SupportTicket::CATEGORIES)->native(false),
+                Forms\Components\Select::make('category')->options(SupportTicket::CATEGORIES)->native(false)->required()
+                    ->helperText('To cancel a bill or a contract choose "Cancel Invoice/Contract"; for a settlement choose "Settlements" — and give the bill / contract number in the subject.'),
                 Forms\Components\Select::make('priority')->options(SupportTicket::PRIORITIES)
                     ->default('medium')->required()->native(false),
                 Forms\Components\Select::make('member_id')->label('Distributor')
@@ -192,8 +193,11 @@ class SupportTicketResource extends BaseResource
                 Tables\Columns\TextColumn::make('branch.name')->label('Branch')->toggleable()
                     ->visible(fn () => ! static::forDealer())
                     ->description(fn (SupportTicket $r) => trim(($r->branch?->city ?? '') . ' ' . ($r->branch?->phone ?? '')) ?: null),
-                Tables\Columns\TextColumn::make('category')
+                Tables\Columns\TextColumn::make('category')->badge()
                     ->formatStateUsing(fn (?string $state) => SupportTicket::CATEGORIES[$state] ?? $state)
+                    ->color(fn (?string $state) => match ($state) {
+                        SupportTicket::CATEGORY_CANCEL => 'danger', 'settlement' => 'warning', default => 'gray',
+                    })
                     ->toggleable(),
                 Tables\Columns\TextColumn::make('priority')->badge()
                     ->color(fn (?string $state) => match ($state) {
@@ -212,6 +216,8 @@ class SupportTicketResource extends BaseResource
                 Tables\Columns\TextColumn::make('created_at')->dateTime('d M Y H:i')->sortable(),
             ])
             ->filters([
+                // Board 2026-11-27: Head Office filters the tickets by what they ask for.
+                Tables\Filters\SelectFilter::make('category')->options(SupportTicket::CATEGORIES)->multiple(),
                 Tables\Filters\SelectFilter::make('priority')->options(SupportTicket::PRIORITIES),
                 Tables\Filters\SelectFilter::make('assigned_to')->label('Assigned to')->relationship('assignee', 'name'),
             ])

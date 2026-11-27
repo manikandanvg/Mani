@@ -42,13 +42,6 @@ class RankedDistributors extends Page implements HasTable
 
     protected static string $view = 'filament.pages.ranked-distributors';
 
-    public function getSubheading(): ?string
-    {
-        $ranked = Member::query()->whereHas('rank', fn ($q) => $q->where('depth', '>=', 1))->count();
-
-        return number_format($ranked) . ' distributors hold a TBP stage. "Achieved on" is the date the current stage was reached; blank means no register entry yet (run ranks:calibrate once).';
-    }
-
     /** Latest promotion INTO the member's current rank — one row per member, as a sub-select. */
     protected function achievedAtSql(): string
     {

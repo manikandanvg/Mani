@@ -32,7 +32,13 @@ class SupportTicket extends Model
         'commission' => 'Commission / Wallet',
         'app' => 'Mobile App',
         'device' => 'L-BOX Device',
+        // Board 2026-11-27: the two requests Head Office must act on itself.
+        self::CATEGORY_CANCEL => 'Cancel Invoice/Contract',
+        'settlement' => 'Settlements',
     ];
+
+    /** A request to cancel an invoice / contract — listed on its own on the admin To-do. */
+    public const CATEGORY_CANCEL = 'cancel';
 
     public const PRIORITIES = [
         'low' => 'Low',

@@ -20,17 +20,47 @@ class BranchBankForm
                 ->placeholder('e.g. State Bank of India'),
             Forms\Components\TextInput::make('bank_holder')->label('Account holder')->maxLength(150)->required($required)
                 ->helperText('The name exactly as on the bank account.'),
+            // Complaint 2026-11-27 ("update not working for some branches"): the number was checked
+            // exactly as typed, so one pasted with spaces / dashes (1234 5678 9012) or an IFSC with
+            // a space around it was refused. Both are now cleaned as soon as the field is left and
+            // the check itself ignores spaces and dashes.
             Forms\Components\TextInput::make('bank_acno')->label('Account number')->maxLength(40)->required($required)
-                ->regex('/^[0-9]{6,20}$/')
-                ->validationMessages(['regex' => 'The account number is 6 to 20 digits, without spaces.'])
-                ->dehydrateStateUsing(fn (?string $state) => filled($state) ? preg_replace('/\s+/', '', $state) : null),
-            Forms\Components\TextInput::make('bank_ifsc')->label('IFSC code')->maxLength(11)->required($required)
+                ->live(onBlur: true)
+                ->afterStateUpdated(fn ($state, Forms\Set $set) => $set('bank_acno', static::cleanAccount($state)))
+                ->rule(fn () => function (string $attribute, $value, \Closure $fail) {
+                    if (filled($value) && ! preg_match('/^[0-9A-Za-z]{6,20}$/', (string) static::cleanAccount($value))) {
+                        $fail('The account number is 6 to 20 digits (spaces and dashes are ignored).');
+                    }
+                })
+                ->dehydrateStateUsing(fn ($state) => static::cleanAccount($state)),
+            Forms\Components\TextInput::make('bank_ifsc')->label('IFSC code')->maxLength(20)->required($required)
                 ->placeholder('SBIN0001234')
                 ->extraInputAttributes(['style' => 'text-transform:uppercase'])
-                ->regex('/^[A-Za-z]{4}0[A-Za-z0-9]{6}$/')
-                ->validationMessages(['regex' => 'An IFSC code is 11 characters: 4 letters, a zero, then 6 letters or digits (e.g. SBIN0001234).'])
-                ->dehydrateStateUsing(fn (?string $state) => filled($state) ? strtoupper(trim($state)) : null),
+                ->live(onBlur: true)
+                ->afterStateUpdated(fn ($state, Forms\Set $set) => $set('bank_ifsc', static::cleanIfsc($state)))
+                ->rule(fn () => function (string $attribute, $value, \Closure $fail) {
+                    if (filled($value) && ! preg_match('/^[A-Z]{4}0[A-Z0-9]{6}$/', (string) static::cleanIfsc($value))) {
+                        $fail('An IFSC code is 11 characters: 4 letters, a zero (not the letter O), then 6 letters or digits (e.g. SBIN0001234).');
+                    }
+                })
+                ->dehydrateStateUsing(fn ($state) => static::cleanIfsc($state)),
         ];
+    }
+
+    /** "1234 5678-9012" → "123456789012"; blank → null. */
+    public static function cleanAccount($value): ?string
+    {
+        $v = preg_replace('/[\s\-.]+/u', '', (string) $value);
+
+        return $v === '' ? null : $v;
+    }
+
+    /** " sbin 0001234 " → "SBIN0001234"; blank → null. */
+    public static function cleanIfsc($value): ?string
+    {
+        $v = strtoupper(preg_replace('/[\s\-]+/u', '', (string) $value));
+
+        return $v === '' ? null : $v;
     }
 
     /** The change log as a table: when, who, from → to. */

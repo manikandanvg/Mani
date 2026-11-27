@@ -32,9 +32,28 @@ class Expense extends Model
         'insurance' => ['Insurance', 'insurance'],
         'repairs' => ['Repairs & Maintenance', 'repairs'],
         'professional_fees' => ['Professional / Audit / Legal Fees', 'professional_fees'],
+        'meeting' => ['Meetings (weekly / monthly)', 'marketing'],
+        'food' => ['Food & Beverages (office)', 'other_expenses'],
         'travel' => ['Travel & Conveyance', 'other_expenses'],
+        'fuel' => ['Fuel', 'other_expenses'],
         'office' => ['Office / Printing / Stationery', 'other_expenses'],
         'other' => ['Other Expenses', 'other_expenses'],
+    ];
+
+    public const KIND_EXPENSE = 'expense';
+    public const KIND_ASSET = 'asset';
+
+    /**
+     * Capital assets (board 2026-11-27): bought once, shown on the Balance Sheet under Fixed
+     * Assets and never in the Profit & Loss. category key => [label, Balance Sheet line].
+     */
+    public const ASSET_CATEGORIES = [
+        'asset_computers' => ['Computers & Peripherals', 'computers'],
+        'asset_interior' => ['Interior', 'showroom_interior'],
+        'asset_machinery' => ['Factory Machinery & Tools', 'plant_machinery'],
+        'asset_vehicles' => ['Vehicles', 'vehicles'],
+        'asset_furniture' => ['Furniture & Fixtures', 'furniture'],
+        'asset_land_building' => ['Land & Building', 'land_building'],
     ];
 
     public const MODES = ['cash' => 'Cash', 'bank' => 'Bank transfer', 'upi' => 'UPI', 'cheque' => 'Cheque', 'card' => 'Card'];
@@ -53,6 +72,12 @@ class Expense extends Model
         static::creating(function (Expense $e) {
             $e->expense_no = $e->expense_no ?: static::nextNo();
         });
+        // the kind follows the category, whatever screen or command saved the row
+        static::saving(function (Expense $e) {
+            if (\Illuminate\Support\Facades\Schema::hasColumn('expenses', 'kind')) {
+                $e->kind = $e->isAsset() ? self::KIND_ASSET : self::KIND_EXPENSE;
+            }
+        });
     }
 
     public static function nextNo(): string
@@ -68,18 +93,51 @@ class Expense extends Model
     /** @return array<string, string> key => label */
     public static function categoryOptions(): array
     {
-        return array_map(fn (array $c) => $c[0], self::CATEGORIES);
+        return array_map(fn (array $c) => $c[0], self::CATEGORIES + self::ASSET_CATEGORIES);
+    }
+
+    /** The same list in two groups, for the category picker. */
+    public static function groupedCategoryOptions(): array
+    {
+        return [
+            'Expenses (Profit & Loss)' => array_map(fn (array $c) => $c[0], self::CATEGORIES),
+            'Capital assets (Balance Sheet)' => array_map(fn (array $c) => $c[0], self::ASSET_CATEGORIES),
+        ];
+    }
+
+    public function isAsset(): bool
+    {
+        return isset(self::ASSET_CATEGORIES[$this->category]);
+    }
+
+    /**
+     * Approved capital assets bought up to a date, by Balance Sheet line.
+     *
+     * @return array<string, float>
+     */
+    public static function assetTotals(\Illuminate\Support\Carbon $asOf): array
+    {
+        $out = [];
+        $rows = static::where('status', self::APPROVED)->whereIn('category', array_keys(self::ASSET_CATEGORIES))
+            ->whereDate('expense_date', '<=', $asOf->toDateString())
+            ->selectRaw('category, SUM(amount) AS total')->groupBy('category')->pluck('total', 'category');
+        foreach ($rows as $category => $total) {
+            $line = self::ASSET_CATEGORIES[$category][1];
+            $out[$line] = ($out[$line] ?? 0) + (float) $total;
+        }
+
+        return $out;
     }
 
     public static function categoryLabel(?string $key): string
     {
-        return self::CATEGORIES[$key][0] ?? ucfirst(str_replace('_', ' ', (string) $key));
+        return self::CATEGORIES[$key][0] ?? self::ASSET_CATEGORIES[$key][0] ?? ucfirst(str_replace('_', ' ', (string) $key));
     }
 
     /** The auditor workbook's Profit & Loss line this expense falls under. */
     public function ledgerLine(): string
     {
-        return self::CATEGORIES[$this->category][1] ?? 'other_expenses';
+        return self::CATEGORIES[$this->category][1] ?? self::ASSET_CATEGORIES[$this->category][1] ?? 'other_expenses';
     }
 
     public function member() { return $this->belongsTo(Member::class); }

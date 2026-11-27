@@ -64,6 +64,15 @@ class SalesReturnResource extends BaseResource
         return $u && (static::isHq() || (int) $u->branch_id === (int) $r->branch_id);
     }
 
+    /** Bill number ↔ distributor ↔ branch, for the form's live hint and its validation. */
+    protected static function billCheck(Get $get): array
+    {
+        $u = auth()->user();
+        $branchId = $u?->isDistributor() ? $u->branch_id : ($get('branch_id') ?: $u?->branch_id);
+
+        return app(SalesReturnService::class)->checkBill($get('bill_no'), $get('member_id') ? (int) $get('member_id') : null, $branchId ? (int) $branchId : null);
+    }
+
     public static function form(Form $form): Form
     {
         return $form->schema([
@@ -81,7 +90,27 @@ class SalesReturnResource extends BaseResource
                             ->orWhere('phone', 'like', "%{$search}%"))
                         ->limit(50)->get()
                         ->mapWithKeys(fn ($m) => [$m->id => "{$m->name} ({$m->member_code})"])->all())
-                    ->getOptionLabelUsing(fn ($value) => ($m = Member::find($value)) ? "{$m->name} ({$m->member_code})" : null),
+                    ->getOptionLabelUsing(fn ($value) => ($m = Member::find($value)) ? "{$m->name} ({$m->member_code})" : null)
+                    ->required()->live(),
+                // Board 2026-11-27: the bill the distributor bought on — checked against the
+                // distributor and the branch before the return can be saved.
+                Forms\Components\TextInput::make('bill_no')->label('Branch bill number')
+                    ->required()->maxLength(60)->live(onBlur: true)
+                    ->helperText(function (Get $get) {
+                        if (blank($get('bill_no'))) {
+                            return 'The bill this distributor bought on at this branch.';
+                        }
+                        $c = static::billCheck($get);
+
+                        return new HtmlString('<span style="color:' . ($c['ok'] ? '#15803d' : '#dc2626') . ';font-weight:600">'
+                            . ($c['ok'] ? '✓ ' : '✕ ') . e($c['message']) . '</span>');
+                    })
+                    ->rule(fn (Get $get) => function (string $attribute, $value, \Closure $fail) use ($get) {
+                        $c = static::billCheck($get);
+                        if (! $c['ok']) {
+                            $fail($c['message']);
+                        }
+                    }),
                 Forms\Components\Select::make('catalog_product_id')->label('Coin / item returned')
                     ->options(fn () => CustomizeOrderPricing::coinProductOptions())
                     ->default(fn () => CustomizeOrderPricing::coinProduct()?->id)
@@ -116,6 +145,7 @@ class SalesReturnResource extends BaseResource
                     ->formatStateUsing(fn ($state, SalesReturn $r) => $r->member ? "{$r->member->name} ({$r->member->member_code})" : '—')
                     ->searchable(query: fn ($query, string $search) => $query->whereHas('member',
                         fn ($q) => $q->where('name', 'like', "%{$search}%")->orWhere('member_code', 'like', "%{$search}%"))),
+                Tables\Columns\TextColumn::make('bill_no')->label('Bill no')->searchable()->copyable()->placeholder('—'),
                 Tables\Columns\TextColumn::make('catalogProduct.code')->label('Item')->placeholder('—'),
                 Tables\Columns\TextColumn::make('quantity')->label('Coins')->numeric(decimalPlaces: 0)->alignCenter(),
                 Tables\Columns\TextColumn::make('grams')->label('Grams')->numeric(decimalPlaces: 3),
@@ -181,6 +211,9 @@ class SalesReturnResource extends BaseResource
                 Infolists\Components\TextEntry::make('branch.name')->label('Branch'),
                 Infolists\Components\TextEntry::make('member.name')->label('Customer')
                     ->formatStateUsing(fn ($state, SalesReturn $r) => $r->member ? "{$r->member->name} ({$r->member->member_code})" : '—'),
+                Infolists\Components\TextEntry::make('bill_no')->label('Branch bill number')->copyable()->placeholder('— not given —')
+                    ->helperText(fn (SalesReturn $r) => $r->bill_no
+                        ? app(SalesReturnService::class)->checkBill($r->bill_no, $r->member_id, $r->branch_id)['message'] : null),
                 Infolists\Components\TextEntry::make('orderRequest.request_no')->label('Applied to order')->placeholder('—'),
                 Infolists\Components\TextEntry::make('catalogProduct.code')->label('Item')->placeholder('—'),
                 Infolists\Components\TextEntry::make('quantity')->label('Coins')->numeric(decimalPlaces: 0),

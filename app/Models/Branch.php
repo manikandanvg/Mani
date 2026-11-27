@@ -499,6 +499,12 @@ class Branch extends Model
             if (app()->runningUnitTests()) {
                 return;
             }
+            // Only when the ADDRESS was touched (complaint 2026-11-27): nearly every branch has no
+            // map pin, so every save — a bank-details save included — waited on the map service
+            // (up to 20 s) and could time out before the page answered.
+            if (! $branch->wasRecentlyCreated && ! $branch->wasChanged(['address', 'city', 'pincode'])) {
+                return;
+            }
             $missing = blank($branch->latitude) || (float) $branch->latitude == 0.0;
             $hasAddress = filled($branch->address) || filled($branch->city);
             if (! $missing || ! $hasAddress) {
